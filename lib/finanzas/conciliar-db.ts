@@ -1,3 +1,5 @@
+import { CONCILIAR_GREEN_PRECHECK_STAMP } from './conciliar-precheck-visual'
+import { guardConciliarGreenRowTx } from './conciliar-precheck'
 import { Prisma, type PrismaClient } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { readBankInvoicingPopulation, type B7CalculatedPopulation, type B7ReadDatabase } from '@/lib/finanzas/bank-invoicing-db'
@@ -337,7 +339,7 @@ function bankDocumentaryText(movement: Readonly<{ concepto?: unknown; referencia
     .slice(0, 1_000)
 }
 
-export async function unresolvedMovements(tx: Tx, movementId?: string) {
+export async function unresolvedMovements(tx: Tx, movementId?: string, lock = true) {
   return tx.$queryRaw<Array<any>>(Prisma.sql`
     SELECT m.id,m.fecha_operacion::date::text AS fecha,m.concepto,m.referencia,m.info_adicional,m.tercero,
       b4_importe_bancario_centimos(m.importe) AS "importeCentimos",c.id AS "cuentaId",c.banco,c.alias AS cuenta,
@@ -370,7 +372,7 @@ export async function unresolvedMovements(tx: Tx, movementId?: string) {
     WHERE COALESCE(e.estado::text,'SIN_DOCUMENTO')='SIN_DOCUMENTO' AND b4_importe_bancario_centimos(m.importe) IS NOT NULL
       ${movementId ? Prisma.sql`AND m.id=${movementId}` : Prisma.empty}
     ORDER BY m.fecha_operacion DESC,m.id ASC LIMIT ${movementId ? 1 : MAX_REBUILD_ROWS}
-      ${movementId ? Prisma.sql`FOR UPDATE OF m` : Prisma.empty}
+      ${movementId && lock ? Prisma.sql`FOR UPDATE OF m` : Prisma.empty}
   `)
 }
 async function liveCollectionProposals(tx: Tx, proposalId?: string) {
@@ -827,7 +829,7 @@ export function collectionReservationResolution(input: Readonly<{
 /** Same live classification before every human collection confirmation. This
  * validates current generation, own-reference namespace, dates and client proof;
  * the persisted green badge is not evidence and this helper writes nothing. */
-export async function assertLiveCollectionProjectionForActionTx(base: Prisma.TransactionClient, expected: Readonly<{id:string; importeCentimos:number; source:ConciliarProjectionSource}>) {
+export async function assertLiveCollectionProjectionForActionTx(base: Prisma.TransactionClient, expected: Readonly<{id:string; importeCentimos:number; source:ConciliarProjectionSource}>, lock = true) {
   const source = expected.source, tx = asTx(base)
   if (!source.propuestaId || !source.movimientoId || !source.proposalFingerprint) fail(409,'DECISION_CAMBIADA','La propuesta de cobro está incompleta. Actualiza la lista.')
   // A source row only proves which proposal was displayed. Before B4 we must
@@ -847,7 +849,7 @@ export async function assertLiveCollectionProjectionForActionTx(base: Prisma.Tra
   const invoiceDates = new Map(bank.invoices.map(item=>[item.invoiceId,item.fechaISO]))
   // Relee y bloquea exactamente FI→ISP→remesa antes de permitir B4. La UI no
   // aporta este dato y una foto verde anterior no sirve como autorización.
-  const remittanceMapPreflights = await lockArea3RemittanceMapPreflightsTx(base,proposals)
+  const remittanceMapPreflights = lock ? await lockArea3RemittanceMapPreflightsTx(base,proposals) : await readArea3RemittanceMapPreflightsTx(base,proposals)
   const remittanceMapPreflight = remittanceMapPreflights.get(source.propuestaId)
   if (isRemittanceMethod(proposal.metodo) && remittanceMapPreflight?.complete !== true) {
     fail(422, 'MAPA_FI_ISP_REMESA_INEXACTO', `${area3RemittanceMapAmberReason(remittanceMapPreflight)} La confirmación requiere el enlace FI–ISP explícito y vigente.`)
@@ -1208,6 +1210,13 @@ function projectionInsertValue(item: RebuildRow) {
 }
 
 export async function insertProjectionBatches(tx: Tx, rows: readonly RebuildRow[]): Promise<void> {
+  const contextRows = new Map(rows.map(item=>[item.row.id,{...item.row,source:item.source,sourceFingerprint:item.sourceFingerprint}]))
+  const checked: RebuildRow[] = []
+  for(const item of rows) {
+    const row=await guardConciliarGreenRowTx(tx,{...item.row,source:item.source,sourceFingerprint:item.sourceFingerprint},{rows:contextRows})
+    checked.push({...item,row,source:row.color==='VERDE' ? {...item.source,g7Precheck:CONCILIAR_GREEN_PRECHECK_STAMP} : item.source})
+  }
+  rows=checked
   for (let start = 0; start < rows.length; start += PROJECTION_INSERT_BATCH) {
     const batch = rows.slice(start, start + PROJECTION_INSERT_BATCH).map(projectionInsertValue)
     await tx.$executeRaw(Prisma.sql`

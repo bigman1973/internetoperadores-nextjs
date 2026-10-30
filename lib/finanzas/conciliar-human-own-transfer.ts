@@ -1,3 +1,4 @@
+import { withoutConciliarPrecheckStamp } from './conciliar-precheck-visual'
 import { Prisma } from '@prisma/client'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { confirmarB4Tx, deshacerB4Tx } from '@/lib/finanzas/reconciliation-db'
@@ -78,7 +79,7 @@ export type ConciliarHumanOwnTransferAction = Readonly<{
 
 /** Sólo una fuente completa y sellada puede habilitar la acción humana. */
 export function parseConciliarHumanOwnTransferSource(value: unknown): ConciliarHumanOwnTransferSource | null {
-  const source = record(value)
+  const source = record(withoutConciliarPrecheckStamp(value))
   const keys = ['kind', 'movimientoId', 'movimientoParId', 'pairId', 'proofSource', 'versionB4']
   if (!source || Object.keys(source).length !== keys.length || keys.some(key => !Object.prototype.hasOwnProperty.call(source, key))) return null
   const movimientoId = stringId(source.movimientoId)
@@ -260,7 +261,7 @@ export async function lockConciliarHumanOwnTransferUndoTx(
  * reconstruye proyecciones; está limitada y se usa sólo dentro del preflight de
  * la transacción serializable de la acción humana.
  */
-async function readLiveManualOwnTransferPopulationTx(tx: Tx): Promise<readonly ConciliarManualOwnTransferLiveMovement[]> {
+export async function readLiveManualOwnTransferPopulationTx(tx: Tx): Promise<readonly ConciliarManualOwnTransferLiveMovement[]> {
   const rows = await tx.$queryRaw<Array<ConciliarManualOwnTransferLiveMovement>>(Prisma.sql`
     SELECT m.id,m.cuenta_id AS "cuentaId",m.fecha_operacion::date::text AS fecha,
       b4_importe_bancario_centimos(m.importe) AS "importeCentimos",COALESCE(e.version,1) AS "versionB4",
@@ -321,7 +322,7 @@ async function lockSelectedManualOwnTransferMovementsTx(tx: Tx, movementIds: rea
   return rows
 }
 
-async function readAttestedIbanKeysTx(tx: Tx, accountIds: ReadonlySet<string>): Promise<ReadonlySet<string>> {
+export async function readAttestedIbanKeysTx(tx: Tx, accountIds: ReadonlySet<string>): Promise<ReadonlySet<string>> {
   const ids = [...accountIds].sort()
   if (!ids.length) return new Set()
   const rows = await tx.$queryRaw<Array<{ iban: string | null }>>(Prisma.sql`
@@ -495,6 +496,18 @@ export async function undoConciliarHumanOwnTransferTx(
  * traspasos internos. Todo fallo de la segunda pata revierte la primera porque
  * este motor sólo opera dentro de la transacción SERIALIZABLE del llamador.
  */
+/** Read-only universal entry. `source` naming another movement is never proof
+ * that this pair remains pending, unique and reciprocal. */
+export async function preflightConciliarHumanOwnTransferTx(tx:Tx,source:unknown,expectedSelectedAmount:number) {
+  const population=await readLiveManualOwnTransferPopulationTx(tx)
+  if(!population.length) fail('TRANSFERENCIA_CAMBIADA','No se puede comprobar la pareja propia. Actualiza la lista.')
+  const proof=await readManualOwnAccountProofTx(tx,population.map(row=>String(row.cuentaId)))
+  const ibanKeys=await readAttestedIbanKeysTx(tx,proof.proof.accountIds)
+  const preflight=preflightConciliarHumanOwnTransfer({source,movements:population,attestedOwnAccountIds:proof.proof.accountIds,registeredAttestedOwnIbanKeys:ibanKeys})
+  if(!preflight || preflight.selected.importeCentimos!==expectedSelectedAmount || preflight.primary.importeCentimos!==-preflight.paired.importeCentimos) fail('TRANSFERENCIA_CAMBIADA','La pareja propia cambió, ya está confirmada o tiene otra posible pareja. Actualiza la lista.')
+  return { ...preflight, ibanKeys }
+}
+
 export async function confirmConciliarHumanOwnTransferTx(
   base: Prisma.TransactionClient,
   actorId: number,
@@ -526,6 +539,9 @@ export async function confirmConciliarHumanOwnTransferTx(
     fail('TRANSFERENCIA_CAMBIADA', 'Uno de los movimientos ya tiene una decisión o cambió. Actualiza la lista.')
   }
 
+  // La acción ya ejecutó el precheck universal G7 antes de cualquier DML.
+  // Dentro del lote conservamos una única foto de población/titularidad, pero
+  // todavía bloqueamos y comparamos las dos patas vivas antes de llamar a B4.
   const snapshot = manualOwnTransferSnapshot.getStore()
   const population = snapshot?.tx === tx ? snapshot.population : await readLiveManualOwnTransferPopulationTx(tx)
   if (!population.length) fail('TRANSFERENCIA_CAMBIADA', 'No se puede volver a comprobar la pareja de traspaso. Actualiza la lista.')

@@ -572,8 +572,8 @@ async function initialSelectedTx(tx: Tx, generationId: string, selected: readonl
     return item
   })
 }
-async function selectedUnderLockTx(tx: Tx, generationId: string, selected: readonly EasyCollectionSelection[]) {
-  const rows = await proposalsTx(tx, generationId, selected.map(item => item.propuestaId), true)
+async function selectedUnderLockTx(tx: Tx, generationId: string, selected: readonly EasyCollectionSelection[], lock = true) {
+  const rows = await proposalsTx(tx, generationId, selected.map(item => item.propuestaId), lock)
   const byId = new Map(rows.map(item => [item.propuestaId, item]))
   const result = selected.map(choice => {
     const item = byId.get(choice.propuestaId)
@@ -582,7 +582,7 @@ async function selectedUnderLockTx(tx: Tx, generationId: string, selected: reado
   })
   // proposalFromRow validates bank amount and its own immutable fingerprint. State is
   // re-read once more from the locked projection to reject a B4 confirmation race.
-  const sourceRows = await tx.$queryRaw<ProposalRow[]>(proposalPopulationSql(generationId, selected.map(item => item.propuestaId), true))
+  const sourceRows = await tx.$queryRaw<ProposalRow[]>(proposalPopulationSql(generationId, selected.map(item => item.propuestaId), lock))
   const stateById = new Map(sourceRows.map(row => [String(row.propuestaId), row]))
   for (const item of result) {
     const row = stateById.get(item.propuestaId)
@@ -591,6 +591,13 @@ async function selectedUnderLockTx(tx: Tx, generationId: string, selected: reado
   }
   assertEasyCollectionBlockSelection(result.map(selectionFacts))
   return result
+}
+/** Same checked selection used by final apply; no preview token, ACK or locks. */
+export async function preflightEasyCollectionSelectionTx(base: Prisma.TransactionClient, selection: EasyCollectionSelection) {
+  const tx = base as Tx
+  const generation = await currentGenerationTx(tx,false)
+  if(!generation) fail(409,'SELECCION_CAMBIADA','No hay propuestas actuales. Actualiza la lista.')
+  return (await selectedUnderLockTx(tx,generation.id,[selection],false))[0]!
 }
 function b4Lines(item: CheckedProposal, wrappers: Map<number, string>) {
   return item.lineas.map(line => line.tipo === 'DOCUMENTO'

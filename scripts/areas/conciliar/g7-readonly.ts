@@ -24,6 +24,8 @@ import { dirname, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { evaluateConciliarStagingApiSnapshot, type ApiProjectionComparableRow, type ApiProjectionCoverage } from './api-core'
 import { readCurrentArea3RemittanceMapPreflightsTx } from '../../../lib/finanzas/area3-remittance-map-db'
+import { precheckConciliarRowTx } from '../../../lib/finanzas/conciliar-precheck'
+import { newConciliarG7Coverage, concludeConciliarG7Coverage, assertConciliarG7GreenDecision } from '../../../lib/finanzas/conciliar-g7-coverage'
 import { preflightArea3ReviewConfirmTx } from '../../../lib/finanzas/area3-review-confirm-db'
 import { projectionRow, readArea3ReviewPreflightCandidatesTx } from '../../../lib/finanzas/conciliar-projection-read'
 import { requireB4ActorAccess } from '../../../lib/finanzas/reconciliation-auth'
@@ -174,12 +176,12 @@ function apiCoverage(rows: readonly StoredProjection[], updatedAt: string): ApiP
   }))
   return { allRowsRead: true, updatedAt, rows: comparable }
 }
-async function pagedProjectionRows(tx: any): Promise<Readonly<{ rows: readonly StoredProjection[]; updatedAt: string }>> {
+async function pagedProjectionRows(tx: Prisma.TransactionClient): Promise<Readonly<{ rows: readonly StoredProjection[]; updatedAt: string }>> {
   const counted = await tx.$queryRaw<Array<{ total: bigint | number | string }>>(Prisma.sql`SELECT COUNT(*)::bigint AS total FROM conciliar_proyecciones LIMIT 1`)
   const total = Number(counted[0]?.total)
   if (counted.length !== 1 || !Number.isSafeInteger(total) || total < 1 || total > 25_000) fail('AREA3_G7_PROJECTION_COVERAGE_INVALID')
-  const state = await tx.$queryRaw<Array<{ rebuiltAt: Date | string | null }>>(Prisma.sql`
-    SELECT rebuilt_at AS "rebuiltAt" FROM estado_proyeccion_conciliar WHERE singleton=true LIMIT 1
+  const state = await tx.$queryRaw<Array<{ rebuiltAt: Date | string | null; dirtyAt: Date | string | null }>>(Prisma.sql`
+    SELECT rebuilt_at AS "rebuiltAt",dirty_at AS "dirtyAt" FROM estado_proyeccion_conciliar WHERE singleton=true LIMIT 1
   `)
   const rebuiltAt = state[0]?.rebuiltAt instanceof Date ? state[0].rebuiltAt.toISOString() : typeof state[0]?.rebuiltAt === 'string' ? new Date(state[0].rebuiltAt).toISOString() : ''
   if (state.length !== 1 || !Number.isFinite(new Date(rebuiltAt).getTime())) fail('AREA3_G7_PROJECTION_COVERAGE_INVALID')
@@ -190,7 +192,7 @@ async function pagedProjectionRows(tx: any): Promise<Readonly<{ rows: readonly S
     for (const raw of page) {
       const tab = raw.tab
       if (!['COBROS', 'EMITIDAS', 'PAGOS', 'RECIBIDAS'].includes(String(tab))) fail('AREA3_G7_PROJECTION_COVERAGE_INVALID')
-      result.push({ ...projectionRow(raw), tab: tab as ApiProjectionComparableRow['tab'] })
+      result.push({ ...projectionRow(raw,!!state[0]?.dirtyAt), tab: tab as ApiProjectionComparableRow['tab'] })
     }
   }
   if (result.length !== total || new Set(result.map(row => row.id)).size !== total) fail('AREA3_G7_PROJECTION_COVERAGE_INVALID')
@@ -226,6 +228,28 @@ async function main(): Promise<void> {
       if (actorRows.length !== 1 || typeof actorRows[0]?.nombre !== 'string' || !actorRows[0].nombre.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('es-ES').includes('lorena')) fail('AREA3_G7_LORENA_IDENTITY_REJECTED')
       const projection = await pagedProjectionRows(tx)
       const rows = projection.rows
+      const classes = newConciliarG7Coverage()
+      const contextRows = new Map(rows.map(row=>[row.id,row]))
+      for (const row of rows) {
+        const api = capturedRows.get(row.id)
+        if (!api || api.decisionHash !== row.decisionHash || api.color !== row.color || api.seleccionable !== row.seleccionable || api.motivo !== row.motivo) fail('AREA3_G7_API_DECISION_MISMATCH')
+        const count = classes[row.source.kind]
+        if(!count) fail('AREA3_G7_SOURCE_KIND_UNCOVERED')
+        count.population += 1
+        if(row.color==='VERDE') {
+          count.green += 1
+          const decision=await precheckConciliarRowTx(tx,row,{rows:contextRows})
+          assertConciliarG7GreenDecision(decision)
+          count.checked += 1
+        } else if(row.color==='AMBAR') {
+          if(row.seleccionable || row.accionHumana || !row.motivo.trim()) fail('AREA3_G7_AMBER_CONTRACT_INVALID')
+          count.amber += 1
+        } else count.red += 1
+      }
+      // G7 evidence is only complete when all nine closed source families are
+      // represented. A missing family is reported in `classesWithoutPopulation`
+      // and leaves the runner amber; it can never be mistaken for a green pass.
+      const universal=concludeConciliarG7Coverage(classes)
       const gate = evaluateConciliarStagingApiSnapshot(captured, apiCoverage(rows, projection.updatedAt))
       if (!gate.ok) fail('AREA3_G7_API_PAGINATION_MISMATCH')
       const maps = await readCurrentArea3RemittanceMapPreflightsTx(tx)
@@ -237,8 +261,9 @@ async function main(): Promise<void> {
         const api = capturedRows.get(row.id)
         if (!api || api.decisionHash !== row.decisionHash || api.color !== row.color || api.seleccionable !== row.seleccionable || api.motivo !== row.motivo) fail('AREA3_G7_REMITTANCE_API_DECISION_MISMATCH')
         if (preflight.complete) {
-          if (row.color !== 'VERDE' || row.seleccionable !== true) fail('AREA3_G7_REMITTANCE_GREEN_MISMATCH')
-          remittanceGreen += 1
+          if (row.color === 'VERDE' && row.seleccionable === true) remittanceGreen += 1
+          else if(row.color === 'AMBAR' && row.seleccionable === false && row.motivo.trim()) remittanceAmber += 1
+          else fail('AREA3_G7_REMITTANCE_GREEN_MISMATCH')
         } else {
           const expected = `Falta enlazar ${preflight.missingReceiptCount} recibos.`
           if (row.color !== 'AMBAR' || row.seleccionable !== false || row.motivo !== expected) fail('AREA3_G7_REMITTANCE_AMBAR_MISMATCH')
@@ -253,7 +278,7 @@ async function main(): Promise<void> {
         const decision = await preflightArea3ReviewConfirmTx(tx, row as any)
         const preview = capturedPreviews.get(row.id)
         if (!preview || preview.decisionHash !== row.decisionHash || preview.color !== decision.decision.color
-          || preview.code !== (decision.decision.ok ? 'UNEXPECTED_OK' : decision.decision.codigo)
+          || preview.code !== (decision.decision.ok !== false ? 'UNEXPECTED_OK' : decision.decision.codigo)
           || preview.sourceHash !== decision.decision.sourceHash || preview.canConfirm !== decision.puedeAbrirRevisionHumana
           || preview.canConfirm && preview.acknowledgement?.sourceHash !== decision.decision.sourceHash) fail('AREA3_G7_REVIEW_RENDER_MISMATCH')
         if (decision.puedeAbrirRevisionHumana) {
@@ -273,13 +298,14 @@ async function main(): Promise<void> {
           }
         } else reviewAmber += 1
       }
-      return { gate, remittanceGreen, remittanceAmber, reviewAck, reviewAmber, draft }
+      return { gate, universal, remittanceGreen, remittanceAmber, reviewAck, reviewAmber, draft }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 10_000, timeout: 120_000 })
-    const precheckPassed = output.remittanceAmber === 0 && output.reviewAmber === 0
+    const precheckPassed = output.universal.ok
     if (precheckPassed && output.draft) writeFileSync(cli.draftFile, `${JSON.stringify(output.draft, null, 2)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
-    const gateCode = output.remittanceAmber > 0 ? 'G7_AMBAR_FALTA_ENLAZAR' : output.reviewAmber > 0 ? 'G7_AMBAR_REVISION_BLOQUEADA' : 'G7_PRECHECK_VALIDADO'
+    const gateCode = precheckPassed ? 'G7_PRECHECK_VALIDADO'
+      : output.universal.allClassesPopulated ? 'G7_PRECHECK_NO_VALIDADO' : 'G7_FAMILIAS_AUSENTES'
     console.log(JSON.stringify(resultLine(precheckPassed, gateCode, {
-      actorWriteAccess: true, apiGate: output.gate.coverage, remittance: { green: output.remittanceGreen, amber: output.remittanceAmber },
+      actorWriteAccess: true, universal: output.universal, familiasAusentes: output.universal.classesWithoutPopulation, correctAmberIsSuccess: true, apiGate: output.gate.coverage, remittance: { green: output.remittanceGreen, amber: output.remittanceAmber },
       review: { acknowledgementRequired: output.reviewAck, amberBlocked: output.reviewAmber }, draftPrepared: precheckPassed && output.draft !== null,
     })))
     if (!precheckPassed) process.exitCode = 1

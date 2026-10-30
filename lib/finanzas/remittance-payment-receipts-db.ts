@@ -151,7 +151,7 @@ export function remittanceSealForProposal(row: Readonly<{ propuestaId: string; m
   } catch { return null }
 }
 
-async function lockProposal(tx: Tx, propuestaId: string): Promise<ReceiptProposalSource & { estadoB4: string }> {
+async function lockProposal(tx: Tx, propuestaId: string, lock = true): Promise<ReceiptProposalSource & { estadoB4: string }> {
   const rows = await tx.$queryRaw<ProposalRow[]>(Prisma.sql`
     SELECT p.id::text AS "propuestaId",p.generacion_id::text AS "generacionId",p.movimiento_id AS "movimientoId",p.metodo,p.nivel,
       p.estado_propuesto AS "estadoPropuesto",p.importe_movimiento_centimos AS "importeMovimientoCentimos",p.fingerprint,p.lineas,p.composicion,
@@ -160,13 +160,13 @@ async function lockProposal(tx: Tx, propuestaId: string): Promise<ReceiptProposa
     JOIN movimientos_bancarios m ON m.id=p.movimiento_id
     LEFT JOIN estado_justificacion_movimientos e ON e.movimiento_id=m.id
     WHERE p.id=CAST(${propuestaId} AS uuid)
-    LIMIT 2 FOR UPDATE OF p
+    LIMIT 2 ${lock ? Prisma.sql`FOR UPDATE OF p` : Prisma.empty}
   `)
   if (rows.length !== 1) receiptFail(409, 'SELECCION_CAMBIADA', 'La propuesta de remesa ya no existe; actualiza la lista.')
   return proposalFrom(rows[0])
 }
-async function currentGeneration(tx: Tx): Promise<string> {
-  const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT id::text AS id FROM modo_facil_generaciones_cobro ORDER BY creada_at DESC,id DESC LIMIT 1 FOR UPDATE`)
+async function currentGeneration(tx: Tx, lock = true): Promise<string> {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT id::text AS id FROM modo_facil_generaciones_cobro ORDER BY creada_at DESC,id DESC LIMIT 1 ${lock ? Prisma.sql`FOR UPDATE` : Prisma.empty}`)
   if (!rows[0]?.id) receiptFail(409, 'SELECCION_CAMBIADA', 'No hay una generación vigente de propuestas.')
   return rows[0].id
 }
@@ -181,7 +181,7 @@ async function advisoryRemesaBeforeComposition(tx: Tx, remesaId: number): Promis
   const key = `B6:remesa:${remesaId}`
   await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(CAST(${key} AS text),0))::text AS locked`)
 }
-async function lockRemesaProposals(tx: Tx, generationId: string, remesaId: number): Promise<ReceiptProposalSource[]> {
+async function lockRemesaProposals(tx: Tx, generationId: string, remesaId: number, lock = true): Promise<ReceiptProposalSource[]> {
   const rows = await tx.$queryRaw<ProposalRow[]>(Prisma.sql`
     SELECT p.id::text AS "propuestaId",p.generacion_id::text AS "generacionId",p.movimiento_id AS "movimientoId",p.metodo,p.nivel,
       p.estado_propuesto AS "estadoPropuesto",p.importe_movimiento_centimos AS "importeMovimientoCentimos",p.fingerprint,p.lineas,p.composicion,
@@ -195,14 +195,14 @@ async function lockRemesaProposals(tx: Tx, generationId: string, remesaId: numbe
         WHERE line->>'tipo'='DOCUMENTO' AND line->>'tipoDocumento'='REMESA' AND line->>'sourceId'=${String(remesaId)}
       )
     ORDER BY p.id ASC
-    LIMIT ${B6_MAX_FACTURAS_POR_ASOCIACION + 1} FOR UPDATE OF p
+    LIMIT ${B6_MAX_FACTURAS_POR_ASOCIACION + 1} ${lock ? Prisma.sql`FOR UPDATE OF p` : Prisma.empty}
   `)
   if (rows.length > B6_MAX_FACTURAS_POR_ASOCIACION) receiptFail(422, 'REMESA_COMPOSICION_COMPLETA_INEXACTA', 'La remesa supera el límite de composición verificable.')
   const sources = rows.map(proposalFrom)
   if (!sources.length || sources.some(row => isRemesaLine(row) !== remesaId)) receiptFail(422, 'REMESA_COMPOSICION_COMPLETA_INEXACTA', 'La generación contiene una referencia de remesa ambigua o incompleta.')
   return sources
 }
-async function lockInvoiceSources(tx: Tx, invoiceIds: readonly string[]): Promise<ReceiptInvoiceSource[]> {
+async function lockInvoiceSources(tx: Tx, invoiceIds: readonly string[], lock = true): Promise<ReceiptInvoiceSource[]> {
   if (!invoiceIds.length) receiptFail(422, 'COMPOSICION_REMESA_INEXACTA', 'La composición no contiene facturas emitidas.')
   const rows = await tx.$queryRaw<InvoiceRow[]>(Prisma.sql`
     SELECT fi.id AS "facturaEmitidaId",fi.factura_isp_id AS "facturaISPId",f.isp_gestion_id AS "facturaISPGestionId",fi.total::text AS "facturaEmitidaTotalTexto",fi.fecha::date::text AS "facturaEmitidaFecha",
@@ -211,7 +211,7 @@ async function lockInvoiceSources(tx: Tx, invoiceIds: readonly string[]): Promis
     JOIN facturas f ON f.id=fi.factura_isp_id
     WHERE fi.id IN (${Prisma.join(invoiceIds.map(id => Prisma.sql`${id}`))})
     ORDER BY fi.id ASC
-    LIMIT ${invoiceIds.length + 1} FOR UPDATE OF fi,f
+    LIMIT ${invoiceIds.length + 1} ${lock ? Prisma.sql`FOR UPDATE OF fi,f` : Prisma.empty}
   `)
   if (rows.length !== invoiceIds.length) receiptFail(422, 'MAPA_FI_ISP_REMESA_INEXACTO', 'Falta una FacturaEmitida de la composición.')
   return rows.map(row => ({
@@ -224,9 +224,9 @@ async function lockInvoiceSources(tx: Tx, invoiceIds: readonly string[]): Promis
     remesaId: row.remesaId === null ? null : int(row.remesaId, 'MAPA_FI_ISP_REMESA_INEXACTO', 'La remesa ISP'),
   }))
 }
-async function lockedRemesa(tx: Tx, remesaId: number): Promise<{ id: number; ispGestionId: number; fecha: string; totalCentimos: number }> {
+async function lockedRemesa(tx: Tx, remesaId: number, lock = true): Promise<{ id: number; ispGestionId: number; fecha: string; totalCentimos: number }> {
   const rows = await tx.$queryRaw<RemesaRow[]>(Prisma.sql`
-    SELECT id,isp_gestion_id AS "ispGestionId",fecha::date::text AS fecha,total_importe::text AS "totalTexto" FROM remesas WHERE id=${remesaId} LIMIT 2 FOR UPDATE
+    SELECT id,isp_gestion_id AS "ispGestionId",fecha::date::text AS fecha,total_importe::text AS "totalTexto" FROM remesas WHERE id=${remesaId} LIMIT 2 ${lock ? Prisma.sql`FOR UPDATE` : Prisma.empty}
   `)
   const row = rows[0]
   if (!row) receiptFail(404, 'REMESA_NO_ENCONTRADA', 'La remesa ya no existe.')
@@ -239,7 +239,7 @@ async function priorReceipt(tx: Tx, actorId: number, idempotencyKey: string): Pr
   `)
   return rows[0] ?? null
 }
-async function capacityAndDirectOverlap(tx: Tx, plan: Awaited<ReturnType<typeof buildRemittanceReceiptPlan>>): Promise<void> {
+async function capacityAndDirectOverlap(tx: Tx, plan: Awaited<ReturnType<typeof buildRemittanceReceiptPlan>>, lock = true): Promise<void> {
   const ids = plan.allocations.map(line => line.facturaEmitidaId)
   const receiptRows = await tx.$queryRaw<Array<{ facturaEmitidaId: string; importeCentimos: number | bigint | string }>>(Prisma.sql`
     SELECT l.factura_emitida_id AS "facturaEmitidaId",l.importe_centimos AS "importeCentimos"
@@ -250,7 +250,7 @@ async function capacityAndDirectOverlap(tx: Tx, plan: Awaited<ReturnType<typeof 
     JOIN operaciones_justificacion_b4 o ON o.id=v.operacion_creacion_id AND o.estado='APLICADA'::"EstadoOperacionB4" AND o.revertida_at IS NULL
     JOIN estado_justificacion_movimientos e ON e.movimiento_id=v.movimiento_id AND e.estado='JUSTIFICADO'::"EstadoJustificacionMovimiento"
     WHERE l.factura_emitida_id IN (${Prisma.join(ids.map(id => Prisma.sql`${id}`))})
-    ORDER BY l.factura_emitida_id,l.recibo_id,l.ordinal LIMIT ${RECEIPT_CAPACITY_SCAN_LIMIT} FOR UPDATE OF l
+    ORDER BY l.factura_emitida_id,l.recibo_id,l.ordinal LIMIT ${RECEIPT_CAPACITY_SCAN_LIMIT} ${lock ? Prisma.sql`FOR UPDATE OF l` : Prisma.empty}
   `)
   if (receiptRows.length >= RECEIPT_CAPACITY_SCAN_LIMIT) receiptFail(409, 'RECIBO_REMESA_B7_CAPACIDAD_NO_ACOTADA', 'La capacidad histórica de la factura requiere revisión; no se calcula de forma parcial.')
   const direct = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
@@ -264,7 +264,7 @@ async function capacityAndDirectOverlap(tx: Tx, plan: Awaited<ReturnType<typeof 
         JOIN estado_justificacion_movimientos e ON e.movimiento_id=v.movimiento_id AND e.estado='JUSTIFICADO'::"EstadoJustificacionMovimiento"
         WHERE d.factura_emitida_id=fi.id AND d.tipo='FACTURA_EMITIDA'::"TipoDocumentoConciliable" AND d.activo=true
       )
-    ORDER BY fi.id ASC LIMIT ${ids.length + 1} FOR UPDATE OF fi
+    ORDER BY fi.id ASC LIMIT ${ids.length + 1} ${lock ? Prisma.sql`FOR UPDATE OF fi` : Prisma.empty}
   `)
   if (direct.length) receiptFail(409, 'SOLAPAMIENTO_FI_DIRECTA_Y_REMESA', 'Una factura del abono ya conserva un B4 directo vigente.')
   const used = new Map<string, bigint>()
@@ -320,6 +320,29 @@ async function b4Link(tx: Tx, movementId: string, operationId: string, remesaId:
   return row
 }
 
+/** Same B7 plan/capacity authority as apply, without B6 association, wrapper,
+ * receipt or lock. An incomplete explicit membership can never pass. */
+export async function preflightRemittanceReceiptTx(base: Prisma.TransactionClient, selection: EasyCollectionSelection, expectedCompositionHash:string) {
+  const tx = base as Tx
+  const generationId = await currentGeneration(tx,false)
+  const proposal = await lockProposal(tx,selection.propuestaId,false)
+  selectionMatch(proposal,selection)
+  if (proposal.generacionId!==generationId || proposal.estadoB4!=='SIN_DOCUMENTO' || proposal.nivel!=='EXACTA') receiptFail(409,'SELECCION_CAMBIADA','El cobro ya no está pendiente en la lista actual.')
+  const remesaId = isRemesaLine(proposal)
+  if (!remesaId) receiptFail(422,'REMESA_LINEAS_B4_INEXACTAS','La remesa no conserva su composición completa.')
+  const remesa = await lockedRemesa(tx,remesaId,false)
+  const siblings = await lockRemesaProposals(tx,generationId,remesaId,false)
+  const ids = [...new Set(siblings.flatMap(row=>parseReceiptComposition(row.composicion).entries.map(item=>item.facturaEmitidaId)))].sort()
+  const sources = await lockInvoiceSources(tx,ids,false)
+  const selected = parseReceiptComposition(proposal.composicion)
+  if(selected.hash!==expectedCompositionHash) receiptFail(409,'COMPOSICION_CAMBIADA','La composición de la remesa cambió. Actualiza la lista.')
+  const selectedIds = new Set(selected.entries.map(item=>item.facturaEmitidaId))
+  const plan = buildRemittanceReceiptPlan(proposal,sources.filter(source=>selectedIds.has(source.facturaEmitidaId)))
+  await capacityAndDirectOverlap(tx,plan,false)
+  if(sources.some(source=>source.remesaId!==remesaId) || sources.reduce((sum,source)=>sum+source.facturaISPTotalCentimos!,0)!==remesa.totalCentimos) receiptFail(422,'REMESA_COMPOSICION_COMPLETA_INEXACTA','Las facturas de la remesa no cierran su total documental.')
+  return {plan,proposal,remesa}
+}
+
 export async function confirmarReciboRemesaCompuestaTx(base: Prisma.TransactionClient, actorId: number, input: ConfirmarReciboRemesaCompuestaInput) {
   const tx = base as Tx
   await requireB6TransactionActorTx(tx, actorId)
@@ -356,6 +379,7 @@ export async function confirmarReciboRemesaCompuestaTx(base: Prisma.TransactionC
     }
   }
   const invoiceSources = await lockInvoiceSources(tx, [...allCompositionIds].sort())
+  await preflightRemittanceReceiptTx(tx,input.selection,expectedCompositionHash)
   const selectedComposition = parseReceiptComposition(proposal.composicion)
   const selectedCompositionIds = new Set(selectedComposition.entries.map(item => item.facturaEmitidaId))
   if (selectedComposition.hash !== expectedCompositionHash) receiptFail(409, 'COMPOSICION_CAMBIADA', 'La composición exacta cambió desde la previsualización; actualiza la lista.')

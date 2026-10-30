@@ -18,7 +18,7 @@ test('runner G7 exige captura privada completa, actor Lorena y una foto DB READ 
   for (const token of ['--snapshot-file', '--actor-file', '--env-file', '--draft-file', "actorAlias !== 'LORENA'", "requireB4ActorAccess(actorInput.actorId, 'escritura', tx)", 'AREA3_G7_LORENA_IDENTITY_REJECTED', 'SET TRANSACTION READ ONLY', 'RepeatableRead']) {
     assert.match(runner, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
-  assert.match(runner, /current_database\(\).*current_user.*transaction_read_only.*transaction_isolation/s)
+  assert.match(runner, /current_database\([\s\S]*current_user[\s\S]*transaction_read_only[\s\S]*transaction_isolation/)
   assert.match(runner, /'io_staging_finanzas'/)
   assert.match(runner, /'io_staging_finanzas'/)
 })
@@ -43,6 +43,14 @@ test('preflight de revisión no bloquea fila ni ejecuta confirmación; el borrad
   assert.match(runner, /executable: false/)
   assert.match(runner, /advertenciaReconocida: false/)
   assert.doesNotMatch(runner, /runConciliarAction|confirmArea3ReviewTx|fetch\(/)
+})
+
+test('runner G7 no aprueba una cobertura vacía ni familias ausentes', () => {
+  const coverage = readFileSync('lib/finanzas/conciliar-g7-coverage.ts', 'utf8')
+  assert.match(coverage, /const allClassesPopulated=classesWithoutPopulation\.length===0/)
+  assert.match(coverage, /ok:totalGreen>0 && noGreensSkipped && allClassesPopulated/)
+  assert.match(runner, /G7_FAMILIAS_AUSENTES/)
+  assert.match(runner, /familiasAusentes: output\.universal\.classesWithoutPopulation/)
 })
 
 test('SQL preparado para staging sólo audita dentro de READ ONLY y termina en rollback', () => {

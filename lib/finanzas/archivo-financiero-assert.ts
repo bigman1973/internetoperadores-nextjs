@@ -52,10 +52,11 @@ function fuenteControlada(doc: any): boolean {
 export async function assertArchivosFinancierosParaNuevoCargoJustificadoTx(
   tx: Tx,
   input: Readonly<{ movimientoId: string; estado: 'SIN_DOCUMENTO' | 'JUSTIFICADO' | 'NO_REQUIERE'; documentoConciliableIds: readonly string[] }>,
+  options: Readonly<{lock?: boolean; virtualDocuments?: readonly (Record<string, any> & {id:string})[]}> = {lock:true},
 ): Promise<void> {
   if (input.estado !== 'JUSTIFICADO' || input.documentoConciliableIds.length === 0) return;
   const movementRows = await tx.$queryRaw<Array<{ importe: string }>>(Prisma.sql`
-    SELECT importe::text AS importe FROM movimientos_bancarios WHERE id = ${input.movimientoId} FOR UPDATE
+    SELECT importe::text AS importe FROM movimientos_bancarios WHERE id = ${input.movimientoId} ${options.lock ? Prisma.sql`FOR UPDATE` : Prisma.empty}
   `);
   if (movementRows.length !== 1) fail(404, 'MOVIMIENTO_NO_ENCONTRADO', 'El movimiento bancario no existe.');
   if (!/^-\d+(?:\.\d{1,2})?$/.test(movementRows[0].importe)) return; // sólo cargos nuevos
@@ -68,7 +69,7 @@ export async function assertArchivosFinancierosParaNuevoCargoJustificadoTx(
   const hasB5Support = b5.some((row: any) => ID.test(String(row.driveId ?? '')) && ID.test(String(row.oneDriveItemId ?? '')));
 
   const ids = [...new Set(input.documentoConciliableIds)];
-  const docs = await tx.documentoConciliable.findMany({
+  const persisted = await tx.documentoConciliable.findMany({
     where: { id: { in: ids } },
     include: {
       nomina: { include: { documentos: { select: { driveItemId: true, tipo: true } } } },
@@ -79,6 +80,15 @@ export async function assertArchivosFinancierosParaNuevoCargoJustificadoTx(
     },
     take: MAX,
   });
+  const docs: Array<Record<string, any> & {id:string}> = [...persisted];
+  for (const virtual of options.virtualDocuments ?? []) {
+    if (docs.some(doc => doc.id === virtual.id)) continue;
+    const material: Record<string, any> & {id:string} = {...virtual};
+    if (virtual.tipo === 'FACTURA_RECIBIDA') material.facturaRecibida = await tx.facturaRecibida.findUnique({where:{id:virtual.facturaRecibidaId},select:{oneDriveDriveId:true,oneDriveItemId:true,archivoOneDrive:true}});
+    if (virtual.tipo === 'NOMINA') material.nomina = await tx.nomina.findUnique({where:{id:virtual.nominaId},include:{documentos:{select:{driveItemId:true,tipo:true}}}});
+    if (virtual.tipo === 'TICKET') material.gasto = await tx.gasto.findUnique({where:{id:virtual.gastoId},select:{oneDriveItemId:true}});
+    docs.push(material);
+  }
   if (docs.length !== ids.length || docs.length === MAX) fail(409, 'DOCUMENTOS_INCOMPLETOS', 'No se pudo verificar todos los documentos de la confirmación.');
   const missing = docs.filter((doc: any) => !fuenteControlada(doc) && !hasB5Support).map((doc: any) => doc.id);
   if (missing.length) {

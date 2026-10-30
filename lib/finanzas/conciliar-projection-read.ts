@@ -1,3 +1,4 @@
+import { conciliarVisualGreenIsCurrent, CONCILIAR_GREEN_PENDING_REASON, CONCILIAR_GREEN_PRECHECK_STAMP } from './conciliar-precheck-visual'
 import { Prisma, type PrismaClient } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import {
@@ -118,12 +119,13 @@ function storedSource(value: unknown): ConciliarProjectionSource | null {
     ...(scalar('transferFingerprint') ? { transferFingerprint: scalar('transferFingerprint') } : {}),
     ...(typeof row.pairId === 'string' && /^[a-f0-9]{64}$/.test(row.pairId) ? { pairId: row.pairId } : {}),
     ...(row.proofSource === 'DECLARACION_MANUAL_AUDITADA_V1' ? { proofSource: 'DECLARACION_MANUAL_AUDITADA_V1' as const } : {}),
+    ...(row.g7Precheck === CONCILIAR_GREEN_PRECHECK_STAMP ? {g7Precheck:CONCILIAR_GREEN_PRECHECK_STAMP} : {}),
     ...(integer('versionB4') !== undefined ? { versionB4: integer('versionB4') } : {}),
     ...(remesaIds ? { remesaIds } : {}),
   } as ConciliarProjectionSource
 }
 
-export function projectionRow(row: ProjectionSqlRow): ConciliarRow & { source: ConciliarProjectionSource; sourceFingerprint: string; updatedAt: string } {
+export function projectionRow(row: ProjectionSqlRow, dirty = false): ConciliarRow & { source: ConciliarProjectionSource; sourceFingerprint: string; updatedAt: string } {
   const tab = String(row.tab)
   const color = String(row.color)
   if (!(CONCILIAR_TABS as readonly string[]).includes(tab) || !(CONCILIAR_COLORS as readonly string[]).includes(color)) {
@@ -132,13 +134,16 @@ export function projectionRow(row: ProjectionSqlRow): ConciliarRow & { source: C
   const source = storedSource(row.source)
   const sourceFingerprint = typeof row.source_fingerprint === 'string' && /^[a-f0-9]{64}$/.test(row.source_fingerprint) ? row.source_fingerprint : null
   if (!source || !sourceFingerprint) fail(409, 'PROYECCION_CORRUPTA', 'La proyección no conserva su identidad de fuente.')
-  const view: Omit<ConciliarRow, 'decisionHash'> = {
+  let view: Omit<ConciliarRow, 'decisionHash'> = {
     id: String(row.id), movimientoId: row.movimiento_id === null || row.movimiento_id === undefined ? null : String(row.movimiento_id),
     fecha: day(row.fecha, 'La fila'), concepto: textoSeguro(row.concepto), banco: nullableText(row.banco, 300), cuenta: nullableText(row.cuenta, 300),
     importeCentimos: cents(row.importe_centimos, 'La fila'), pendienteCentimos: cents(row.pendiente_centimos, 'La fila'), color: color as ConciliarColor,
     grupo: nullableText(row.grupo, 120), motivo: textoSeguro(row.motivo), documento: document(row.documento), propuesta: nullableText(row.propuesta, 500),
     seleccionable: row.seleccionable === true, diferenciaCentimos: cents(row.diferencia_centimos, 'La fila'),
     ...(links(row.links_movimiento) ? { linksMovimiento: links(row.links_movimiento) } : {}), detail: nullableText(row.detail, 1_600),
+  }
+  if(view.color==='VERDE' && !conciliarVisualGreenIsCurrent({source,dirty})) {
+    view={...view,color:'AMBAR',seleccionable:false,motivo:CONCILIAR_GREEN_PENDING_REASON}
   }
   const updated = new Date(String(row.updated_at))
   if (!Number.isFinite(updated.getTime())) fail(409, 'PROYECCION_CORRUPTA', 'La proyección no conserva una fecha de actualización válida.')
@@ -265,8 +270,21 @@ async function readProjectionBundle(input: ConciliarGetInput, shared: Prisma.Sql
     ? Prisma.sql`SELECT p.* FROM active_emitidas p WHERE ${emitidasScope}`
     : Prisma.sql`SELECT p.* FROM filtered p WHERE ${pageScope}`
   const result = await client.$queryRaw<ProjectionReadBundle[]>(Prisma.sql`
-    WITH filtered AS (
-      SELECT p.id,p.tab,p.fecha,p.cuenta_id,p.importe_centimos,p.pendiente_centimos,p.color,p.propuesta FROM conciliar_proyecciones p WHERE ${shared}
+    WITH projection_state AS (
+      SELECT dirty_at FROM estado_proyeccion_conciliar WHERE singleton=true LIMIT 1
+    ), effective_projection AS (
+      SELECT p.id,p.tab,p.movimiento_id,p.cuenta_id,p.fecha,p.concepto,p.banco,p.cuenta,
+        p.importe_centimos,p.pendiente_centimos,
+        CASE WHEN p.color='VERDE' AND (NOT (p.source->>'g7Precheck' IS NOT DISTINCT FROM ${CONCILIAR_GREEN_PRECHECK_STAMP}) OR EXISTS(SELECT 1 FROM projection_state WHERE dirty_at IS NOT NULL)) THEN 'AMBAR' ELSE p.color END AS color,
+        p.grupo,
+        CASE WHEN p.color='VERDE' AND (NOT (p.source->>'g7Precheck' IS NOT DISTINCT FROM ${CONCILIAR_GREEN_PRECHECK_STAMP}) OR EXISTS(SELECT 1 FROM projection_state WHERE dirty_at IS NOT NULL)) THEN ${CONCILIAR_GREEN_PENDING_REASON} ELSE p.motivo END AS motivo,
+        p.documento,p.propuesta,
+        CASE WHEN p.color='VERDE' AND (NOT (p.source->>'g7Precheck' IS NOT DISTINCT FROM ${CONCILIAR_GREEN_PRECHECK_STAMP}) OR EXISTS(SELECT 1 FROM projection_state WHERE dirty_at IS NOT NULL)) THEN false ELSE p.seleccionable END AS seleccionable,
+        p.diferencia_centimos,p.links_movimiento,p.detail,p.source,p.source_fingerprint,p.updated_at,p.read_metadata
+      FROM conciliar_proyecciones p
+    ), filtered AS (
+      SELECT p.id,p.tab,p.fecha,p.cuenta_id,p.importe_centimos,p.pendiente_centimos,p.color,p.propuesta
+      FROM effective_projection p WHERE ${shared}
     ), active AS (
       SELECT p.* FROM filtered p WHERE ${activeScope}
     ), active_emitidas AS (
@@ -281,7 +299,7 @@ async function readProjectionBundle(input: ConciliarGetInput, shared: Prisma.Sql
     ), scoped AS (
       ${scopedRows}
     ), page AS (
-      SELECT p.* FROM conciliar_proyecciones p JOIN scoped scope ON scope.id=p.id
+      SELECT p.* FROM effective_projection p JOIN scoped scope ON scope.id=p.id
       ORDER BY ${sort}
       LIMIT ${input.limit} OFFSET ${input.offset}
     ), document_requests AS (
@@ -368,7 +386,7 @@ async function projectionResponse(input: ConciliarGetInput, client: Pick<Tx, '$q
   // would be rejected by the browser contract and could look like an empty queue.
   const rebuiltAt = state?.rebuiltAt instanceof Date ? state.rebuiltAt : state?.rebuiltAt ? new Date(state.rebuiltAt) : null
   if (!rebuiltAt || !Number.isFinite(rebuiltAt.getTime())) fail(503, 'PROYECCION_NO_PREPARADA', 'La conciliación se está preparando por primera vez. Vuelve a intentarlo en unos instantes.')
-  const pageRows = rows.map(projectionRow)
+  const pageRows = rows.map(row=>projectionRow(row,!!state?.dirtyAt))
   const requests = parseParaPedirRequestMetadataRows(jsonRecords(bundle.documentRequests ?? [], 'La gestión documental'))
   return {
     tabs: CONCILIAR_TABS.map(tab => summaries.get(tab)!), rows: pageRows.map(({ source: _source, sourceFingerprint: _fingerprint, updatedAt: _updatedAt, ...row }) => {
@@ -394,14 +412,14 @@ export async function readConciliarProjectionTx(tx: Prisma.TransactionClient, in
 }
 
 export async function readConciliarProjection(input: ConciliarGetInput) {
-  return projectionResponse(input, db())
+  return projectionResponse(input,db())
 }
 
 export async function readConciliarRow(id: string) {
   if (typeof id !== 'string' || !/^[A-Za-z0-9:_-]{1,240}$/.test(id)) fail(400, 'FILA_INVALIDA', 'La fila solicitada no es válida.')
-  const rows = await db().$queryRaw<ProjectionSqlRow[]>(Prisma.sql`SELECT * FROM conciliar_proyecciones WHERE id=${id} LIMIT 1`)
+  const rows = await db().$queryRaw<ProjectionSqlRow[]>(Prisma.sql`SELECT p.*,(s.dirty_at IS NOT NULL) AS g7_dirty FROM conciliar_proyecciones p CROSS JOIN estado_proyeccion_conciliar s WHERE p.id=${id} AND s.singleton=true LIMIT 1`)
   if (!rows.length) fail(404, 'FILA_NO_ENCONTRADA', 'La fila ya no está disponible; actualiza la lista.')
-  const result = projectionRow(rows[0])
+  const result = projectionRow(rows[0],rows[0].g7_dirty===true)
   const { source: _source, sourceFingerprint: _fingerprint, updatedAt: _updatedAt, ...row } = result
   return row
 }
@@ -443,7 +461,7 @@ export async function readArea3ReviewPreflightCandidatesTx(tx: Prisma.Transactio
     if (page.length < 1 || page.length > pageSize) {
       fail(503, 'REVISION_AREA3_CANDIDATOS_INVALIDOS', 'No se pudo leer una lista completa de revisiones Área 3.')
     }
-    result.push(...page.map(projectionRow))
+    result.push(...page.map(row=>projectionRow(row)))
   }
   if (result.length !== total || new Set(result.map(row => row.id)).size !== result.length) {
     fail(503, 'REVISION_AREA3_CANDIDATOS_INVALIDOS', 'No se pudo leer una lista completa de revisiones Área 3.')

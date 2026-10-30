@@ -9,6 +9,9 @@ import {
   type Area3RemittanceMapEvidence,
   type Area3RemittanceMapProposal,
 } from '../lib/finanzas/area3-remittance-map-core'
+import { ConciliarDbError } from '../lib/finanzas/conciliar-errors'
+import { conciliarPrecheckFailureReason } from '../lib/finanzas/conciliar-precheck'
+import { RemittancePaymentReceiptError } from '../lib/finanzas/remittance-payment-receipts-core'
 
 const GENERATION = '11111111-1111-4111-8111-111111111111'
 const PROPOSAL_A = '22222222-2222-4222-8222-222222222222'
@@ -68,6 +71,17 @@ test('G7 convierte en ámbar la FI sin mapa y conserva el motivo agregado llano'
   const result = evaluateArea3RemittanceMapPreflight([proposal(PROPOSAL_A, [FI_A, FI_B])], [evidence(FI_A), evidence(FI_B, { facturaISPId: null })])
   assert.deepEqual({ complete: result.complete, missing: result.missingReceiptCount, expected: result.expectedReceiptCount }, { complete: false, missing: 1, expected: 2 })
   assert.equal(area3RemittanceMapAmberReason(result), 'Falta enlazar 1 recibos.')
+})
+
+test('G7 sólo conserva el contador cerrado del mapa y nunca filtra mensajes técnicos como motivo ámbar', () => {
+  const exactMap = new ConciliarDbError(422, 'MAPA_FI_ISP_REMESA_INEXACTO', 'Falta enlazar 2 recibos. La confirmación requiere el enlace FI–ISP explícito y vigente.')
+  assert.equal(conciliarPrecheckFailureReason(exactMap), 'Falta enlazar 2 recibos.')
+  const metadataMap = new RemittancePaymentReceiptError(422, 'MAPA_FI_ISP_REMESA_INEXACTO', 'detalle interno no autorizable', { missingReceiptCount: 3 })
+  assert.equal(conciliarPrecheckFailureReason(metadataMap), 'Falta enlazar 3 recibos.')
+  const unsafe = new ConciliarDbError(422, 'MAPA_FI_ISP_REMESA_INEXACTO', 'SELECT secreto FROM remesas')
+  assert.equal(conciliarPrecheckFailureReason(unsafe), 'La documentación o el movimiento ya no permiten confirmar esta fila. Actualiza la lista y revisa la propuesta.')
+  const invalidCount = new RemittancePaymentReceiptError(422, 'MAPA_FI_ISP_REMESA_INEXACTO', 'detalle interno no autorizable', { missingReceiptCount: 2.5 })
+  assert.equal(conciliarPrecheckFailureReason(invalidCount), 'La documentación o el movimiento ya no permiten confirmar esta fila. Actualiza la lista y revisa la propuesta.')
 })
 
 test('G7 no sustituye el mapa por coincidencias: remoto, número, cliente, auditoría o remesa incorrectos fallan cerrados', () => {

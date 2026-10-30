@@ -186,6 +186,8 @@ export type ConciliarProjectionSource = Readonly<{
   /** Sólo los dos motivos Ámbar revisables de Área 3; se recalcula al refrescar la proyección. */
   providerReviewReason?: 'SIN_REFERENCIA_DOCUMENTAL' | 'REFERENCIA_NUMERO_INCOMPLETO'
   versionB4?: number
+  /** Server-only stamp; only construction after universal precheck may set it. */
+  g7Precheck?: 'CONCILIAR_GREEN_PRECHECK_20261030_V1'
   remesaIds?: readonly number[]
 }>
 

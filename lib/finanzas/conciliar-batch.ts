@@ -129,7 +129,7 @@ export async function readConciliarConfirmBatchForActionTx(
     ORDER BY p.id ASC
     FOR UPDATE OF p
   `)
-  return planConciliarConfirmBatch(selections, rows.map(projectionRow), fail)
+  return planConciliarConfirmBatch(selections, rows.map(row=>projectionRow(row)), fail)
 }
 
 /** The selected movements are removed from the transient projection in one DML
