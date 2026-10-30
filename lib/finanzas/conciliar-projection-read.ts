@@ -557,7 +557,7 @@ export async function readConciliarHistory(actorId: number, limit: number, offse
           ORDER BY created_at DESC,id DESC LIMIT ${limit} OFFSET ${offset}
         )
         SELECT p.id::text,p.estado::text,p.resultado,p.created_at AS "createdAt",p.revertida_at AS "revertedAt",
-          COALESCE(json_agg(json_build_object('ordinal',l.ordinal,'resultado',l.resultado) ORDER BY l.ordinal ASC)
+          COALESCE(json_agg(jsonb_build_object('ordinal',l.ordinal,'resultado',l.resultado) ORDER BY l.ordinal ASC)
             FILTER (WHERE l.ordinal IS NOT NULL),'[]'::json) AS legs
         FROM page p
         LEFT JOIN patas_operacion_conciliar l ON l.operacion_conciliar_id=p.id
