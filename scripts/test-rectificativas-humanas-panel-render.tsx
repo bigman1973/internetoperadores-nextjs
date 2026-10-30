@@ -3,6 +3,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import {
   RectificativasHumanasPanelView,
+  rectificativasDecisionsBlocked,
   rectificativasPanelRenderState,
   type RectificativasHumanasPanelViewProps,
 } from '../components/finanzas/rectificativas/RectificativasHumanasPanel'
@@ -26,6 +27,10 @@ const props = (overrides: Partial<RectificativasHumanasPanelViewProps> = {}): Re
 const empty = props()
 assert.equal(rectificativasPanelRenderState(empty), 'vacio')
 assert.equal(renderToStaticMarkup(createElement(RectificativasHumanasPanelView, empty)), '', 'Un listado realmente vacío no añade superficie visual.')
+assert.equal(rectificativasDecisionsBlocked({ canWrite: true, sending: false, readError: null }), false)
+assert.equal(rectificativasDecisionsBlocked({ canWrite: true, sending: false, readError: 'Lectura obsoleta' }), true)
+assert.equal(rectificativasDecisionsBlocked({ canWrite: true, sending: true, readError: null }), true)
+assert.equal(rectificativasDecisionsBlocked({ canWrite: false, sending: false, readError: null }), true)
 
 const populated = props({
   data: {
@@ -53,6 +58,27 @@ assert.match(failedReadHtml, /role="alert"/)
 assert.match(failedReadHtml, /Fallo sintético de lectura/)
 assert.match(failedReadHtml, /Reintentar/)
 
+const staleVisibleAfterFailedRefresh = props({
+  data: populated.data,
+  readError: 'Fallo sintético al refrescar una lista previa',
+})
+const staleHtml = renderToStaticMarkup(createElement(RectificativasHumanasPanelView, staleVisibleAfterFailedRefresh))
+assert.equal(rectificativasPanelRenderState(staleVisibleAfterFailedRefresh), 'error')
+assert.match(staleHtml, /R-SINTETICA/, 'La lista previa queda visible para explicar el fallo.')
+assert.match(staleHtml, /<button(?=[^>]*disabled)[^>]*>Confirmar<\/button>/, 'No se puede confirmar desde una lectura obsoleta.')
+assert.match(staleHtml, /<button(?=[^>]*disabled)[^>]*>Rechazar<\/button>/, 'No se puede rechazar desde una lectura obsoleta.')
+assert.match(staleHtml, /<input(?=[^>]*aria-label="Motivo para rechazar")(?=[^>]*disabled)[^>]*\/>/, 'Tampoco se prepara una decisión sobre datos obsoletos.')
+
+const decided = props({
+  data: {
+    migrationReady: true,
+    links: [{ ...populated.data!.links[0]!, effectiveState: 'CONFIRMED' }],
+  },
+})
+const decidedHtml = renderToStaticMarkup(createElement(RectificativasHumanasPanelView, decided))
+assert.match(decidedHtml, /Volver a pendiente/, 'Una decisión vigente sólo expone el deshacer explícito.')
+assert.doesNotMatch(decidedHtml, />Confirmar<|>Rechazar</)
+
 const actionNoticeAfterLastRow = props({
   notice: 'Rectificativa confirmada.',
 })
@@ -60,4 +86,4 @@ const noticeHtml = renderToStaticMarkup(createElement(RectificativasHumanasPanel
 assert.equal(rectificativasPanelRenderState(actionNoticeAfterLastRow), 'aviso')
 assert.match(noticeHtml, /Rectificativa confirmada/, 'El aviso no desaparece cuando la última fila deja el listado vacío.')
 
-console.log('rectificativas panel SSR synthetic: empty hidden, populated visible, read error retryable, final-action notice retained')
+console.log('rectificativas panel SSR synthetic: empty hidden, populated visible, stale rows decision-locked after error, undo-only state, read retry and final-action notice retained')
