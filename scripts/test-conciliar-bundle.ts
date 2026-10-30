@@ -9,6 +9,7 @@ const page = read('app/admin/finanzas/conciliar/page.tsx');
 const documentPreview = read('components/finanzas/conciliar/ConciliarDocumentPreview.tsx');
 const remesaDialog = read('components/finanzas/conciliar/ConciliarRemesaConfirmationDialog.tsx');
 const recentHistory = read('components/finanzas/conciliar/ConciliarRecentHistory.tsx');
+const globalSearch = read('components/finanzas/conciliar/conciliar-global-search.ts');
 
 test('la primera página conserva datos y tabla SSR sin esperar hidratación', () => {
   assert.match(page, /const \[initialData, confirmingReadingQueue\] = await Promise\.all\(\[/);
@@ -16,8 +17,11 @@ test('la primera página conserva datos y tabla SSR sin esperar hidratación', (
   assert(page.indexOf('readConciliarProjection(input)') < page.indexOf('return <>'));
   assert.match(page, /initialData=\{initialData\}/);
   assert.match(workspace, /const initialParsed = useMemo\(\(\) => initialData === undefined \? null : parseConciliarReadResponse\(initialData\)/);
-  assert.match(workspace, /const \[data, setData\] = useState<ConciliarReadResponse \| null>\(initialParsed\)/);
-  assert.match(workspace, /if \(readSequence\.current === 0 && initialRequestKey\.current === buildQuery\(requestInput\)\.toString\(\)\) return/);
+  assert.match(workspace, /useConciliarGlobalSearch\(\{ initialTab, initialQuery, initialOffset: 0, initialData: initialParsed, read: readGlobal \}\)/);
+  assert.match(globalSearch, /initial\.current\.initialData != null/);
+  assert.match(globalSearch, /const \[acceptedData, setAcceptedData\] = useState<ConciliarReadResponse \| null>\(initial\.current\.initialData \?\? null\)/);
+  assert.match(globalSearch, /phase: hasInitialData \? 'idle' : 'loading'/);
+  assert.match(globalSearch, /const visibleData = state\.phase === 'idle' && dataGeneration === state\.generation \? acceptedData : null/);
   assert.match(workspace, /role="tabpanel"/);
   assert.match(workspace, /<SummaryTab /);
   assert.match(workspace, /<ConciliarRowView /);

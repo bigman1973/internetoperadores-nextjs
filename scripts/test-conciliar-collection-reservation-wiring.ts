@@ -91,8 +91,8 @@ test('delta conserva todas las propuestas hermanas y cierra sus dependencias com
   assert.deepEqual(forward, { invoiceIds: ['fi-a', 'fi-b'], movimientoIds: ['movement-a', 'movement-b'] })
   assert.deepEqual(reverse, forward)
   const canonical = canonicalDeltaProposalRows([
-    { propuestaId: 'p-review', movimientoId: 'm', fecha: '2026-01-01', composicion: [{ facturaEmitidaId: 'fi-b' }] },
-    { propuestaId: 'p-exact', movimientoId: 'm', fecha: '2026-01-01', composicion: [{ facturaEmitidaId: 'fi-a' }] },
+    { propuestaId: 'p-review', generacionId: 'generation-synthetic', movimientoId: 'm', fecha: '2026-01-01', metodo: 'REMESA_VENCIMIENTO', lineas: [], composicion: [{ facturaEmitidaId: 'fi-b' }] },
+    { propuestaId: 'p-exact', generacionId: 'generation-synthetic', movimientoId: 'm', fecha: '2026-01-01', metodo: 'REMESA_VENCIMIENTO', lineas: [], composicion: [{ facturaEmitidaId: 'fi-a' }] },
   ])
   assert.deepEqual(canonical?.map(row => row.propuestaId), ['p-exact', 'p-review'])
 })

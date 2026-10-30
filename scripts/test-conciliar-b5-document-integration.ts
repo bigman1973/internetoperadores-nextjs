@@ -8,6 +8,7 @@ const read = (file: string) => readFileSync(resolve(root, file), 'utf8')
 const contract = read('lib/finanzas/conciliar-contract.ts')
 const db = read('lib/finanzas/conciliar-db.ts')
 const actions = read('lib/finanzas/conciliar-actions.ts')
+const validators = read('lib/finanzas/conciliar-confirm-validators.ts')
 
 assert.match(contract, /'PAGO_TICKET_B5'/)
 for (const field of ['adjuntoB5Id?: string', 'gastoId?: string', 'documentoConciliableId?: string', 'versionB4?: number']) {
@@ -35,19 +36,27 @@ assert.doesNotMatch(reviewBlock!, /PAGO_SOPORTE_B5/)
 
 const b5Action = actions.match(/async function confirmB5Ticket[\s\S]*?\n}\n\nasync function confirmPayroll/)?.[0]
 assert(b5Action, 'la rama explícita de confirmación B5 debe existir')
-assert.match(b5Action!, /inspectEasyCandidatesTx\(tx, movimientoId\)/)
-assert.match(b5Action!, /liveB5TicketSourceTx\(tx, row\.source, movimientoId\)/)
-assert.match(b5Action!, /suggestion\.tipo === 'TICKET'/)
-assert.match(b5Action!, /suggestion\.sourceId === live\.gastoId/)
-assert.match(b5Action!, /suggestion\.documentoConciliableId === live\.documentoConciliableId/)
-assert.match(b5Action!, /suggestion\.exacta === true/)
-assert.match(b5Action!, /suggestion\.archivoDisponible === true/)
-assert.match(b5Action!, /suggestion\.importeCentimos === row\.importeCentimos/)
+assert.match(b5Action!, /preflightConciliarB5TicketTx\(tx,row,true\)/)
 assert.match(b5Action!, /confirmEasyReconciliationTx\(tx, actorId/)
 assert.match(b5Action!, /confirmacion: true/)
+assert(b5Action!.indexOf('preflightConciliarB5TicketTx(tx,row,true)') < b5Action!.indexOf('confirmEasyReconciliationTx(tx, actorId'), 'B5 debe completar el preflight vivo con locks antes del DML B4')
 assert.doesNotMatch(b5Action!, /createDocumentoB4Tx|\.gasto\.create|documentoConciliable\.create/)
 
-const liveSource = actions.match(/async function liveB5TicketSourceTx[\s\S]*?\n}\n\n\/\*\* PAGO_TICKET_B5/)?.[0]
+const b5Preflight = validators.match(/export async function preflightConciliarB5TicketTx[\s\S]*?\n}\n/)?.[0]
+assert(b5Preflight, 'el preflight B5 compartido debe abrirse antes de delegar B4')
+assert.match(b5Preflight!, /requireMovement\(row\.source\)/)
+assert.match(b5Preflight!, /preflightConciliarLifecycleTx\(tx, row\.source, lock\)/)
+assert.match(b5Preflight!, /inspectEasyCandidatesTx\(tx, movimientoId, lock\)/)
+assert.match(b5Preflight!, /liveB5TicketSourceTx\(tx, row\.source, movimientoId, lock\)/)
+assert.match(b5Preflight!, /suggestion\.tipo === 'TICKET'/)
+assert.match(b5Preflight!, /suggestion\.sourceId === live\.gastoId/)
+assert.match(b5Preflight!, /suggestion\.documentoConciliableId === live\.documentoConciliableId/)
+assert.match(b5Preflight!, /suggestion\.exacta === true/)
+assert.match(b5Preflight!, /suggestion\.archivoDisponible === true/)
+assert.match(b5Preflight!, /suggestion\.importeCentimos === row\.importeCentimos/)
+assert.doesNotMatch(b5Preflight!, /\$executeRaw|\.(?:create|update|delete)\(/)
+
+const liveSource = validators.match(/async function liveB5TicketSourceTx[\s\S]*?\n}\n\n/)?.[0]
 assert(liveSource, 'la revalidación viva de adjunto B5 debe existir')
 assert.match(liveSource!, /a\.movimiento_id=\$\{movimientoId}/)
 assert.match(liveSource!, /a\.estado='UPLOAD_COMPLETO'/)
@@ -66,4 +75,9 @@ assert.match(liveSource!, /bibliotecaFinancieraConfigurada/)
 assert.doesNotMatch(liveSource!, /authenticated_web_url|downloadUrl|https?:\/\//i)
 
 assert.match(actions, /case 'PAGO_TICKET_B5': return confirmB5Ticket/)
-console.log('OK: C3 B5 proyecta sólo UPLOAD_COMPLETO del mismo movimiento, conserva SOPORTE ámbar, y confirma únicamente tras revalidación B5/B4 viva sin crear fuentes alternativas.')
+const actionHost = actions.match(/export async function runConciliarAction[\s\S]*?\n}\n\nexport function conciliarActionErrorResponse/)?.[0]
+assert(actionHost, 'la puerta pública de acciones debe existir')
+assert.match(actionHost!, /await requireLiveWrite\(actorId, tx\)/)
+assert.match(actionHost!, /runConciliarTransactionCommand\(tx, actorId, command, actors/)
+assert(actionHost!.indexOf('await requireLiveWrite(actorId, tx)') < actionHost!.indexOf('runConciliarTransactionCommand(tx, actorId, command, actors'), 'la ACL viva debe comprobarse antes de cualquier DML de B5')
+console.log('OK: C3 B5 proyecta sólo UPLOAD_COMPLETO del mismo movimiento, conserva SOPORTE ámbar y delega tras preflight compartido con ACL, exactitud, fecha, capacidad, gasto, libro y clasificación TICKET vivos.')
