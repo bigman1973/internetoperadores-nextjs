@@ -7,7 +7,10 @@
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "test:areas": "node scripts/areas/run-batteries.mjs",
+    "test:areas:infra": "node --test scripts/areas/infrastructure.test.mjs",
+    "release:guard": "node scripts/areas/release-guard.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
