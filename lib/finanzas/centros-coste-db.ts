@@ -6,6 +6,7 @@
  * reconciliation-db <-> centros-coste-db. Todas las decisiones de escritura y
  * toda lectura sensible se autorizan de nuevo dentro de su transacción.
  */
+import { conciliarTransactionReadOnce } from '@/lib/prisma'
 import { Prisma, PrismaClient } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { verificarPermisoServer } from '@/lib/permisos'
@@ -175,10 +176,13 @@ async function assertCurrentSource(
 
 /** Authoritative actor check: row locks + verificarPermisoServer(..., tx), never session role. */
 export async function requireActualActorPermissionB8Tx(tx: Tx, actorId: number, required: 'lectura' | 'escritura'): Promise<ActorFinanzas> {
+  return conciliarTransactionReadOnce(tx, `b8-policy:${actorId}:${required}`, () => readActualActorPermissionB8Tx(tx, actorId, required))
+}
+async function readActualActorPermissionB8Tx(tx: Tx, actorId: number, required: 'lectura' | 'escritura'): Promise<ActorFinanzas> {
   if (!Number.isSafeInteger(actorId) || actorId < 1) fail(403, 'ACTOR_NO_AUTORIZADO', 'Actor financiero no autorizado.')
   await tx.$queryRaw(Prisma.sql`SELECT id FROM usuarios_admin WHERE id = ${actorId} FOR SHARE`)
   await tx.$queryRaw(Prisma.sql`SELECT id FROM permiso_usuarios WHERE usuario_id = ${actorId} FOR SHARE`)
-  const actor = await tx.usuarioAdmin.findUnique({ where: { id: actorId }, select: { id: true, activo: true, rol: true, roles: true } })
+  const actor = await conciliarTransactionReadOnce(tx, `b8-actor:${actorId}`, () => tx.usuarioAdmin.findUnique({ where: { id: actorId }, select: { id: true, activo: true, rol: true, roles: true } }))
   if (!actor?.activo) fail(403, 'ACTOR_NO_AUTORIZADO', 'Actor financiero no autorizado.')
   const policy = await verificarPermisoServer(actor.id, B8_AREA_FINANZAS, actor.rol, tx)
   if (policy[required]) return { id: actor.id, activo: actor.activo, rol: actor.rol }

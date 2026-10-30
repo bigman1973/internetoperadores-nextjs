@@ -17,9 +17,10 @@ import { conciliarAliasesMatch, conciliarRequestHash, safeInteger } from './conc
 import { deleteConciliarBatchProjectionRowsTx, readConciliarConfirmBatchForActionTx, tryConfirmConciliarBankFeeBatchTx } from './conciliar-batch'
 import type { ConciliarBatchProgress } from './conciliar-stream'
 import { confirmConciliarTransferTx, undoConciliarPairedTransferTx } from './conciliar-transfers'
-import { assertConciliarHumanOwnTransferPrimaryUndoTx, confirmConciliarHumanOwnTransferTx, humanOwnTransferActionForProjection, lockConciliarHumanOwnTransferUndoTx, parseConciliarHumanOwnTransferSource, undoConciliarHumanOwnTransferTx } from './conciliar-human-own-transfer'
+import { withConciliarHumanOwnTransferBatchTx, assertConciliarHumanOwnTransferPrimaryUndoTx, confirmConciliarHumanOwnTransferTx, humanOwnTransferActionForProjection, lockConciliarHumanOwnTransferUndoTx, parseConciliarHumanOwnTransferSource, undoConciliarHumanOwnTransferTx } from './conciliar-human-own-transfer'
 import { ConciliarDbError, conciliarDbErrorResponse, movementPartyAliases, payrollPeriodMatches, readConciliarProjectionTx, readConciliarRowForAction, readConciliarRowForReviewPreflight, restoreLiveBankFeeProjectionBatchTx, unresolvedMovements } from './conciliar-db'
-import { applyConciliarProjectionDeltaTx } from './conciliar-delta'
+import { refreshAffectedConciliarProjectionTx } from './conciliar-affected-refresh'
+import { materializeConciliarReadMetadataTx, rebuildConciliarProjectionTx } from './conciliar-db'
 import { knownBankFeeUndoMovements } from './conciliar-fee-undo'
 import { conciliarDocumentLifecycleGuardMessage, lockConciliarDocumentLifecycleForConfirmationTx, supportsConciliarDocumentLifecycleGuard } from './conciliar-document-lifecycle-guard'
 import { Area3ReviewConfirmDbError, confirmArea3ReviewTx, preflightArea3ReviewConfirmTx } from './area3-review-confirm-db'
@@ -158,7 +159,8 @@ async function projectionStateAtActionStart(tx: Tx): Promise<{ wasDirty: boolean
   // tocar fuentes para que dos acciones no retengan FOR SHARE y después ambas
   // intenten escalar a exclusivo al disparar el trigger. Las mutaciones ajenas
   // posteriores esperan y dejan dirty al terminar; una marca previa se conserva.
-  return { wasDirty: rows[0].dirtyAt !== null }
+  const pending = await tx.$queryRaw<Array<{ total: bigint }>>(Prisma.sql`SELECT COUNT(*)::bigint AS total FROM area3_conciliar_projection_changes LIMIT 1`)
+  return { wasDirty: rows[0].dirtyAt !== null || pending.length !== 1 || Number(pending[0].total) > 0 }
 }
 
 /**
@@ -168,7 +170,7 @@ async function projectionStateAtActionStart(tx: Tx): Promise<{ wasDirty: boolean
  * exacta en el mismo commit. Limpiar la marca evita reconstruir ~6k filas para
  * ese caso acotado. Una foto que ya venía dirty nunca se declara limpia aquí.
  */
-async function settleKnownFeeOnlyProjection(tx: Tx, stateAtStart: { wasDirty: boolean }, kinds: ReadonlySet<ConciliarProjectionSource['kind']>): Promise<boolean> {
+async function settleKnownFeeOnlyProjection(tx: Tx, stateAtStart: { wasDirty: boolean }, kinds: ReadonlySet<ConciliarProjectionSource['kind']>, movementIds: readonly string[]): Promise<boolean> {
   if (stateAtStart.wasDirty || kinds.size !== 1 || !kinds.has('COMISION_BANCARIA')) return false
   const updated = await tx.$queryRaw<Array<{ projectionVersion: bigint | number }>>(Prisma.sql`
     UPDATE estado_proyeccion_conciliar
@@ -178,6 +180,7 @@ async function settleKnownFeeOnlyProjection(tx: Tx, stateAtStart: { wasDirty: bo
   `)
   // All B4 changes are trigger-invalidated. An empty result is still safe: it
   // means no dirty marker remains; this path never clears a pre-existing one.
+  if (updated.length === 1) await tx.$executeRaw(Prisma.sql`DELETE FROM area3_conciliar_projection_changes WHERE kind='MOVEMENT' AND source_id IN (${Prisma.join(movementIds)})`)
   return updated.length === 1
 }
 
@@ -192,13 +195,13 @@ async function restoreKnownFeeOnlyProjection(tx: Tx, stateAtStart: { wasDirty: b
 }[]): Promise<boolean> {
   const movementIds = knownBankFeeUndoMovements({ wasDirty: stateAtStart.wasDirty, legs })
   if (!movementIds || !await restoreLiveBankFeeProjectionBatchTx(tx, movementIds)) return false
-  return settleKnownFeeOnlyProjection(tx, stateAtStart, new Set<ConciliarProjectionSource['kind']>(['COMISION_BANCARIA']))
+  return settleKnownFeeOnlyProjection(tx, stateAtStart, new Set<ConciliarProjectionSource['kind']>(['COMISION_BANCARIA']), movementIds)
 }
 
 /** A response view is read only after the projection DML of this exact action.
  * It is deliberately returned to HTTP but not persisted in operaciones_conciliar:
  * a later idempotency replay must never restore stale rows/hashes to a browser. */
-async function responseProjection(tx: Tx, responseView: ConciliarCommand['responseView'] | undefined, projectionSynchronized: boolean) {
+async function responseProjection(tx: Tx, responseView: import('./conciliar-contract').ConciliarResponseView | undefined, projectionSynchronized: boolean) {
   if (!responseView || !projectionSynchronized) return undefined
   return readConciliarProjectionTx(tx, responseView)
 }
@@ -674,32 +677,14 @@ async function confirmStandard(tx: Tx, actorId: number, command: Extract<Concili
   // Retirada mínima en una sola DML después de registrar todas las patas. El
   // recálculo documental posterior conserva sus propios bloqueos.
   await deleteConciliarBatchProjectionRowsTx(tx, plan.movementIds)
-  let projectionSynchronized = await settleKnownFeeOnlyProjection(tx, stateAtStart, plan.kinds)
-  if (!projectionSynchronized && selectedRows.length === 1) {
-    const row = selectedRows[0]
-    const sourceKind = row.source.kind
-    const leg = await tx.$queryRaw<Array<{ operationB4Id: string | null }>>(Prisma.sql`
-      SELECT operacion_b4_id::text AS "operationB4Id"
-      FROM patas_operacion_conciliar
-      WHERE operacion_conciliar_id=CAST(${receipt.id} AS uuid) AND ordinal=1 LIMIT 2 FOR KEY SHARE
-    `)
-    const operationB4Id = leg.length === 1 ? leg[0]?.operationB4Id : null
-    if (operationB4Id && (sourceKind === 'COBRO_PROPUESTA' || sourceKind === 'COBRO_CONFIRMING')) {
-      const delta = await applyConciliarProjectionDeltaTx(tx, {
-        projectionWasDirty: stateAtStart.wasDirty, action: 'CONFIRMAR', sourceKind,
-        originalOperationB4Id: operationB4Id, movimientoId: requireMovement(row.source),
-      })
-      projectionSynchronized = delta.projectionSynchronized
-    }
-  }
+  let projectionSynchronized = await settleKnownFeeOnlyProjection(tx, stateAtStart, plan.kinds, plan.movementIds)
   const result = {
     ok: true, outcomes, applied: command.items.length, failed: 0, reversible: true, projectionSynchronized,
     history: { schema: 'CONCILIAR_HISTORIAL_V1', ...actors, ...historyActors },
     refreshedAt: new Date().toISOString(),
   }
   await complete(tx, receipt.id, 'APLICADA', result)
-  const projection = await responseProjection(tx, command.responseView, projectionSynchronized)
-  return { operationId: receipt.id, idempotent: false, ...result, ...(projection ? { projection } : {}) }
+  return { operationId: receipt.id, idempotent: false, ...result }
 }
 
 /**
@@ -711,7 +696,7 @@ async function confirmHumanOwnTransfers(tx: Tx, actorId: number, command: Extrac
   const receipt = await lockOperationOrReplay(tx, actorId, 'CONFIRMAR', command.idempotencyKey, conciliarRequestHash(actorId, command))
   if (receipt.replay) return { operationId: receipt.id, idempotent: true, ...receipt.result }
   const historyActors = await conciliarHistoryActorSnapshot(tx, actors)
-  await projectionStateAtActionStart(tx)
+  const pairStateAtStart = await projectionStateAtActionStart(tx)
   const pairs = new Map<string, {
     inputs: Array<{ row: Awaited<ReturnType<typeof readConciliarRowForAction>>; source: NonNullable<ReturnType<typeof parseConciliarHumanOwnTransferSource>> }>
   }>()
@@ -753,6 +738,7 @@ async function confirmHumanOwnTransfers(tx: Tx, actorId: number, command: Extrac
 
   const legs: Array<{ ordinal: number; rowId: string; movimientoId: string | null; operationB4Id: string; result: Record<string, unknown> }> = []
   const outcomes: Array<Record<string, unknown>> = []
+  await withConciliarHumanOwnTransferBatchTx(tx, async () => {
   for (const [index, [, pair]] of [...pairs.entries()].sort(([left], [right]) => left.localeCompare(right)).entries()) {
     // El selector de menor movimiento sólo hace estable el recibo. El motor
     // vuelve a normalizar sobre las filas bloqueadas, sin confiar en este orden.
@@ -763,9 +749,22 @@ async function confirmHumanOwnTransfers(tx: Tx, actorId: number, command: Extrac
       outcomes.push({ id: input.row.id, ok: true, code: 'PAREJA_CONFIRMADA', message: 'Pareja propia confirmada. Puedes deshacer la pareja completa.', operationId: receipt.id })
     }
   }
+  })
   await appendLegs(tx, receipt.id, legs)
   // Las dos patas se retiran a la vez sólo después del recibo íntegro del lote.
   await deleteConciliarBatchProjectionRowsTx(tx, [...movementIds])
+  let projectionSynchronized = false
+  if (!pairStateAtStart.wasDirty) {
+    const otherChanges = await tx.$queryRaw<Array<{ total: bigint }>>(Prisma.sql`
+      SELECT COUNT(*)::bigint AS total FROM area3_conciliar_projection_changes
+      WHERE kind<>'MOVEMENT' OR source_id NOT IN (${Prisma.join([...movementIds])}) LIMIT 1
+    `)
+    if (otherChanges.length === 1 && Number(otherChanges[0].total) === 0) {
+      await tx.$executeRaw(Prisma.sql`DELETE FROM area3_conciliar_projection_changes WHERE kind='MOVEMENT' AND source_id IN (${Prisma.join([...movementIds])})`)
+      await tx.$executeRaw(Prisma.sql`UPDATE estado_proyeccion_conciliar SET dirty_at=NULL,dirty_reason=NULL,rebuilt_at=CURRENT_TIMESTAMP,projection_version=projection_version+1 WHERE singleton=true`)
+      projectionSynchronized = true
+    }
+  }
   const result = {
     ok: true,
     outcomes,
@@ -773,7 +772,7 @@ async function confirmHumanOwnTransfers(tx: Tx, actorId: number, command: Extrac
     failed: 0,
     reversible: true,
     confirmationMode: 'HUMANA_PAREJA_ATESTADA_V1',
-    projectionSynchronized: false,
+    projectionSynchronized,
     // La pareja tiene dos outcomes pero una sola pata durable canónica; el
     // lector la mostrará explícitamente sin detalle antes que reconstruirla.
     history: { schema: 'CONCILIAR_HISTORIAL_V1', ...actors, ...historyActors },
@@ -870,12 +869,29 @@ async function confirm(tx: Tx, actorId: number, command: Extract<ConciliarComman
 async function ask(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'pedir' }>) {
   const receipt = await lockOperationOrReplay(tx, actorId, 'PEDIR', command.idempotencyKey, conciliarRequestHash(actorId, command))
   if (receipt.replay) return { operationId: receipt.id, idempotent: true, ...receipt.result }
-  await projectionStateAtActionStart(tx)
+  const askState = await projectionStateAtActionStart(tx)
   const row = await readConciliarRowForAction(tx, command.id)
   if (row.decisionHash !== command.decisionHash) fail(409, 'DECISION_CAMBIADA', 'Esta fila cambió desde que abriste la página. Pulsa Actualizar y vuelve a pedir el documento.')
   if (row.color !== 'ROJO') fail(422, 'FILA_NO_PEDIBLE', 'Sólo se puede pedir documentación cuando realmente falta el papel.')
   const outcome = await askRow(tx, actorId, receipt.id, row)
-  const result = { ok: true, outcome, outcomes: [{ id: row.id, ok: true, code: 'PEDIDO', message: 'Añadido a Para pedir. No se ha enviado ningún aviso.' }], refreshedAt: new Date().toISOString() }
+  let projectionSynchronized = false
+  // Sólo una foto que ya estaba limpia puede consumir la entrada que acaba de
+  // producir PEDIR. Si había cola/dirty antes de bloquear el estado, incluso la
+  // misma fila debe conservarse para el refresco afectado posterior.
+  if (!askState.wasDirty) {
+    const movementId = requireMovement(row.source)
+    const currentRows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT id FROM conciliar_proyecciones WHERE movimiento_id=${movementId} ORDER BY id LIMIT 100`)
+    await materializeConciliarReadMetadataTx(tx, currentRows.map(item => item.id))
+    await tx.$executeRaw(Prisma.sql`DELETE FROM area3_conciliar_projection_changes WHERE kind='MOVEMENT' AND source_id=${movementId}`)
+    const settled = await tx.$queryRaw<Array<{ projectionVersion: bigint | number }>>(Prisma.sql`
+      UPDATE estado_proyeccion_conciliar
+         SET dirty_at=NULL,dirty_reason=NULL,rebuilt_at=CURRENT_TIMESTAMP,projection_version=projection_version+1
+       WHERE singleton=true AND NOT EXISTS (SELECT 1 FROM area3_conciliar_projection_changes)
+       RETURNING projection_version AS "projectionVersion"
+    `)
+    projectionSynchronized = settled.length === 1
+  }
+  const result = { ok: true, projectionSynchronized, outcome, outcomes: [{ id: row.id, ok: true, code: 'PEDIDO', message: 'Añadido a Para pedir. No se ha enviado ningún aviso.' }], refreshedAt: new Date().toISOString() }
   await complete(tx, receipt.id, 'APLICADA', result)
   return { operationId: receipt.id, idempotent: false, ...result }
 }
@@ -906,20 +922,23 @@ async function undo(tx: Tx, actorId: number, command: Extract<ConciliarCommand, 
   await tx.$executeRaw(Prisma.sql`UPDATE operaciones_conciliar SET estado='REVERTIDA'::"EstadoOperacionConciliar",revertida_at=CURRENT_TIMESTAMP WHERE id=CAST(${source.id} AS uuid) AND estado='APLICADA'::"EstadoOperacionConciliar"`)
   const projectionSynchronized = await restoreKnownFeeOnlyProjection(tx, stateAtStart, legs)
   let synchronized = projectionSynchronized
-  if (!synchronized && legs.length === 1 && legs[0]?.operationB4Id && legs[0].movimientoId) {
-    const sourceKind = json(legs[0].result).sourceKind
-    if (sourceKind === 'COBRO_PROPUESTA' || sourceKind === 'COBRO_CONFIRMING') {
-      const delta = await applyConciliarProjectionDeltaTx(tx, {
-        projectionWasDirty: stateAtStart.wasDirty, action: 'DESHACER', sourceKind,
-        originalOperationB4Id: legs[0].operationB4Id, movimientoId: legs[0].movimientoId,
+  if (!synchronized && !stateAtStart.wasDirty && legs.every(leg => json(leg.result).sourceKind === 'TRANSFERENCIA_PROPIA_MANUAL')) {
+    const movementIds = legs.flatMap(leg => {
+      const result = json(leg.result)
+      return [result.primaryMovementId, result.pairedMovementId].filter((id): id is string => typeof id === 'string')
+    })
+    const other = await tx.$queryRaw<Array<{ total: bigint }>>(Prisma.sql`SELECT COUNT(*)::bigint AS total FROM area3_conciliar_projection_changes WHERE kind<>'MOVEMENT' OR source_id NOT IN (${Prisma.join(movementIds)}) LIMIT 1`)
+    if (other.length === 1 && Number(other[0].total) === 0) {
+      await rebuildConciliarProjectionTx(tx, actorId, {
+        movementIds, manualPairsOnly: true,
+        consumedChanges: movementIds.map(sourceId => ({ kind: 'MOVEMENT' as const, sourceId })),
       })
-      synchronized = delta.projectionSynchronized
+      synchronized = true
     }
   }
   const result = { ok: true, revertedOperationId: source.id, legs: legs.length, undone: true, projectionSynchronized: synchronized, message: 'Deshecho. La confirmación original sigue conservada en el historial.', refreshedAt: new Date().toISOString() }
   await complete(tx, receipt.id, 'APLICADA', result)
-  const projection = await responseProjection(tx, command.responseView, synchronized)
-  return { operationId: source.id, idempotent: false, ...result, ...(projection ? { projection } : {}) }
+  return { operationId: source.id, idempotent: false, ...result }
 }
 
 /** Internal transaction seam, also exercised against a local restore with
@@ -931,10 +950,19 @@ export async function runConciliarTransactionCommand(tx: Tx, actorId: number, ra
   if (command.action === 'confirmar' && 'review' in command && command.review.kind === 'REVIEW_PREVIEW') {
     fail(409, 'REVIEW_PREVIEW_SOLO_LECTURA', 'La previsualización de revisión se ejecuta únicamente en su transacción de sólo lectura.')
   }
-  if (command.action === 'confirmar') return confirm(tx, actorId, command, actors, onProgress)
-  if (command.action === 'confirmar_traspasos_propios_manual') return confirmHumanOwnTransfers(tx, actorId, command, actors)
-  if (command.action === 'pedir') return ask(tx, actorId, command)
-  return undo(tx, actorId, command)
+  let result: Record<string, any>
+  if (command.action === 'confirmar') result = await confirm(tx, actorId, command, actors, onProgress)
+  else if (command.action === 'confirmar_traspasos_propios_manual') result = await confirmHumanOwnTransfers(tx, actorId, command, actors)
+  else if (command.action === 'pedir') result = await ask(tx, actorId, command)
+  else result = await undo(tx, actorId, command)
+  // Fresh snapshot after all selective DML, never persist it in the idempotency
+  // receipt. Replays receive today's view rather than the original stale page.
+  if (result.projectionSynchronized !== true || result.idempotent === true) {
+    const refreshed = await refreshAffectedConciliarProjectionTx(tx, actorId)
+    result = { ...result, projectionSynchronized: refreshed.projectionSynchronized }
+  }
+  const projection = await responseProjection(tx, 'responseView' in command ? command.responseView : undefined, result.projectionSynchronized === true)
+  return { ...result, ...(projection ? { projection } : {}) }
 }
 
 export type ConciliarActionRunOptions = Readonly<{

@@ -124,42 +124,26 @@ export async function readParaPedirProjection(input: ParaPedirInput, client: Pic
         p.documento AS conciliar_documento,p.propuesta AS conciliar_propuesta,p.seleccionable AS conciliar_seleccionable,
         p.diferencia_centimos AS conciliar_diferencia_centimos,p.links_movimiento AS conciliar_links_movimiento,
         p.detail AS conciliar_detail,p.source AS conciliar_source,p.source_fingerprint AS conciliar_source_fingerprint,
-        p.updated_at AS conciliar_updated_at,
-        COALESCE(NULLIF(btrim(p.documento->>'tercero'),''),NULLIF(btrim(m.tercero),'')) AS tercero,
+        p.updated_at AS conciliar_updated_at,p.read_metadata,
+        COALESCE(NULLIF(btrim(p.documento->>'tercero'),''),NULLIF(btrim(p.read_metadata->>'tercero'),'')) AS tercero,
         NULLIF(btrim(p.documento->>'referencia'),'') AS referencia_documento,
-        COALESCE(NULLIF(btrim(p.documento->>'tercero'),''),NULLIF(btrim(m.tercero),''),${SIN_TERCERO_DOCUMENTAL}) AS grupo_tercero
+        COALESCE(NULLIF(btrim(p.documento->>'tercero'),''),NULLIF(btrim(p.read_metadata->>'tercero'),''),${SIN_TERCERO_DOCUMENTAL}) AS grupo_tercero
       FROM conciliar_proyecciones p
-      JOIN movimientos_bancarios m ON m.id=p.movimiento_id
       WHERE p.movimiento_id IS NOT NULL AND p.tab IN ('COBROS','PAGOS')
         AND UPPER(COALESCE(p.grupo,'')) NOT IN ('TRASPASOS_PROPIOS','TRASPASOS ENTRE CUENTAS PROPIAS','GASTOS_BANCO','GASTOS DEL BANCO','COMISIONES','NOMINAS','NÓMINAS')
-        AND NOT EXISTS (
-          SELECT 1 FROM estado_justificacion_movimientos e
-          WHERE e.movimiento_id=p.movimiento_id AND e.estado::text<>'SIN_DOCUMENTO'
-        )
       ORDER BY p.movimiento_id,p.updated_at DESC,p.id ASC
-    ), pedido_audit AS (
-      SELECT DISTINCT ON (a.movimiento_id)
-        a.movimiento_id,a.created_at::date AS pedido_dia,u.nombre AS actor_nombre
-      FROM auditorias_gestiones_pendientes_b5 a
-      JOIN projection_base b ON b.movimiento_id=a.movimiento_id
-      LEFT JOIN usuarios_admin u ON u.id=a.actor_id
-      WHERE a.snapshot_resultado->>'estado'='PEDIDO'
-      ORDER BY a.movimiento_id,a.created_at DESC,a.id DESC
     ), scoped AS (
-      SELECT b.*,
-        g.estado::text AS gestion_estado,
-        pa.pedido_dia,pa.actor_nombre,
+      SELECT b.*,b.read_metadata->>'gestion_estado' AS gestion_estado,
+        CAST(b.read_metadata->>'pedido_fecha' AS date) AS pedido_dia,b.read_metadata->>'actor_visible' AS actor_nombre,
         CASE
-          WHEN g.estado::text='PEDIDO' AND pa.pedido_dia IS NOT NULL THEN 'PEDIDO'
-          WHEN g.estado::text='PEDIDO' THEN 'PEDIDO_SIN_AUDITORIA'
-          WHEN g.estado::text='RECIBIDO' THEN 'RECIBIDO'
+          WHEN b.read_metadata->>'gestion_estado'='PEDIDO' AND b.read_metadata->>'pedido_fecha' IS NOT NULL THEN 'PEDIDO'
+          WHEN b.read_metadata->>'gestion_estado'='PEDIDO' THEN 'PEDIDO_SIN_AUDITORIA'
+          WHEN b.read_metadata->>'gestion_estado'='RECIBIDO' THEN 'RECIBIDO'
           ELSE 'SIN_PEDIR'
         END AS estado_pedido,
-        CASE WHEN g.estado::text='PEDIDO' AND pa.pedido_dia IS NOT NULL
-          THEN (CURRENT_DATE-pa.pedido_dia)::int ELSE NULL END AS dias_pedido
+        CASE WHEN b.read_metadata->>'gestion_estado'='PEDIDO' AND b.read_metadata->>'pedido_fecha' IS NOT NULL
+          THEN (CURRENT_DATE-CAST(b.read_metadata->>'pedido_fecha' AS date))::int ELSE NULL END AS dias_pedido
       FROM projection_base b
-      LEFT JOIN gestiones_pendientes_movimiento_b5 g ON g.movimiento_id=b.movimiento_id
-      LEFT JOIN pedido_audit pa ON pa.movimiento_id=b.movimiento_id
     ), filtered AS (
       SELECT * FROM scoped s WHERE ${shared}
     ), page AS (

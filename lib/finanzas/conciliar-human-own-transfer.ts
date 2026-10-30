@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { confirmarB4Tx, deshacerB4Tx } from '@/lib/finanzas/reconciliation-db'
 import { derivedUuidV4 } from './easy-auto-core'
 import { ConciliarDbError } from './conciliar-errors'
@@ -332,6 +333,23 @@ async function readAttestedIbanKeysTx(tx: Tx, accountIds: ReadonlySet<string>): 
   return new Set(rows.flatMap(row => normalizedRegisteredOwnIban(row.iban) ?? []))
 }
 
+type ManualOwnTransferSnapshot = Readonly<{
+  tx: Tx
+  population: readonly ConciliarManualOwnTransferLiveMovement[]
+  accountIds: ReadonlySet<string>
+  ibanKeys: ReadonlySet<string>
+}>
+const manualOwnTransferSnapshot = new AsyncLocalStorage<ManualOwnTransferSnapshot>()
+/** Exactly one population/ownership snapshot per batch, never shared across tx,
+ * requests, actors or retries. Every pair still locks and revalidates both legs. */
+export async function withConciliarHumanOwnTransferBatchTx<T>(base: Prisma.TransactionClient, callback: () => Promise<T>): Promise<T> {
+  const tx = base as Tx
+  const population = await readLiveManualOwnTransferPopulationTx(tx)
+  const proof = await readManualOwnAccountProofTx(tx, population.map(row => String(row.cuentaId)))
+  const ibanKeys = await readAttestedIbanKeysTx(tx, proof.proof.accountIds)
+  return manualOwnTransferSnapshot.run({ tx, population, accountIds: proof.proof.accountIds, ibanKeys }, callback)
+}
+
 function confirmKey(operationId: string, movementId: string): string {
   return derivedUuidV4('CONCILIAR_HUMAN_OWN_TRANSFER_CONFIRM_V1', `${operationId}:${movementId}`)
 }
@@ -508,15 +526,13 @@ export async function confirmConciliarHumanOwnTransferTx(
     fail('TRANSFERENCIA_CAMBIADA', 'Uno de los movimientos ya tiene una decisión o cambió. Actualiza la lista.')
   }
 
-  const population = await readLiveManualOwnTransferPopulationTx(tx)
+  const snapshot = manualOwnTransferSnapshot.getStore()
+  const population = snapshot?.tx === tx ? snapshot.population : await readLiveManualOwnTransferPopulationTx(tx)
   if (!population.length) fail('TRANSFERENCIA_CAMBIADA', 'No se puede volver a comprobar la pareja de traspaso. Actualiza la lista.')
-  const proof = await readManualOwnAccountProofTx(tx, population.map(row => String(row.cuentaId)))
-  const ibanKeys = await readAttestedIbanKeysTx(tx, proof.proof.accountIds)
+  const accountIds = snapshot?.tx === tx ? snapshot.accountIds : (await readManualOwnAccountProofTx(tx, population.map(row => String(row.cuentaId)))).proof.accountIds
+  const ibanKeys = snapshot?.tx === tx ? snapshot.ibanKeys : await readAttestedIbanKeysTx(tx, accountIds)
   const preflight = preflightConciliarHumanOwnTransfer({
-    source,
-    movements: population,
-    attestedOwnAccountIds: proof.proof.accountIds,
-    registeredAttestedOwnIbanKeys: ibanKeys,
+    source, movements: population, attestedOwnAccountIds: accountIds, registeredAttestedOwnIbanKeys: ibanKeys,
   })
   if (!preflight || preflight.selected.importeCentimos !== expectedSelectedAmount
     || preflight.primary.importeCentimos !== -preflight.paired.importeCentimos) {
@@ -528,7 +544,14 @@ export async function confirmConciliarHumanOwnTransferTx(
   const lockedPaired = manualOwnTransferReviewMovement(lockedById.get(preflight.canonicalPaired.id)!, ibanKeys)
   if (!lockedPrimary || !lockedPaired
     || lockedPrimary.versionB4 !== preflight.canonicalPrimary.versionB4 || lockedPaired.versionB4 !== preflight.canonicalPaired.versionB4
-    || lockedPrimary.importeCentimos !== preflight.canonicalPrimary.importeCentimos || lockedPaired.importeCentimos !== preflight.canonicalPaired.importeCentimos) {
+    || lockedPrimary.importeCentimos !== preflight.canonicalPrimary.importeCentimos || lockedPaired.importeCentimos !== preflight.canonicalPaired.importeCentimos
+    || [lockedPrimary, lockedPaired].some((live, index) => {
+      const sealed = index === 0 ? preflight.canonicalPrimary : preflight.canonicalPaired
+      return live.cuentaId !== sealed.cuentaId || live.fecha !== sealed.fecha || live.concepto !== sealed.concepto
+        || live.referencia !== sealed.referencia || live.infoAdicional !== sealed.infoAdicional || live.tercero !== sealed.tercero
+        || live.thirdPartyConfirmed !== sealed.thirdPartyConfirmed || live.documentaryLinked !== sealed.documentaryLinked
+        || live.ownRecipientExplicit !== sealed.ownRecipientExplicit
+    })) {
     fail('TRANSFERENCIA_CAMBIADA', 'Los movimientos cambiaron mientras se comprobaba la pareja. Actualiza la lista.')
   }
 

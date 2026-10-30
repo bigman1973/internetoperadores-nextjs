@@ -9,7 +9,7 @@ const projection = readFileSync(resolve(root, 'lib/finanzas/conciliar-db.ts'), '
 const helper = readFileSync(resolve(root, 'lib/finanzas/conciliar-fee-undo.ts'), 'utf8')
 const route = readFileSync(resolve(root, 'app/api/admin/finanzas/conciliar/route.ts'), 'utf8')
 
-const confirm = actions.slice(actions.indexOf('async function confirm('), actions.indexOf('async function ask('))
+const confirm = actions.slice(actions.indexOf('async function confirmStandard'), actions.indexOf('async function confirmHumanOwnTransfers'))
 const undo = actions.slice(actions.indexOf('async function undo('), actions.indexOf('export async function runConciliarAction'))
 const restore = projection.slice(projection.indexOf('export async function restoreLiveBankFeeProjectionBatchTx'), projection.indexOf('type StrictTransferLeg'))
 const constructor = helper.slice(helper.indexOf('export function buildBankFeeProjectionSeed'), helper.length)

@@ -115,7 +115,7 @@ export function closeDeltaProposalDependencies(
 
 type ReceiptDescriptor = Readonly<{ receiptId: string; remesaId: number; movementId: string }>
 type Scope = Readonly<{ kind: DeltaKind; invoiceIds: readonly string[] }>
-type ProposalRow = Record<string, any>
+type ProposalRow = Record<string, any> & { propuestaId: string; generacionId: string; metodo: string; lineas: unknown; composicion: unknown }
 type Candidate = Readonly<{ movementId: string; color: ConciliarColor; rowId: string; propuestaId: string | null }>
 type ClosedProposalScope = Readonly<{ invoiceIds: readonly string[]; proposals: readonly ProposalRow[] }>
 
@@ -436,8 +436,9 @@ async function rebuildClosedCobros(
     return null
   }
   let collectionReservations
+  let remittanceMapPreflights: Awaited<ReturnType<typeof readArea3RemittanceMapPreflightsTx>>
   try {
-    const remittanceMapPreflights = await readArea3RemittanceMapPreflightsTx(tx, proposals)
+    remittanceMapPreflights = await readArea3RemittanceMapPreflightsTx(tx, proposals)
     collectionReservations = collectionReservationResolution({
       proposals, movements: [...uniqueMovements.values()], invoiceDates, issuedReferences,
       clientIdentityByProposal, reservations,
