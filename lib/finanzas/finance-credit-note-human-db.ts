@@ -8,7 +8,7 @@ import { creditLinkLedgerAction, creditLinkStateForAction, parseCreditLinkDecisi
 
 type Tx = Prisma.TransactionClient & Record<string, any>
 type DecisionDb = Pick<Prisma.TransactionClient, '$queryRaw' | '$executeRaw'> & Record<string, any>
-type DocumentSummary = { number: string; date: string; totalCents: number }
+type DocumentSummary = { number: string; date: string; totalCents: number; provider: string | null }
 type LinkRow = {
   id: string
   exactReference: string
@@ -18,9 +18,13 @@ type LinkRow = {
   originalDocumentNumber: string | null
   originalDocumentDate: Date | null
   originalTotalCents: number | null
+  originalProvider: string | null
   creditDocumentNumber: string | null
   creditDocumentDate: Date | null
   creditTotalCents: number | null
+  creditProvider: string | null
+  originalCurrencyCode: string | null
+  creditCurrencyCode: string | null
 }
 type DecisionRow = { id: string; creditLinkId: string; action: string; effectiveState: CreditLinkEffectiveState; reason: string | null; actorRealId: number; actorEffectiveId: number; createdAt: Date }
 
@@ -34,20 +38,33 @@ function iso(value: Date): string { return value.toISOString() }
 function validState(value: unknown): value is CreditLinkEffectiveState { return value === 'PROPOSED' || value === 'CONFIRMED' || value === 'REJECTED' }
 function asId(value: unknown): string { return typeof value === 'string' ? value : '' }
 function safeCents(value: unknown): number | null { return typeof value === 'number' && Number.isSafeInteger(value) ? value : null }
-function documentSummary(number: unknown, date: unknown, totalCents: unknown): DocumentSummary | null {
+function provider(value: unknown): string | null { return typeof value === 'string' && value.trim() !== '' && value === value.trim() && value.length <= 300 ? value : null }
+function documentSummary(number: unknown, date: unknown, totalCents: unknown, supplier: unknown): DocumentSummary | null {
   return typeof number === 'string' && number.trim() !== '' && date instanceof Date && safeCents(totalCents) !== null
-    ? { number, date: iso(date), totalCents: safeCents(totalCents)! }
+    ? { number, date: iso(date), totalCents: safeCents(totalCents)!, provider: provider(supplier) }
     : null
 }
+function documentaryReduction(link: LinkRow): number | null {
+  const original = safeCents(link.originalTotalCents)
+  const credit = safeCents(link.creditTotalCents)
+  if (original === null || credit === null || original === 0 || credit === 0 || (original > 0) === (credit > 0)) return null
+  if (link.originalCurrencyCode !== link.creditCurrencyCode || !/^[A-Z]{3}$/.test(link.originalCurrencyCode ?? '')) return null
+  const amount = Math.abs(credit)
+  return amount <= Math.abs(original) ? amount : null
+}
 function publicLink(link: LinkRow) {
+  const proposedReductionCents = documentaryReduction(link)
   return {
     id: link.id,
     exactReference: typeof link.exactReference === 'string' ? link.exactReference : '',
     legacyState: link.legacyState,
     effectiveState: link.effectiveState,
     createdAt: iso(link.createdAt),
-    originalDocument: documentSummary(link.originalDocumentNumber, link.originalDocumentDate, link.originalTotalCents),
-    creditDocument: documentSummary(link.creditDocumentNumber, link.creditDocumentDate, link.creditTotalCents),
+    originalDocument: documentSummary(link.originalDocumentNumber, link.originalDocumentDate, link.originalTotalCents, link.originalProvider),
+    creditDocument: documentSummary(link.creditDocumentNumber, link.creditDocumentDate, link.creditTotalCents, link.creditProvider),
+    proposedReductionCents,
+    effectiveReductionCents: link.effectiveState === 'CONFIRMED' ? proposedReductionCents : null,
+    requiresHumanDecision: link.effectiveState === 'PROPOSED',
   }
 }
 
@@ -56,8 +73,9 @@ export const creditLinkDecisionSql = {
   visibleLinks: Prisma.sql`
     SELECT cl.id::text AS id, cl.exact_reference AS "exactReference", cl.state::text AS "legacyState",
       COALESCE(last_decision.effective_state::text, cl.state::text) AS "effectiveState", cl.created_at AS "createdAt",
-      original_s.document_number AS "originalDocumentNumber", original_s.document_date AS "originalDocumentDate", original_s.total_cents AS "originalTotalCents",
-      credit_s.document_number AS "creditDocumentNumber", credit_s.document_date AS "creditDocumentDate", credit_s.total_cents AS "creditTotalCents"
+      original_s.document_number AS "originalDocumentNumber", original_s.document_date AS "originalDocumentDate", original_s.total_cents AS "originalTotalCents", original_fr.proveedor AS "originalProvider",
+      credit_s.document_number AS "creditDocumentNumber", credit_s.document_date AS "creditDocumentDate", credit_s.total_cents AS "creditTotalCents", credit_fr.proveedor AS "creditProvider",
+      original_s.currency_code AS "originalCurrencyCode", credit_s.currency_code AS "creditCurrencyCode"
     FROM document_version_credit_links cl
     LEFT JOIN LATERAL (
       SELECT d.effective_state
@@ -69,6 +87,14 @@ export const creditLinkDecisionSql = {
     LEFT JOIN document_version_snapshots original_s ON original_s.lifecycle_id=original_l.id AND original_s.version_number=original_l.current_version
     LEFT JOIN document_version_lifecycle credit_l ON credit_l.id=cl.credit_lifecycle_id
     LEFT JOIN document_version_snapshots credit_s ON credit_s.lifecycle_id=credit_l.id AND credit_s.version_number=credit_l.current_version
+    LEFT JOIN facturas_recibidas original_fr ON (
+      (original_l.source='PANEL_RECEIVED' AND original_l.source_item_key=original_fr.id::text)
+      OR (original_l.source='ONEDRIVE' AND original_l.source_item_key=(original_fr.onedrive_drive_id || ':' || original_fr.onedrive_item_id))
+    )
+    LEFT JOIN facturas_recibidas credit_fr ON (
+      (credit_l.source='PANEL_RECEIVED' AND credit_l.source_item_key=credit_fr.id::text)
+      OR (credit_l.source='ONEDRIVE' AND credit_l.source_item_key=(credit_fr.onedrive_drive_id || ':' || credit_fr.onedrive_item_id))
+    )
     ORDER BY cl.created_at DESC,cl.id DESC
     LIMIT 201
   `,
@@ -116,14 +142,23 @@ function isRetryableCreditLinkTransactionConflict(error: unknown): boolean {
 
 const linkForDecisionSql = (creditLinkId: string) => Prisma.sql`
   SELECT cl.id::text AS id,cl.exact_reference AS "exactReference",cl.state::text AS "legacyState",COALESCE(last_decision.effective_state::text,cl.state::text) AS "effectiveState",cl.created_at AS "createdAt",
-    original_s.document_number AS "originalDocumentNumber", original_s.document_date AS "originalDocumentDate", original_s.total_cents AS "originalTotalCents",
-    credit_s.document_number AS "creditDocumentNumber", credit_s.document_date AS "creditDocumentDate", credit_s.total_cents AS "creditTotalCents"
+    original_s.document_number AS "originalDocumentNumber", original_s.document_date AS "originalDocumentDate", original_s.total_cents AS "originalTotalCents", original_fr.proveedor AS "originalProvider",
+    credit_s.document_number AS "creditDocumentNumber", credit_s.document_date AS "creditDocumentDate", credit_s.total_cents AS "creditTotalCents", credit_fr.proveedor AS "creditProvider",
+    original_s.currency_code AS "originalCurrencyCode", credit_s.currency_code AS "creditCurrencyCode"
   FROM document_version_credit_links cl
   LEFT JOIN LATERAL (SELECT effective_state FROM document_version_credit_link_decisions WHERE credit_link_id=cl.id ORDER BY decision_sequence DESC LIMIT 1) last_decision ON TRUE
   LEFT JOIN document_version_lifecycle original_l ON original_l.id=cl.original_lifecycle_id
   LEFT JOIN document_version_snapshots original_s ON original_s.lifecycle_id=original_l.id AND original_s.version_number=original_l.current_version
   LEFT JOIN document_version_lifecycle credit_l ON credit_l.id=cl.credit_lifecycle_id
   LEFT JOIN document_version_snapshots credit_s ON credit_s.lifecycle_id=credit_l.id AND credit_s.version_number=credit_l.current_version
+  LEFT JOIN facturas_recibidas original_fr ON (
+    (original_l.source='PANEL_RECEIVED' AND original_l.source_item_key=original_fr.id::text)
+    OR (original_l.source='ONEDRIVE' AND original_l.source_item_key=(original_fr.onedrive_drive_id || ':' || original_fr.onedrive_item_id))
+  )
+  LEFT JOIN facturas_recibidas credit_fr ON (
+    (credit_l.source='PANEL_RECEIVED' AND credit_l.source_item_key=credit_fr.id::text)
+    OR (credit_l.source='ONEDRIVE' AND credit_l.source_item_key=(credit_fr.onedrive_drive_id || ':' || credit_fr.onedrive_item_id))
+  )
   WHERE cl.id=CAST(${creditLinkId} AS uuid) LIMIT 2 FOR KEY SHARE OF cl
 `
 

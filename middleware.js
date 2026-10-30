@@ -348,6 +348,8 @@ function financeAreas(pathname) {
     'centros-coste': ['admin.finanzas.conciliacion'],
     rectificativas: pathname === '/api/admin/finanzas/rectificativas' && process.env.FINANCE_STAGING_SANDBOX === '1'
       ? ['admin.finanzas.conciliacion'] : [],
+    'duplicados-documentos': pathname === '/api/admin/finanzas/duplicados-documentos' && process.env.FINANCE_STAGING_SANDBOX === '1'
+      ? ['admin.finanzas.conciliacion'] : [],
     'confirming-draxton': ['admin.finanzas.conciliacion'],
     'conciliacion-remesas': ['admin.finanzas.conciliacion_remesas'],
     remesas: pathname === '/api/admin/finanzas/remesas/b6' ? ['admin.finanzas.conciliacion'] : [],

@@ -29,6 +29,7 @@ const ConciliarRemesaConfirmationDialog = dynamic(() => import('./ConciliarRemes
 const ConfirmingInterestInvoices = dynamic(() => import('./ConfirmingInterestInvoices'), { ssr: false });
 const RectificativasHumanasPanel = dynamic(() => import('@/components/finanzas/rectificativas/RectificativasHumanasPanel'), { ssr: false });
 const ConfirmingControlledSourcesPanel = dynamic(() => import('@/components/finanzas/confirming/ConfirmingControlledSourcesPanel'), { ssr: false });
+const ReceivedDocumentDuplicatesPanel = dynamic(() => import('@/components/finanzas/duplicates/ReceivedDocumentDuplicatesPanel'), { ssr: false });
 
 const API = '/api/admin/finanzas/conciliar';
 const REMESA_PREVIEW_API = '/api/admin/finanzas/conciliar/remesa-preview';
@@ -781,6 +782,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     <Guide invoicePending={tab === 'EMITIDAS' || tab === 'RECIBIDAS'} />
 
     <RectificativasHumanasPanel />
+    <ReceivedDocumentDuplicatesPanel />
     <ConfirmingControlledSourcesPanel />
 
     {confirmingReadingQueue && confirmingReadingAccess ? <ConfirmingReadingReviewQueue access={confirmingReadingAccess} queue={confirmingReadingQueue} /> : null}

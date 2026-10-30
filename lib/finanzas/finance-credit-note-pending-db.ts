@@ -96,9 +96,27 @@ const FACTURA_RECIBIDA_COUNTERPARTY_FISCAL_SQL = `
 `
 
 /**
- * Current received-invoice snapshots only. `source_item_key` remains the raw
- * provider identity `<driveId>:<itemId>` (without a synthetic `onedrive:` prefix).
- * The source key plus literal reference/CIF/amount/role is the required complete
+ * OneDrive remains the canonical path only when both stored components form its
+ * real `<driveId>:<itemId>` key. Historical received invoices with no drive ID
+ * never get a guessed drive: their authorized finite seed lives under the
+ * separate PANEL_RECEIVED namespace and is tied exactly to `fr.id::text`.
+ */
+function receivedLifecycleInvoicePredicate(lifecycleAlias: string, invoiceAlias: string): string {
+  return `(
+    (${lifecycleAlias}.source = 'ONEDRIVE'
+      AND ${lifecycleAlias}.source_item_key = (${invoiceAlias}.onedrive_drive_id || ':' || ${invoiceAlias}.onedrive_item_id)
+      AND ${lifecycleAlias}.source_item_key ~ '${ONEDRIVE_SOURCE_KEY_SQL}')
+    OR
+    (${lifecycleAlias}.source = 'PANEL_RECEIVED'
+      AND ${lifecycleAlias}.source_item_key = ${invoiceAlias}.id::text)
+  )`
+}
+
+/**
+ * Current received-invoice snapshots only. The canonical identity is either the
+ * real raw OneDrive `<driveId>:<itemId>` (without a synthetic prefix) or the
+ * explicit finite PANEL_RECEIVED:`fr.id` seed where the drive is genuinely
+ * unavailable. Both paths still require the complete number/CIF/amount/role
  * tuple; the adapter below turns the OCR document total into its expense-oriented
  * signed amount exactly once, while preserving exact cents.
  */
@@ -127,13 +145,11 @@ const RECEIVED_CREDIT_DOCUMENTS_SQL = `
     s.document_class AS "documentClass"
   FROM facturas_recibidas fr
   JOIN document_version_lifecycle l
-    ON l.source = 'ONEDRIVE'
-   AND l.source_item_key = (fr.onedrive_drive_id || ':' || fr.onedrive_item_id)
+    ON ${receivedLifecycleInvoicePredicate('l', 'fr')}
   JOIN document_version_snapshots s
     ON s.lifecycle_id = l.id
    AND s.version_number = l.current_version
-  WHERE l.source_item_key ~ '${ONEDRIVE_SOURCE_KEY_SQL}'
-    AND l.state = 'ACTIVE'::"DocumentVersionLifecycleState"
+  WHERE l.state = 'ACTIVE'::"DocumentVersionLifecycleState"
     AND l.current_version >= 1
     AND NOT EXISTS (
       SELECT 1 FROM document_version_tombstones t
@@ -172,10 +188,8 @@ const RECEIVED_CREDIT_LINKS_SQL = `
       cl.state = 'CONFIRMED'::"DocumentVersionCreditLinkState"
       AND cl.confirmed_by_id IS NOT NULL
       AND cl.confirmed_at IS NOT NULL
-      AND original_l.source = 'ONEDRIVE'
-      AND original_l.source_item_key ~ '${ONEDRIVE_SOURCE_KEY_SQL}'
-      AND credit_l.source = 'ONEDRIVE'
-      AND credit_l.source_item_key ~ '${ONEDRIVE_SOURCE_KEY_SQL}'
+      AND ${receivedLifecycleInvoicePredicate('original_l', 'original_fr')}
+      AND ${receivedLifecycleInvoicePredicate('credit_l', 'credit_fr')}
       AND original_l.state = 'ACTIVE'::"DocumentVersionLifecycleState"
       AND credit_l.state = 'ACTIVE'::"DocumentVersionLifecycleState"
       AND original_l.current_version >= 1
@@ -212,17 +226,14 @@ const RECEIVED_CREDIT_LINKS_SQL = `
     ON original_s.lifecycle_id = original_l.id
    AND original_s.version_number = original_l.current_version
   JOIN facturas_recibidas original_fr
-    ON original_l.source = 'ONEDRIVE'
-   AND original_l.source_item_key = (original_fr.onedrive_drive_id || ':' || original_fr.onedrive_item_id)
+    ON ${receivedLifecycleInvoicePredicate('original_l', 'original_fr')}
   JOIN document_version_lifecycle credit_l ON credit_l.id = cl.credit_lifecycle_id
   LEFT JOIN document_version_snapshots credit_s
     ON credit_s.lifecycle_id = credit_l.id
    AND credit_s.version_number = credit_l.current_version
   LEFT JOIN facturas_recibidas credit_fr
-    ON credit_l.source = 'ONEDRIVE'
-   AND credit_l.source_item_key = (credit_fr.onedrive_drive_id || ':' || credit_fr.onedrive_item_id)
-  WHERE original_l.source = 'ONEDRIVE'
-    AND original_l.source_item_key ~ '${ONEDRIVE_SOURCE_KEY_SQL}'
+    ON ${receivedLifecycleInvoicePredicate('credit_l', 'credit_fr')}
+  WHERE ${receivedLifecycleInvoicePredicate('original_l', 'original_fr')}
     AND original_l.state = 'ACTIVE'::"DocumentVersionLifecycleState"
     AND original_l.current_version >= 1
     AND NOT EXISTS (

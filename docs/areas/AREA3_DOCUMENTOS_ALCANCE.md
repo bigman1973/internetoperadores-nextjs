@@ -29,3 +29,13 @@ No publicar b, f ni versiones por sustitución. **No hacer un merge indiscrimina
 Cualquier publicación necesita validación y orden expresa de Claude, turno 13:00/19:00 Madrid, batería real, build, copia nueva restaurada y plan de vuelta atrás. Esta nota no levanta las seis diferencias de estado de la batería de staging.
 
 `area4-usuarios-permisos` y `area1-crm` continúan con su alcance anterior y no se modifican por esta decisión. No cambiar producción ni sus sincronizaciones existentes, ni enviar correos o notificaciones.
+
+## Recorrido puntual c/d autorizado el 30/10 a las 14:02
+
+Sólo `area3-documentos` y la BD aislada de staging: recorrer las recibidas ya guardadas y crear únicamente enlaces `PROPOSED` cuando exista una referencia literal inequívoca a la original del mismo proveedor/CIF. Una semilla v1 de metadatos para la identidad histórica no contiene bytes ni acredita archivo privado; no genera sucesoras ni reacciona a sustituciones. El recorrido respeta las decisiones humanas previas y es idempotente. Lorena confirma, rechaza o devuelve a pendiente desde Conciliar, con su permiso efectivo y auditoría; el proceso nunca lo hace por ella.
+
+Para duplicados se permite una lectura finita autenticada de los originales ya identificados por staging, exclusivamente para calcular SHA-256 de sus bytes. Se guarda en una tabla `area3_` independiente como metadato append-only; los archivos inaccesibles se cuentan, nunca reciben una huella ficticia. Los grupos por contenido se muestran como avisos, sin borrar ni fusionar. No hay enumeración de carpetas, nuevas importaciones, vigilancia, OCR, subida o archivado del futuro buzón.
+
+Las herramientas `scripts/area3-propose-credit-notes.ts` y `scripts/area3-fingerprint-existing-documents.ts` son explícitas y manuales, sin cron. Su modo de aplicación está limitado por identidad de staging y opt-in. Antes de aplicar esta tanda se exige copia completa restaurada, ensayo SQL con rollback, conservación de las fuentes financieras, idempotencia, build y smoke real de Lorena en el preview.
+
+**Límite de la tanda:** si Claude no la ha validado antes de las 18:30, no entra en la ventana de las 19:00 y queda para el siguiente turno a las 13:00. Esto no programa ni autoriza una publicación futura. Producción y sus sincronizaciones siguen intactas.
