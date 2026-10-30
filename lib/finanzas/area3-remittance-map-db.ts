@@ -36,7 +36,12 @@ type SourceRow = Readonly<{
 }>
 
 const MAX_REMITTANCE_PROPOSALS = 2_000
-const MAX_REMITTANCE_RECEIPTS = 2_000
+/** The projection rebuild is bounded to 25k rows. Keep every evidence query
+ * below the established 2k-parameter working set while allowing that complete
+ * bounded snapshot to be evaluated rather than failing before it can paint
+ * its safe amber rows. */
+const MAX_REMITTANCE_RECEIPTS = 25_000
+const REMITTANCE_EVIDENCE_BATCH_SIZE = 2_000
 
 function asPositiveInteger(value: unknown): number | null {
   const parsed = typeof value === 'bigint' ? value : typeof value === 'number' && Number.isSafeInteger(value) ? BigInt(value) : typeof value === 'string' && /^\d+$/.test(value) ? BigInt(value) : null
@@ -118,28 +123,39 @@ const sourceEvidenceSelect = (ids: readonly string[]) => Prisma.sql`
 async function rowsForInvoices(tx: Tx, ids: readonly string[], lock: boolean): Promise<SourceRow[]> {
   if (!ids.length) return []
   if (ids.length > MAX_REMITTANCE_RECEIPTS) throw new Error('AREA3_REMITTANCE_MAP_RECEIPT_LIMIT')
-  if (!lock) return tx.$queryRaw<SourceRow[]>(sourceEvidenceSelect(ids))
-
-  // Lock FI first (the FK cannot change afterwards), then every present Factura,
-  // and finally reread the exact evidence. This is B7's FI/ISP source order; the
-  // immutable identity event is evidence only, never a relationship we may create.
-  const fiRows = await tx.$queryRaw<Array<{ facturaISPId: number | bigint | string | null }>>(Prisma.sql`
-    SELECT fi.factura_isp_id AS "facturaISPId"
-    FROM facturas_emitidas fi
-    WHERE fi.id IN (${Prisma.join(ids.map(id => Prisma.sql`${id}`))})
-    ORDER BY fi.id ASC
-    LIMIT ${ids.length + 1} FOR UPDATE OF fi
-  `)
-  if (fiRows.length !== ids.length) return []
-  const ispIds = [...new Set(fiRows.flatMap(row => {
-    const id = asPositiveInteger(row.facturaISPId)
-    return id === null ? [] : [id]
-  }))].sort((left, right) => left - right)
-  if (ispIds.length) await tx.$queryRaw(Prisma.sql`
-    SELECT f.id FROM facturas f WHERE f.id IN (${Prisma.join(ispIds.map(id => Prisma.sql`${id}`))})
-    ORDER BY f.id ASC LIMIT ${ispIds.length + 1} FOR UPDATE OF f
-  `)
-  return tx.$queryRaw<SourceRow[]>(sourceEvidenceSelect(ids))
+  const rows: SourceRow[] = []
+  // `ids` is an ordered unique set produced by every caller. Process its
+  // contiguous chunks sequentially so competing confirmations still acquire
+  // FI then ISP locks in one global order; no partial evidence is accepted.
+  for (let offset = 0; offset < ids.length; offset += REMITTANCE_EVIDENCE_BATCH_SIZE) {
+    const batch = ids.slice(offset, offset + REMITTANCE_EVIDENCE_BATCH_SIZE)
+    if (!lock) {
+      rows.push(...await tx.$queryRaw<SourceRow[]>(sourceEvidenceSelect(batch)))
+      continue
+    }
+    // Lock FI first (the FK cannot change afterwards), then every present
+    // Factura, and finally reread the exact evidence. This is B7's FI/ISP
+    // source order; the immutable identity event is evidence only, never a
+    // relationship we may create.
+    const fiRows = await tx.$queryRaw<Array<{ facturaISPId: number | bigint | string | null }>>(Prisma.sql`
+      SELECT fi.factura_isp_id AS "facturaISPId"
+      FROM facturas_emitidas fi
+      WHERE fi.id IN (${Prisma.join(batch.map(id => Prisma.sql`${id}`))})
+      ORDER BY fi.id ASC
+      LIMIT ${batch.length + 1} FOR UPDATE OF fi
+    `)
+    if (fiRows.length !== batch.length) return []
+    const ispIds = [...new Set(fiRows.flatMap(row => {
+      const id = asPositiveInteger(row.facturaISPId)
+      return id === null ? [] : [id]
+    }))].sort((left, right) => left - right)
+    if (ispIds.length) await tx.$queryRaw(Prisma.sql`
+      SELECT f.id FROM facturas f WHERE f.id IN (${Prisma.join(ispIds.map(id => Prisma.sql`${id}`))})
+      ORDER BY f.id ASC LIMIT ${ispIds.length + 1} FOR UPDATE OF f
+    `)
+    rows.push(...await tx.$queryRaw<SourceRow[]>(sourceEvidenceSelect(batch)))
+  }
+  return rows
 }
 
 /** Current nonlocking projection read. It never uses a stored UI row as proof. */

@@ -881,23 +881,33 @@ export type ConciliarActionRunOptions = Readonly<{
 }>
 
 /**
+ * Costura server-side para una foto transaccional ya abierta. Conserva el
+ * parser cerrado, la identidad de runtime y la ACL B4 de lectura de la ruta
+ * pública; no crea recibos, B4, auditoría ni refresco. El host público sigue
+ * declarando su propia transacción READ ONLY antes de llegar aquí.
+ */
+export async function runConciliarReviewPreviewTx(tx: Tx, actorId: number, raw: unknown) {
+  const command = parseConciliarCommand(raw)
+  if (command.action !== 'confirmar' || !('review' in command) || command.review.kind !== 'REVIEW_PREVIEW') {
+    return fail(400, 'REVIEW_PREVIEW_INVALIDA', 'La acción no es una previsualización de revisión válida.')
+  }
+  await assertConciliarRuntime(tx)
+  const access = await requireB4ActorAccess(actorId, 'lectura', tx)
+  if ('response' in access) fail(access.response.status, 'ACCESS_REVOKED', 'Tu permiso para revisar la propuesta ya no está vigente.')
+  const review = { kind: 'REVIEW_PREVIEW' as const, id: command.review.id, decisionHash: command.review.decisionHash }
+  return previewArea3Review(tx, { action: 'confirmar', review })
+}
+
+/**
  * REVIEW_PREVIEW no crea recibos, no agenda refresh y no exige permiso de
  * escritura. El núcleo G7 se evalúa contra una foto declarada READ ONLY; un
  * bloqueo permanece ámbar con su razón llana y nunca promociona la fila a verde.
  */
 export async function runConciliarReviewPreview(actorId: number, raw: unknown) {
-  const command = parseConciliarCommand(raw)
-  if (command.action !== 'confirmar' || !('review' in command) || command.review.kind !== 'REVIEW_PREVIEW') {
-    return fail(400, 'REVIEW_PREVIEW_INVALIDA', 'La acción no es una previsualización de revisión válida.')
-  }
-  const review = {kind:'REVIEW_PREVIEW' as const,id:command.review.id,decisionHash:command.review.decisionHash}
   return db().$transaction(async base => {
     const tx = asTx(base)
     await tx.$executeRaw(Prisma.sql`SET TRANSACTION READ ONLY`)
-    await assertConciliarRuntime(tx)
-    const access = await requireB4ActorAccess(actorId, 'lectura', tx)
-    if ('response' in access) fail(access.response.status, 'ACCESS_REVOKED', 'Tu permiso para revisar la propuesta ya no está vigente.')
-    return previewArea3Review(tx, {action:'confirmar',review})
+    return runConciliarReviewPreviewTx(tx, actorId, raw)
   }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 10_000, timeout: 30_000 })
 }
 

@@ -12,6 +12,7 @@ import {
 import { ConciliarDbError } from '../lib/finanzas/conciliar-errors'
 import { conciliarPrecheckFailureReason } from '../lib/finanzas/conciliar-precheck'
 import { RemittancePaymentReceiptError } from '../lib/finanzas/remittance-payment-receipts-core'
+import { readArea3RemittanceMapPreflightsTx } from '../lib/finanzas/area3-remittance-map-db'
 
 const GENERATION = '11111111-1111-4111-8111-111111111111'
 const PROPOSAL_A = '22222222-2222-4222-8222-222222222222'
@@ -106,6 +107,23 @@ test('G7 cubre todas las propuestas hermanas de remesa y permite la misma FI en 
   assert.equal(result.complete, true)
   assert.equal(result.expectedReceiptCount, 2)
   assert.match(result.proposalSetHash ?? '', /^[a-f0-9]{64}$/)
+})
+
+test('G7 lee la evidencia FI en lotes acotados sin recortar la foto completa de propuestas', async () => {
+  const invoiceId = (index: number) => `00000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`
+  const generationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const raw = [0, 1].map(proposalIndex => ({
+    propuestaId: proposalIndex === 0 ? 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' : 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    generacionId: generationId,
+    metodo: 'REMESA_VENCIMIENTO',
+    lineas: [{ tipo: 'DOCUMENTO', tipoDocumento: 'REMESA', sourceId: String(proposalIndex + 1), importeCentimos: 10_010 }],
+    composicion: Array.from({ length: 1_001 }, (_, offset) => ({ facturaEmitidaId: invoiceId(proposalIndex * 1_001 + offset + 1), importeCentimos: 10 })),
+  }))
+  let queries = 0
+  const tx = { $queryRaw: async () => { queries += 1; return [] } }
+  const result = await readArea3RemittanceMapPreflightsTx(tx as any, raw)
+  assert.equal(result.size, 2)
+  assert.equal(queries, 2, '2.002 FI deben leerse como dos consultas acotadas, no rechazarse antes del preflight')
 })
 
 test('rebuild, delta y confirmación emplean el mismo helper externo y la confirmación corta antes de B4/B6/B7', () => {
