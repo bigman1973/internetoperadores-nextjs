@@ -41,8 +41,9 @@ import {
   type CollectionReservationPlan,
   type CollectionReservationProposal,
 } from './conciliar-collection-reservation'
-import { classifyConciliarOwnTransferReviews, conciliarOwnTransferReviewMotive, hasExactOwnRecipientEvidence, normalizedRegisteredOwnIban } from './conciliar-transfer-classifier'
+import { conciliarOwnTransferReviewMotive, normalizedRegisteredOwnIban } from './conciliar-transfer-classifier'
 import { readManualOwnAccountProofTx } from './conciliar-own-account-proof-db'
+import { classifyConciliarHumanOwnTransferRows } from './conciliar-human-own-transfer'
 import { remittanceSealForProposal } from './remittance-payment-receipts-db'
 import { area3RemittanceMapAmberReason, type Area3RemittanceMapPreflight } from './area3-remittance-map-core'
 import { lockArea3RemittanceMapPreflightsTx, readArea3RemittanceMapPreflightsTx } from './area3-remittance-map-db'
@@ -1371,22 +1372,18 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
     const iban = normalizedRegisteredOwnIban(row.iban)
     return iban ? [iban] : []
   }))
-  const transferReviews = classifyConciliarOwnTransferReviews({
+  const { reviews: transferReviews } = classifyConciliarHumanOwnTransferRows({
     movements: movements.map(movement => ({
-      id: String(movement.id), cuentaId: String(movement.cuentaId), fecha: String(movement.fecha),
-      importeCentimos: safeInteger(movement.importeCentimos) ?? 0, versionB4: safeInteger(movement.versionB4) ?? 0,
-      concepto: nullableText(movement.concepto), referencia: nullableText(movement.referencia),
-      infoAdicional: nullableText(movement.info_adicional), tercero: nullableText(movement.tercero), bancoCuenta: nullableText(movement.banco),
-      thirdPartyConfirmed: movement.tieneTerceroConfirmado === true,
-      documentaryLinked: movement.tieneVinculoDocumental === true,
-      ownRecipientExplicit: movement.tieneCuentaPropiaConfirmada === true || hasExactOwnRecipientEvidence({
-        id: String(movement.id), cuentaId: String(movement.cuentaId), fecha: String(movement.fecha),
-        importeCentimos: safeInteger(movement.importeCentimos) ?? 0, versionB4: safeInteger(movement.versionB4) ?? 0,
-        concepto: nullableText(movement.concepto), referencia: nullableText(movement.referencia),
-        infoAdicional: nullableText(movement.info_adicional), tercero: nullableText(movement.tercero), bancoCuenta: nullableText(movement.banco),
-      }, manualOwnIbanKeys),
+      id: movement.id, cuentaId: movement.cuentaId, fecha: movement.fecha,
+      importeCentimos: movement.importeCentimos, versionB4: movement.versionB4,
+      concepto: movement.concepto, referencia: movement.referencia,
+      infoAdicional: movement.info_adicional, tercero: movement.tercero, banco: movement.banco,
+      tieneTerceroConfirmado: movement.tieneTerceroConfirmado,
+      tieneVinculoDocumental: movement.tieneVinculoDocumental,
+      tieneCuentaPropiaConfirmada: movement.tieneCuentaPropiaConfirmada,
     })),
     attestedOwnAccountIds: manualOwnAccounts.proof.accountIds,
+    registeredAttestedOwnIbanKeys: manualOwnIbanKeys,
   })
   const rows: RebuildRow[] = []
   const clientIdentityProfiles = await readCollectionClientIdentityProfiles(tx, proposals.map(proposal => String(proposal.propuestaId)))
@@ -1489,7 +1486,7 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
         propuesta: null, seleccionable: false, diferenciaCentimos: 0,
         ...(oppositeMovementId ? { linksMovimiento: [{ id: oppositeMovementId, href: `/admin/finanzas/conciliar?tab=${pairTab}&q=${encodeURIComponent(oppositeMovementId)}`, etiqueta: 'Ver el posible movimiento de la otra cuenta' }] } : {}),
         detail: pairedExactly
-          ? 'Pareja de traspaso propio visible: esta fila no permite confirmar ni pedir documentación; la confirmación histórica mantiene su prueba estricta independiente.'
+          ? 'Pareja de traspaso propio comprobable: requiere la acción humana Confirmar pareja propia; no entra en la confirmación ni en el lote genéricos.'
           : 'Revisión de traspaso propio: esta fila no permite confirmar ni pedir documentación.',
       }), {
         kind: 'TRANSFERENCIA_PROPIA_MANUAL', movimientoId: id,

@@ -70,3 +70,23 @@ test('el resumen Emitidas incompleto, duplicado o inseguro se rechaza sin invent
   assert.throws(()=>parseConciliarReadResponse(readFixture([{group:'CON_PROPUESTA',count:-1,amountCentimos:1},{group:'PARA_REVISAR',count:0,amountCentimos:0},{group:'SIN_PROPUESTA',count:0,amountCentimos:0}])))
   assert.throws(()=>parseConciliarReadResponse(readFixture([{group:'CON_PROPUESTA',count:1.5,amountCentimos:1},{group:'PARA_REVISAR',count:0,amountCentimos:0},{group:'SIN_PROPUESTA',count:0,amountCentimos:0}])))
 })
+
+test('una pareja propia verde recibe capacidad humana sellada sin entrar en la selección genérica',()=>{
+  const response=readFixture([]) as any
+  response.emitidasGroups=[
+    {group:'CON_PROPUESTA',count:0,amountCentimos:0},
+    {group:'PARA_REVISAR',count:0,amountCentimos:0},
+    {group:'SIN_PROPUESTA',count:0,amountCentimos:0},
+  ]
+  response.rows=[{
+    id:'synthetic-manual-own-row',movimientoId:'synthetic-manual-own-leg',fecha:'2026-10-30',concepto:'Traspaso sintético',banco:'Banco sintético',cuenta:'Cuenta sintética',
+    importeCentimos:-12345,pendienteCentimos:-12345,color:'VERDE',grupo:'TRASPASOS_PROPIOS',motivo:'Pareja propia comprobable.',documento:null,propuesta:null,
+    seleccionable:false,diferenciaCentimos:0,linksMovimiento:[],detail:null,decisionHash:'a'.repeat(64),
+    accionHumana:{kind:'CONFIRMAR_PAREJA_PROPIA',pairId:'b'.repeat(64)},
+  }]
+  const parsed=parseConciliarReadResponse(response)
+  assert.equal(parsed.rows[0]?.seleccionable,false)
+  assert.deepEqual(parsed.rows[0]?.accionHumana,{kind:'CONFIRMAR_PAREJA_PROPIA',pairId:'b'.repeat(64)})
+  response.rows[0].accionHumana={kind:'OTRA',pairId:'b'.repeat(64)}
+  assert.throws(()=>parseConciliarReadResponse(response))
+})

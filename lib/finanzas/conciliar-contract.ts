@@ -26,7 +26,14 @@ export type ConciliarEmitidasGroup = typeof CONCILIAR_EMITIDAS_GROUPS[number]
 export type ConciliarGroup = typeof CONCILIAR_GROUPS[number]
 export type ConciliarSortField = typeof CONCILIAR_SORT_FIELDS[number]
 export type ConciliarSortDirection = typeof CONCILIAR_SORT_DIRECTIONS[number]
-export type ConciliarAction = 'confirmar' | 'deshacer' | 'pedir'
+export type ConciliarAction = 'confirmar' | 'confirmar_traspasos_propios_manual' | 'deshacer' | 'pedir'
+
+/** Capacidad sellada por servidor para una pareja manual; no es seleccionable
+ * por la confirmación genérica ni contiene una orden B4 del navegador. */
+export type ConciliarHumanAction = Readonly<{
+  kind: 'CONFIRMAR_PAREJA_PROPIA'
+  pairId: string
+}>
 
 export type ConciliarDocument = Readonly<{
   referencia: string
@@ -54,6 +61,7 @@ export type ConciliarRow = Readonly<{
   propuesta: string | null
   seleccionable: boolean
   diferenciaCentimos: number
+  accionHumana?: ConciliarHumanAction
   linksMovimiento?: readonly ConciliarMovementLink[]
   detail: string | null
   decisionHash: string
@@ -100,6 +108,14 @@ export type ConciliarConfirmCommand = Readonly<{
   items: readonly ConciliarConfirmItem[]
   responseView?: ConciliarResponseView
 }>
+/** Cada elemento identifica sólo una fila sellada; el servidor deriva la pareja,
+ * cuentas, importes, prueba y versiones desde la proyección y las filas bloqueadas. */
+export type ConciliarHumanOwnTransferConfirmCommand = Readonly<{
+  action: 'confirmar_traspasos_propios_manual'
+  idempotencyKey: string
+  items: readonly ConciliarConfirmItem[]
+  responseView?: ConciliarResponseView
+}>
 export type ConciliarUndoCommand = Readonly<{
   action: 'deshacer'
   operationId: string
@@ -113,7 +129,7 @@ export type ConciliarAskCommand = Readonly<{
   idempotencyKey: string
   responseView?: ConciliarResponseView
 }>
-export type ConciliarCommand = ConciliarConfirmCommand | ConciliarUndoCommand | ConciliarAskCommand
+export type ConciliarCommand = ConciliarConfirmCommand | ConciliarHumanOwnTransferConfirmCommand | ConciliarUndoCommand | ConciliarAskCommand
 
 /** Datos de fuente persistidos en la proyección; nunca se reciben del navegador. */
 export type ConciliarProjectionSource = Readonly<{
@@ -272,8 +288,8 @@ export function parseConciliarGetInput(raw: Readonly<Record<string, string | nul
   return { tab: tab as ConciliarTab, ...(desde ? { desde } : {}), ...(hasta ? { hasta } : {}), ...(cuentaId ? { cuentaId } : {}), ...(q ? { q } : {}), ...(emitidasGrupo ? { emitidasGrupo: emitidasGrupo as ConciliarEmitidasGroup } : {}), ...(estado ? { estado: estado as ConciliarColor } : {}), ...(grupo ? { grupo: grupo as ConciliarGroup } : {}), ...(orden ? { orden: orden as ConciliarSortField } : {}), ...(direccion ? { direccion: direccion as ConciliarSortDirection } : {}), cutoffDate, historic, limit, offset }
 }
 
-function parseConfirmItems(raw: unknown): readonly ConciliarConfirmItem[] {
-  if (!Array.isArray(raw) || raw.length < 1 || raw.length > CONCILIAR_MAX_ITEMS) fail(400, 'VALIDATION_ERROR', `Selecciona entre una y ${CONCILIAR_MAX_ITEMS} filas.`)
+function parseConfirmItems(raw: unknown, maximum = CONCILIAR_MAX_ITEMS): readonly ConciliarConfirmItem[] {
+  if (!Array.isArray(raw) || raw.length < 1 || raw.length > maximum) fail(400, 'VALIDATION_ERROR', `Selecciona entre una y ${maximum} filas.`)
   const ids = new Set<string>()
   const parsed = raw.map((entry, index) => {
     const value = exactKeys(entry, ['id', 'decisionHash'])
@@ -291,6 +307,12 @@ export function parseConciliarCommand(raw: unknown): ConciliarCommand {
   if (root.action === 'confirmar') {
     const value = commandKeys(root, ['action', 'idempotencyKey', 'items'])
     return { action: 'confirmar', idempotencyKey: uuid(value.idempotencyKey, 'idempotencyKey'), items: parseConfirmItems(value.items), ...(value.responseView === undefined ? {} : { responseView: responseView(value.responseView) }) }
+  }
+  if (root.action === 'confirmar_traspasos_propios_manual') {
+    const value = commandKeys(root, ['action', 'idempotencyKey', 'items'])
+    // El lote humano tiene como unidad una pareja; se admite una sola pata por
+    // pareja y nunca más de veinte confirmaciones atómicas en este comando.
+    return { action: 'confirmar_traspasos_propios_manual', idempotencyKey: uuid(value.idempotencyKey, 'idempotencyKey'), items: parseConfirmItems(value.items, 20), ...(value.responseView === undefined ? {} : { responseView: responseView(value.responseView) }) }
   }
   if (root.action === 'deshacer') {
     const value = commandKeys(root, ['action', 'operationId', 'idempotencyKey'])

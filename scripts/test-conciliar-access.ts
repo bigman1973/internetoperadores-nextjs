@@ -40,7 +40,7 @@ test('Conciliar es una entrada acotada de staging, no una ampliación de producc
 
 test('actuar como sólo autoriza las decisiones manuales de Conciliar con el permiso del destino', () => {
   assert(impersonationRequestAllowed('/admin/finanzas/conciliar', 'GET'))
-  for (const action of ['confirmar', 'deshacer', 'pedir']) {
+  for (const action of ['confirmar', 'confirmar_traspasos_propios_manual', 'deshacer', 'pedir']) {
     const route = impersonationRouteDecision('/api/admin/finanzas/conciliar', 'POST', new URLSearchParams(), 10, action)
     assert(route.allowed)
     assert.equal(route.targetOnly, true)

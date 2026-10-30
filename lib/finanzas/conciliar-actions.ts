@@ -17,6 +17,7 @@ import { conciliarAliasesMatch, conciliarRequestHash, safeInteger } from './conc
 import { deleteConciliarBatchProjectionRowsTx, readConciliarConfirmBatchForActionTx, tryConfirmConciliarBankFeeBatchTx } from './conciliar-batch'
 import type { ConciliarBatchProgress } from './conciliar-stream'
 import { confirmConciliarTransferTx, undoConciliarPairedTransferTx } from './conciliar-transfers'
+import { assertConciliarHumanOwnTransferPrimaryUndoTx, confirmConciliarHumanOwnTransferTx, humanOwnTransferActionForProjection, lockConciliarHumanOwnTransferUndoTx, parseConciliarHumanOwnTransferSource, undoConciliarHumanOwnTransferTx } from './conciliar-human-own-transfer'
 import { ConciliarDbError, conciliarDbErrorResponse, movementPartyAliases, payrollPeriodMatches, readConciliarProjectionTx, readConciliarRowForAction, restoreLiveBankFeeProjectionBatchTx, unresolvedMovements } from './conciliar-db'
 import { applyConciliarProjectionDeltaTx } from './conciliar-delta'
 import { knownBankFeeUndoMovements } from './conciliar-fee-undo'
@@ -491,6 +492,10 @@ async function askRow(tx: Tx, actorId: number, operationId: string, row: Awaited
 }
 
 async function undoB4Leg(tx: Tx, actorId: number, operationId: string, ordinal: number, leg: any) {
+  const receiptResult = json(leg.result)
+  if (receiptResult.sourceKind === 'TRANSFERENCIA_PROPIA_MANUAL') {
+    await lockConciliarHumanOwnTransferUndoTx(tx, receiptResult)
+  }
   const operationIdB4 = leg.operationB4Id as string
   const operation = await tx.$queryRaw<Array<{ movementId: string; version: number | bigint; state: string; reverted: Date | null }>>(Prisma.sql`
     SELECT o.movimiento_id AS "movementId",o.version_resultante AS version,o.estado::text AS state,o.revertida_at AS reverted
@@ -501,10 +506,15 @@ async function undoB4Leg(tx: Tx, actorId: number, operationId: string, ordinal: 
   const current = await tx.$queryRaw<Array<{ version: number | bigint }>>(Prisma.sql`SELECT version FROM estado_justificacion_movimientos WHERE movimiento_id=${original.movementId} LIMIT 1 FOR UPDATE`)
   const active = await tx.$queryRaw<Array<{ id: string; amount: number | bigint }>>(Prisma.sql`SELECT id::text,importe_centimos AS amount FROM vinculos_movimiento_documento WHERE operacion_creacion_id=CAST(${operationIdB4} AS uuid) AND activo=true ORDER BY id ASC`)
   if (!current[0] || Number(current[0].version) !== Number(original.version)) fail(409, 'RECIBO_CAMBIADO', 'El movimiento fue modificado después de confirmar. Actualiza la lista.')
-  const priorResult = json(leg.result)
+  const priorResult = receiptResult
+  if (priorResult.sourceKind === 'TRANSFERENCIA_PROPIA_MANUAL') {
+    await assertConciliarHumanOwnTransferPrimaryUndoTx(tx, actorId, priorResult, operationIdB4)
+  }
   const pairedReversal = priorResult.sourceKind === 'TRANSFERENCIA_PROPIA'
     ? await undoConciliarPairedTransferTx(tx, actorId, priorResult, operationId)
-    : null
+    : priorResult.sourceKind === 'TRANSFERENCIA_PROPIA_MANUAL'
+      ? await undoConciliarHumanOwnTransferTx(tx, actorId, priorResult, operationId)
+      : null
   const reversal: any = await deshacerB4Tx(tx, actorId, {
     action: 'deshacer', confirmacion: true, idempotencyKey: uuidKey('CONCILIAR_UNDO', operationId, leg.rowId), version: Number(current[0].version), operacionId: operationIdB4,
     lineas: active.map(line => ({ id: line.id, importeCentimos: Number(line.amount) })),
@@ -611,6 +621,72 @@ async function confirm(tx: Tx, actorId: number, command: Extract<ConciliarComman
   return { operationId: receipt.id, idempotent: false, ...result, ...(projection ? { projection } : {}) }
 }
 
+/**
+ * Ruta humana explícita, distinta de confirmar: cada item representa una pareja
+ * sellada y sólo el servidor deriva su otra pata, importes, titularidad y B4.
+ * Mantiene `seleccionable:false`, por lo que el lote ordinario nunca la absorbe.
+ */
+async function confirmHumanOwnTransfers(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar_traspasos_propios_manual' }>) {
+  const receipt = await lockOperationOrReplay(tx, actorId, 'CONFIRMAR', command.idempotencyKey, conciliarRequestHash(actorId, command))
+  if (receipt.replay) return { operationId: receipt.id, idempotent: true, ...receipt.result }
+  await projectionStateAtActionStart(tx)
+  const rows: Array<Awaited<ReturnType<typeof readConciliarRowForAction>>> = []
+  const pairIds = new Set<string>()
+  const movementIds = new Set<string>()
+  for (const item of command.items) {
+    const row = await readConciliarRowForAction(tx, item.id)
+    if (row.decisionHash !== item.decisionHash) {
+      fail(409, 'DECISION_CAMBIADA', 'Esta pareja cambió desde que abriste la página. Pulsa Actualizar y vuelve a confirmar.')
+    }
+    const action = humanOwnTransferActionForProjection({ color: row.color, seleccionable: row.seleccionable, grupo: row.grupo, source: row.source })
+    const source = parseConciliarHumanOwnTransferSource(row.source)
+    // A projection id is only an opaque selector. Before its source can reach
+    // the pair engine, bind it back to this exact visible primary movement.
+    // This prevents a corrupt/stale persisted row from using a valid source of
+    // some other movement as its B4 write instruction.
+    if (!action || !source || row.movimientoId !== source.movimientoId) {
+      fail(422, 'PAREJA_NO_CONFIRMABLE', 'Esta fila ya no permite confirmar una pareja propia. Actualiza la lista.')
+    }
+    if (pairIds.has(action.pairId)) {
+      fail(422, 'PAREJA_REPETIDA', 'La selección contiene las dos patas de la misma pareja propia.')
+    }
+    if (movementIds.has(source.movimientoId) || movementIds.has(source.movimientoParId)) {
+      fail(422, 'MOVIMIENTO_REPETIDO', 'La selección repite una pata de una pareja propia.')
+    }
+    pairIds.add(action.pairId)
+    movementIds.add(source.movimientoId)
+    movementIds.add(source.movimientoParId)
+    rows.push(row)
+  }
+  if (rows.length !== command.items.length || rows.length < 1 || rows.length > 20) {
+    fail(400, 'VALIDATION_ERROR', 'Selecciona entre una y veinte parejas propias.')
+  }
+
+  const legs: Array<{ ordinal: number; rowId: string; movimientoId: string | null; operationB4Id: string; result: Record<string, unknown> }> = []
+  const outcomes: Array<Record<string, unknown>> = []
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index]
+    const result = await confirmConciliarHumanOwnTransferTx(tx, actorId, receipt.id, row.source, row.importeCentimos)
+    legs.push({ ordinal: index + 1, rowId: row.id, movimientoId: row.movimientoId, operationB4Id: result.operationB4Id, result: result.result })
+    outcomes.push({ id: row.id, ok: true, code: 'PAREJA_CONFIRMADA', message: 'Pareja propia confirmada. Puedes deshacer la pareja completa.', operationId: receipt.id })
+  }
+  await appendLegs(tx, receipt.id, legs)
+  // Las dos patas se retiran a la vez sólo después del recibo íntegro del lote.
+  await deleteConciliarBatchProjectionRowsTx(tx, [...movementIds])
+  const result = {
+    ok: true,
+    outcomes,
+    applied: rows.length,
+    failed: 0,
+    reversible: true,
+    confirmationMode: 'HUMANA_PAREJA_ATESTADA_V1',
+    projectionSynchronized: false,
+    refreshedAt: new Date().toISOString(),
+  }
+  await complete(tx, receipt.id, 'APLICADA', result)
+  return { operationId: receipt.id, idempotent: false, ...result }
+}
+
 async function ask(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'pedir' }>) {
   const receipt = await lockOperationOrReplay(tx, actorId, 'PEDIR', command.idempotencyKey, conciliarRequestHash(actorId, command))
   if (receipt.replay) return { operationId: receipt.id, idempotent: true, ...receipt.result }
@@ -673,6 +749,7 @@ async function undo(tx: Tx, actorId: number, command: Extract<ConciliarCommand, 
 export async function runConciliarTransactionCommand(tx: Tx, actorId: number, raw: unknown, onProgress?: (event: ConciliarBatchProgress) => void) {
   const command = parseConciliarCommand(raw)
   if (command.action === 'confirmar') return confirm(tx, actorId, command, onProgress)
+  if (command.action === 'confirmar_traspasos_propios_manual') return confirmHumanOwnTransfers(tx, actorId, command)
   if (command.action === 'pedir') return ask(tx, actorId, command)
   return undo(tx, actorId, command)
 }

@@ -209,9 +209,21 @@ function parseLinks(value: unknown, field: string): readonly ConciliarMovementLi
   });
 }
 
+/** Capacidad sellada por servidor: la UI sólo agrupa por pairId y devuelve id +
+ * decisionHash. Nunca aporta importes, movimientos, cuentas o pruebas al POST. */
+function humanAction(value: unknown, field: string): NonNullable<ConciliarRow['accionHumana']> | undefined {
+  if (value === undefined) return undefined;
+  const raw = object(value, field);
+  if (Object.keys(raw).length !== 2 || raw.kind !== 'CONFIRMAR_PAREJA_PROPIA' || !SHA256.test(text(raw.pairId, `${field}.pairId`, 64))) {
+    throw new Error(`La respuesta no incluye ${field} correctamente.`);
+  }
+  return { kind: 'CONFIRMAR_PAREJA_PROPIA', pairId: String(raw.pairId).toLowerCase() };
+}
+
 function parseRow(value: unknown, field: string): ConciliarRow {
   const raw = object(value, field);
   let gestionDocumento: ConciliarRow['gestionDocumento'];
+  const accionHumana = humanAction(raw.accionHumana, `${field}.accionHumana`);
   if (raw.gestionDocumento !== undefined) {
     const management = object(raw.gestionDocumento, `${field}.gestionDocumento`);
     if (!['SIN_PEDIR', 'PEDIDO', 'PEDIDO_SIN_AUDITORIA', 'RECIBIDO'].includes(String(management.estado))) throw new Error('El estado de pedido no es válido.');
@@ -240,6 +252,7 @@ function parseRow(value: unknown, field: string): ConciliarRow {
     linksMovimiento: parseLinks(raw.linksMovimiento, `${field}.linksMovimiento`),
     detail: nullableText(raw.detail, `${field}.detail`, 1_600),
     decisionHash: decisionHash(raw.decisionHash, `${field}.decisionHash`),
+    ...(accionHumana ? { accionHumana } : {}),
     ...(gestionDocumento ? { gestionDocumento } : {}),
   };
 }

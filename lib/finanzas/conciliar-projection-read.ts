@@ -18,6 +18,7 @@ import { conciliarDecisionHash, isoDay, safeInteger } from './conciliar-core'
 import { ConciliarDbError } from './conciliar-errors'
 import { parseParaPedirRequestMetadataRows } from './para-pedir-request-metadata'
 import { safeConciliarDocumentHref } from './conciliar-file-href'
+import { humanOwnTransferActionForProjection } from './conciliar-human-own-transfer'
 
 type Tx = Prisma.TransactionClient & Record<string, any>
 type Db = PrismaClient & Record<string, any>
@@ -137,7 +138,12 @@ export function projectionRow(row: ProjectionSqlRow): ConciliarRow & { source: C
   }
   const updated = new Date(String(row.updated_at))
   if (!Number.isFinite(updated.getTime())) fail(409, 'PROYECCION_CORRUPTA', 'La proyección no conserva una fecha de actualización válida.')
-  return { ...view, decisionHash: conciliarDecisionHash({ row: view, source, sourceFingerprint }), source, sourceFingerprint, updatedAt: updated.toISOString() }
+  const accionHumana = humanOwnTransferActionForProjection({ color: view.color, seleccionable: view.seleccionable, grupo: view.grupo, source })
+  return {
+    ...view,
+    ...(accionHumana ? { accionHumana } : {}),
+    decisionHash: conciliarDecisionHash({ row: view, source, sourceFingerprint }), source, sourceFingerprint, updatedAt: updated.toISOString(),
+  }
 }
 
 function groupFilter(group: ConciliarGetInput['grupo']): Prisma.Sql | null {
