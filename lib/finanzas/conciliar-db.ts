@@ -44,6 +44,8 @@ import {
 import { classifyConciliarOwnTransferReviews, conciliarOwnTransferReviewMotive, hasExactOwnRecipientEvidence, normalizedRegisteredOwnIban } from './conciliar-transfer-classifier'
 import { readManualOwnAccountProofTx } from './conciliar-own-account-proof-db'
 import { remittanceSealForProposal } from './remittance-payment-receipts-db'
+import { area3RemittanceMapAmberReason, type Area3RemittanceMapPreflight } from './area3-remittance-map-core'
+import { lockArea3RemittanceMapPreflightsTx, readArea3RemittanceMapPreflightsTx } from './area3-remittance-map-db'
 import {
   conciliarDocumentLifecycleBatchSourceKey,
   conciliarDocumentLifecycleGuardMessage,
@@ -365,7 +367,7 @@ export async function unresolvedMovements(tx: Tx, movementId?: string) {
 async function liveCollectionProposals(tx: Tx, proposalId?: string) {
   return tx.$queryRaw<Array<any>>(Prisma.sql`
     WITH current_generation AS (SELECT id FROM modo_facil_generaciones_cobro ORDER BY creada_at DESC,id DESC LIMIT 1)
-    SELECT p.id::text AS "propuestaId",p.movimiento_id AS "movimientoId",p.movimiento_par_id AS "movimientoParId",p.fingerprint,p.metodo,p.nivel,p.estado_propuesto AS "estadoPropuesto",p.composicion,p.explicacion,
+    SELECT p.id::text AS "propuestaId",p.generacion_id::text AS "generacionId",p.movimiento_id AS "movimientoId",p.movimiento_par_id AS "movimientoParId",p.fingerprint,p.metodo,p.nivel,p.estado_propuesto AS "estadoPropuesto",p.composicion,p.explicacion,
       p.lineas,p.importe_movimiento_centimos AS "importeCentimos",p.motivo_no_requiere AS "motivoNoRequiere"
     FROM modo_facil_propuestas_cobro p JOIN current_generation g ON g.id=p.generacion_id
     WHERE p.estado_propuesto IN ('JUSTIFICADO','NO_REQUIERE')
@@ -728,6 +730,8 @@ export function collectionReservationResolution(input: Readonly<{
   clientIdentityByProposal: ReadonlyMap<string, CollectionClientIdentityProfile>
   /** Canonical FI rows already loaded by B7 for the current rebuild/action/delta. */
   remittanceCurrentInvoices?: CurrentRemittanceInvoices
+  /** Preflight FI→ISP→remesa; no se interpreta una ausencia como evidencia. */
+  remittanceMapPreflights?: ReadonlyMap<string, Area3RemittanceMapPreflight>
   reservations?: readonly CollectionDocumentReservation[]
 }>): CollectionReservationResolution {
   const movementById = new Map(input.movements.map(movement => [String(movement.id), movement]))
@@ -763,8 +767,10 @@ export function collectionReservationResolution(input: Readonly<{
         lineas: proposal.lineas, composicion: proposal.composicion,
       })
       : null
+    const mapComplete = !isRemittanceMethod(proposal.metodo)
+      || input.remittanceMapPreflights?.get(proposalKey)?.complete === true
     const remittanceComplete = !isRemittanceMethod(proposal.metodo)
-      || remittanceCompositionMatchesPersistedImporter(remittanceSeal, proposal.composicion, amount ?? 0, input.remittanceCurrentInvoices)
+      || (mapComplete && remittanceCompositionMatchesPersistedImporter(remittanceSeal, proposal.composicion, amount ?? 0, input.remittanceCurrentInvoices))
     candidates.push({
       proposalKey, movementKey, projection: 'BANK_MOVEMENT', state: 'ACTIVE',
       quote: proposal.nivel === 'EXACTA' && remittanceComplete ? 'EXACT' : 'AMBER',
@@ -830,14 +836,21 @@ export async function assertLiveCollectionProjectionForActionTx(base: Prisma.Tra
   const profiles = await readCollectionClientIdentityProfiles(base,proposals.map(item => String(item.propuestaId)))
   if (!profiles) fail(409,'DECISION_CAMBIADA','No se puede comprobar la evidencia documental vigente. Actualiza la lista.')
   const invoiceDates = new Map(bank.invoices.map(item=>[item.invoiceId,item.fechaISO]))
+  // Relee y bloquea exactamente FI→ISP→remesa antes de permitir B4. La UI no
+  // aporta este dato y una foto verde anterior no sirve como autorización.
+  const remittanceMapPreflights = await lockArea3RemittanceMapPreflightsTx(base,proposals)
+  const remittanceMapPreflight = remittanceMapPreflights.get(source.propuestaId)
+  if (isRemittanceMethod(proposal.metodo) && remittanceMapPreflight?.complete !== true) {
+    fail(422, 'MAPA_FI_ISP_REMESA_INEXACTO', `${area3RemittanceMapAmberReason(remittanceMapPreflight)} La confirmación requiere el enlace FI–ISP explícito y vigente.`)
+  }
   const collectionReservations = collectionReservationResolution({
     proposals,movements,invoiceDates,issuedReferences:bank.invoices.map(item=>item.numFactura),
-    clientIdentityByProposal:profiles,reservations,remittanceCurrentInvoices:currentRemittanceInvoices(bank.invoices),
+    clientIdentityByProposal:profiles,reservations,remittanceCurrentInvoices:currentRemittanceInvoices(bank.invoices),remittanceMapPreflights,
   })
   if (collectionReservations.selectedByMovement.get(source.movimientoId)?.propuestaId !== source.propuestaId) {
     fail(409,'DECISION_CAMBIADA','La reserva documental de este cobro cambió. Actualiza la lista.')
   }
-  const current = collectionProjectionForMovement(movement,proposal,invoiceDates,bank.invoices.map(item=>item.numFactura),profiles.get(source.propuestaId))
+  const current = collectionProjectionForMovement(movement,proposal,invoiceDates,bank.invoices.map(item=>item.numFactura),profiles.get(source.propuestaId),false,remittanceMapPreflight)
   if (current.row.id!==expected.id || current.row.importeCentimos!==expected.importeCentimos || current.row.color!=='VERDE' || !current.row.seleccionable) fail(409,'DECISION_CAMBIADA','El cobro ya no coincide exactamente con la documentación y el cliente actuales. Actualiza la lista.')
 }
 
@@ -1062,6 +1075,7 @@ export function collectionProjectionForMovement(
   issuedReferences?: readonly unknown[],
   clientIdentity?: CollectionClientIdentityProfile,
   reservationReviewOnly = false,
+  remittanceMapPreflight?: Area3RemittanceMapPreflight,
 ): RebuildRow {
   const id = String(movement.id), amount = cents(movement.importeCentimos, 'El movimiento')
   const fecha = day(movement.fecha, 'El movimiento'), concepto = textoSeguro(movement.concepto)
@@ -1074,10 +1088,13 @@ export function collectionProjectionForMovement(
   const documentaryDifference = compositionTotal !== null && Number.isSafeInteger(compositionTotal) ? amount - compositionTotal : 0
   const remesaProposal = proposalRow && /^REMESA_/.test(String(proposalRow.metodo))
   const remesaSeal = remesaProposal ? remittanceSealForProposal({ propuestaId: String(proposalRow.propuestaId), movimientoId: id, fingerprint: String(proposalRow.fingerprint), metodo: String(proposalRow.metodo), importeMovimientoCentimos: amount, lineas: proposalRow.lineas, composicion: proposalRow.composicion }) : null
-  const green = !reservationReviewOnly && status.green && (!remesaProposal || remesaSeal !== null)
+  const mapComplete = !remesaProposal || remittanceMapPreflight?.complete === true
+  const green = !reservationReviewOnly && status.green && (!remesaProposal || (remesaSeal !== null && mapComplete))
   const color: ConciliarColor = green ? 'VERDE' : proposalRow ? 'AMBAR' : 'ROJO'
-  const motivo = reservationReviewOnly
-    ? 'La propuesta de cobro requiere revisión antes de confirmar.'
+  const motivo = remesaProposal && !mapComplete
+      ? area3RemittanceMapAmberReason(remittanceMapPreflight)
+    : reservationReviewOnly
+      ? 'La propuesta de cobro requiere revisión antes de confirmar.'
     : remesaProposal && !remesaSeal
       ? 'La remesa necesita una composición íntegra de sus facturas antes de confirmarla.'
       : green ? status.reason : proposalRow
@@ -1376,9 +1393,12 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
   const clientIdentityByProposal = clientIdentityProfiles ?? new Map<string, CollectionClientIdentityProfile>()
   const invoiceDates = new Map(bank.invoices.map(item => [item.invoiceId, item.fechaISO]))
   const issuedReferences = bank.invoices.map(item => item.numFactura)
+  // Índice exclusivo de fuentes ya importadas. No modifica ni recalcula B7: sólo
+  // decide si la misma cadena que B7 exigirá está presente para pintar la fila.
+  const remittanceMapPreflights = await readArea3RemittanceMapPreflightsTx(tx, proposals)
   const collectionReservations = collectionReservationResolution({
     proposals, movements, invoiceDates, issuedReferences, clientIdentityByProposal, reservations,
-    remittanceCurrentInvoices: currentRemittanceInvoices(bank.invoices),
+    remittanceCurrentInvoices: currentRemittanceInvoices(bank.invoices), remittanceMapPreflights,
   })
   const receivedByCounterparty = new Map<string, any[]>()
   for (const invoice of invoices) {
@@ -1493,7 +1513,8 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
       const reservationReviewOnly = !selectedProposal && !!reviewProposal
       const clientIdentity = proposalRow ? clientIdentityByProposal.get(String(proposalRow.propuestaId)) : undefined
       const proposalStatus = collectionProposalStatus({ proposal: proposalRow, amount, fechaBanco: fecha, conceptoBanco: concepto, movementAliases: movementPartyAliases(movement), invoiceDates, issuedReferences, movementId: id, clientIdentity })
-      const collection = collectionProjectionForMovement(movement, proposalRow, invoiceDates, issuedReferences, clientIdentity, reservationReviewOnly)
+      const collection = collectionProjectionForMovement(movement, proposalRow, invoiceDates, issuedReferences, clientIdentity, reservationReviewOnly,
+        proposalRow ? remittanceMapPreflights.get(String(proposalRow.propuestaId)) : undefined)
       rows.push(collection)
       // A displayed review is deliberately not a documentary reservation. The
       // EMITIDAS mirror may only receive a selected exact G1 proposal.

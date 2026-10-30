@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { readBankInvoicingPopulation, type B7ReadDatabase } from '@/lib/finanzas/bank-invoicing-db'
 import { readConciliarConfirmingCandidates } from './conciliar-confirming'
+import { readArea3RemittanceMapPreflightsTx } from './area3-remittance-map-db'
 import {
   applyConciliarDocumentLifecycleGuardToRebuildRowsTx,
   collectionReservationResolution,
@@ -267,7 +268,7 @@ async function proposalsTouchingInvoices(tx: Tx, invoiceIds: readonly string[]):
   if (!invoiceIds.length) return []
   const rows = await tx.$queryRaw<ProposalRow[]>(Prisma.sql`
     WITH current_generation AS (SELECT id FROM modo_facil_generaciones_cobro ORDER BY creada_at DESC,id DESC LIMIT 1)
-    SELECT p.id::text AS "propuestaId",p.movimiento_id AS "movimientoId",p.movimiento_par_id AS "movimientoParId",p.fingerprint,p.metodo,p.nivel,
+    SELECT p.id::text AS "propuestaId",p.generacion_id::text AS "generacionId",p.movimiento_id AS "movimientoId",p.movimiento_par_id AS "movimientoParId",p.fingerprint,p.metodo,p.nivel,
       p.estado_propuesto AS "estadoPropuesto",p.composicion,p.explicacion,p.lineas,p.importe_movimiento_centimos AS "importeCentimos",p.motivo_no_requiere AS "motivoNoRequiere",
       m.fecha_operacion::date::text AS fecha,m.concepto,m.referencia,m.info_adicional AS "info_adicional",m.tercero,
       b4_importe_bancario_centimos(m.importe) AS "importeCentimosMovimiento",c.id AS "cuentaId",c.banco,c.alias AS cuenta,COALESCE(e.version,1) AS "versionB4"
@@ -436,10 +437,11 @@ async function rebuildClosedCobros(
   }
   let collectionReservations
   try {
+    const remittanceMapPreflights = await readArea3RemittanceMapPreflightsTx(tx, proposals)
     collectionReservations = collectionReservationResolution({
       proposals, movements: [...uniqueMovements.values()], invoiceDates, issuedReferences,
       clientIdentityByProposal, reservations,
-      remittanceCurrentInvoices,
+      remittanceCurrentInvoices, remittanceMapPreflights,
     })
   } catch {
     return null
@@ -456,7 +458,8 @@ async function rebuildClosedCobros(
       const reservationReviewOnly = !selectedProposal && !!reviewProposal
       row = confirmingCandidate
         ? await confirmingProjectionForMovement(tx, movement, confirmingCandidate)
-        : collectionProjectionForMovement(movement, proposal, invoiceDates, issuedReferences, proposal ? clientIdentityByProposal.get(String(proposal.propuestaId)) : undefined, reservationReviewOnly)
+        : collectionProjectionForMovement(movement, proposal, invoiceDates, issuedReferences, proposal ? clientIdentityByProposal.get(String(proposal.propuestaId)) : undefined, reservationReviewOnly,
+          proposal ? remittanceMapPreflights.get(String(proposal.propuestaId)) : undefined)
     } catch {
       return null
     }

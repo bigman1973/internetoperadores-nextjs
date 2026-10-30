@@ -42,7 +42,10 @@ test('el constructor mantiene la propuesta de revisión visible pero nunca selec
   const constructor = between(db, 'export function collectionProjectionForMovement', 'export async function confirmingProjectionForMovement')
   assert.match(constructor, /reservationReviewOnly = false/)
   assert.match(constructor, /const green = !reservationReviewOnly && status\.green/)
-  assert.match(constructor, /motivo = reservationReviewOnly/)
+  // G7 puede exponer antes el motivo documental de mapa; la fila permanece
+  // visible y no autorizable igual que la revisión genérica.
+  assert.match(constructor, /motivo = remesaProposal && !mapComplete/)
+  assert.match(constructor, /: reservationReviewOnly/)
   assert.match(constructor, /'La propuesta de cobro requiere revisión antes de confirmar\.'/)
 })
 
