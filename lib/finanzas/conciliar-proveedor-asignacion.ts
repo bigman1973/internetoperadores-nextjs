@@ -37,6 +37,7 @@ export type ConciliarProviderPayment = Readonly<{
 export type ConciliarProviderAssignmentReason =
   | 'REFERENCIA_EXACTA'
   | 'SIN_REFERENCIA_DOCUMENTAL'
+  | 'REFERENCIA_NUMERO_INCOMPLETO'
   | 'IMPORTE_PEQUENO_DISTINTO'
   | 'FECHA_DOCUMENTO_POSTERIOR'
   | 'PROVEEDOR_SOLO_DOCUMENTAL'
@@ -250,6 +251,18 @@ function reviewReason(payment: ConciliarProviderPayment, candidate: ConciliarPro
   if (candidate.importeDisponibleCentimos !== payment.importeBancoCentimos) return 'IMPORTE_PEQUENO_DISTINTO'
   return 'PROVEEDOR_SOLO_DOCUMENTAL'
 }
+/** Un número desnudo no acredita la serie del proveedor. Puede conservar una
+ * candidata exacta para revisión humana, pero nunca reemplaza una referencia
+ * alfanumérica completa ni iguala importes distintos. */
+function incompleteNumericReview(payment: ConciliarProviderPayment, references: readonly string[], candidate: ConciliarProviderInvoiceCandidate): boolean {
+  if (references.length !== 1 || !/^\d{4,12}$/.test(references[0] ?? '')) return false
+  const candidateReference = typeof candidate.referencia === 'string'
+    ? candidate.referencia.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[\s./:-]/g, '') : null
+  return !!candidateReference && /^[A-Z]\d{4,12}$/.test(candidateReference)
+    && (candidate.providerMatch === 'EXACT' || candidate.providerMatch === 'DOCUMENTARY')
+    && candidate.fecha! <= payment.fecha
+    && candidate.importeDisponibleCentimos === payment.importeBancoCentimos
+}
 
 /**
  * Produces precisely one decision per payment. An invoice selected in any exact
@@ -317,7 +330,7 @@ export function assignConciliarProviderPayments(input: readonly ConciliarProvide
     const references = referencesByMovement.get(payment.movementId) ?? []
     const candidates = [...(candidateIndex.get(payment.movementId)?.values() ?? [])]
       .filter(candidate => !protectedExact.has(candidate.invoiceId))
-      .filter(candidate => sameDocumentReference(candidate, references))
+      .filter(candidate => sameDocumentReference(candidate, references) || incompleteNumericReview(payment, references, candidate))
       .filter(candidate => Math.abs(candidate.importeDisponibleCentimos - payment.importeBancoCentimos) <= CONCILIAR_PROVIDER_SMALL_DIFFERENCE_CENTS)
       .sort((left, right) => left.invoiceId.localeCompare(right.invoiceId))
     reviewCandidates.set(payment.movementId, candidates)
@@ -329,7 +342,10 @@ export function assignConciliarProviderPayments(input: readonly ConciliarProvide
     const candidate = candidateFor(invoiceId, candidateIndex.get(movementId)!)
     if (!candidate) continue
     reviewReserved.add(invoiceId)
-    decisions.set(movementId, { movementId, kind: 'REVIEW', reason: reviewReason(payment, candidate), invoiceId })
+    const references = referencesByMovement.get(movementId) ?? []
+    const reason = !sameDocumentReference(candidate, references) && incompleteNumericReview(payment, references, candidate)
+      ? 'REFERENCIA_NUMERO_INCOMPLETO' : reviewReason(payment, candidate)
+    decisions.set(movementId, { movementId, kind: 'REVIEW', reason, invoiceId })
   }
 
   for (const payment of reviewable) {

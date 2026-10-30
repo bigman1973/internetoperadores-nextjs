@@ -162,3 +162,45 @@ test('una aproximada no se apropia de una factura que necesita una exacta ambigu
 })
 
 console.log('OK: reserva global, prioridad de referencia, ambigüedad fail-closed y revisiones sin reutilización verificadas con fixtures sintéticas.')
+
+
+test('un número numérico sin serie sólo muestra revisión humana si proveedor, importe y fecha son exactos', () => {
+  const candidate = invoice({ invoiceId: 'numeric-review-source', referencia: 'F987652', importeDisponibleCentimos: -12_345 })
+  const result = decision([payment({ movementId: 'numeric-review-charge', importeBancoCentimos: -12_345, conceptoBanco: 'PAGO FACTURA 987651', candidates: [candidate] })], 'numeric-review-charge')
+  assert.deepEqual(result, { movementId: 'numeric-review-charge', kind: 'REVIEW', reason: 'REFERENCIA_NUMERO_INCOMPLETO', invoiceId: candidate.invoiceId })
+})
+
+test('el número incompleto no admite diferencia de céntimos o fecha posterior', () => {
+  for (const overrides of [{ importeDisponibleCentimos: -12_344 }, { fecha: '2026-07-01' }]) {
+    const candidate = invoice({ invoiceId: 'numeric-invalid-source', referencia: 'F987652', importeDisponibleCentimos: -12_345, ...overrides })
+    const result = decision([payment({ movementId: 'numeric-invalid-charge', importeBancoCentimos: -12_345, conceptoBanco: 'PAGO FACTURA 987651', candidates: [candidate] })], 'numeric-invalid-charge')
+    assert.equal(result.kind, 'RED')
+    assert.equal(result.invoiceId, undefined)
+  }
+})
+
+test('un proveedor documental con número incompleto sólo queda en revisión humana aunque el importe sea exacto', () => {
+  const candidate = invoice({ invoiceId: 'documentary-numeric-source', referencia: 'F987652', importeDisponibleCentimos: -12_345, providerMatch: 'DOCUMENTARY' })
+  const result = decision([payment({ movementId: 'documentary-numeric-charge', importeBancoCentimos: -12_345, conceptoBanco: 'PAGO FACTURA 987651', candidates: [candidate] })], 'documentary-numeric-charge')
+  assert.equal(result.kind, 'REVIEW')
+  assert.equal(result.reason, 'REFERENCIA_NUMERO_INCOMPLETO')
+})
+
+test('la revisión de número incompleto no consume una factura reservada por una coincidencia documental exacta', () => {
+  const candidate = invoice({ invoiceId: 'numeric-reserved-source', referencia: 'F/987652', importeDisponibleCentimos: -12_345 })
+  const result = assignConciliarProviderPayments([
+    payment({ movementId: 'complete-ref-charge', importeBancoCentimos: -12_345, conceptoBanco: 'PAGO FACTURA F/987652', candidates: [candidate] }),
+    payment({ movementId: 'incomplete-ref-charge', importeBancoCentimos: -12_345, conceptoBanco: 'PAGO FACTURA 987651', candidates: [candidate] }),
+  ])
+  assert.equal(result.get('complete-ref-charge')?.kind, 'EXACT_REFERENCE')
+  assert.equal(result.get('incomplete-ref-charge')?.invoiceId, undefined)
+})
+
+test('dos cargos de número incompleto que necesitan la misma factura quedan ambiguos y no reciben una asignación arbitraria', () => {
+  const candidate = invoice({ invoiceId: 'numeric-ambiguous-source', referencia: 'F987652', importeDisponibleCentimos: -12_345 })
+  const result = assignConciliarProviderPayments(['charge-1', 'charge-2'].map(movementId => payment({ movementId, importeBancoCentimos: -12_345, conceptoBanco: 'PAGO FACTURA 987651', candidates: [candidate] })))
+  for (const movementId of ['charge-1','charge-2']) {
+    assert.equal(result.get(movementId)?.kind, 'AMBAR')
+    assert.equal(result.get(movementId)?.invoiceId, undefined)
+  }
+})

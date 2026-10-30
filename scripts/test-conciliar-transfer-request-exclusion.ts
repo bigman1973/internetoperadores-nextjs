@@ -15,8 +15,7 @@ test('Para pedir excluye sólo las dos grafías de traspasos propios sin mutacio
   )
   assert.equal(captured.length, 1)
   const sql = captured[0]!.sql
-  assert.match(sql, /UPPER\(COALESCE\(p\.grupo,''\)\) NOT IN \('TRASPASOS_PROPIOS','TRASPASOS ENTRE CUENTAS PROPIAS'\)/)
-  assert.doesNotMatch(sql, /GASTOS_BANCO|GASTOS DEL BANCO|COMISIONES|NOMINAS|NÓMINAS/)
+  assert.match(sql, /UPPER\(COALESCE\(p\.grupo,''\)\) NOT IN \('TRASPASOS_PROPIOS','TRASPASOS ENTRE CUENTAS PROPIAS','GASTOS_BANCO','GASTOS DEL BANCO','COMISIONES','NOMINAS','NÓMINAS'\)/)
   assert.equal(classifyPrisma5RawSqlStatement([captured[0] as never]), 'read_only')
   assert.doesNotMatch(sql, /\b(?:INSERT|UPDATE|DELETE|ALTER|DROP|TRUNCATE)\b/i)
 })

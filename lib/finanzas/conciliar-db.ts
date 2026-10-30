@@ -28,9 +28,12 @@ import { selectConciliarB5DocumentReview, type ConciliarB5SupportCandidate, type
 import { conciliarAliasesContainDocumentaryAlias, conciliarAliasesMatch, conciliarColorRank, conciliarDecisionHash, conciliarExactCounterparty, conciliarHash, conciliarProjectionRowId, isoDay, safeInteger } from './conciliar-core'
 import { ConciliarDbError, conciliarDbErrorResponse } from './conciliar-errors'
 import { buildBankFeeProjectionSeed } from './conciliar-fee-undo'
+import { classifyConciliarRequestKind, type ConciliarPayrollReview, type ConciliarProviderReview, type ConciliarRequestKindInput } from './conciliar-request-kind-core'
+import { presentConciliarRequestKind } from './conciliar-request-kind-presentation'
+import { planCollectionDocumentReservations, type CollectionDocumentReservation, type CollectionReservationPlan, type CollectionReservationProposal } from './conciliar-collection-reservation'
 import { conciliarProveedorAliasesFuertes } from './conciliar-proveedor'
 import { referenciasEmitidasComposicionCompatible } from './conciliar-issued-reference-core'
-import { assignConciliarProviderPayments, type ConciliarProviderAssignmentReason, type ConciliarProviderInvoiceCandidate, type ConciliarProviderPayment } from './conciliar-proveedor-asignacion'
+import { assignConciliarProviderPayments, type ConciliarProviderAssignmentReason, type ConciliarProviderInvoiceCandidate, type ConciliarProviderPayment, type ConciliarProviderPaymentAssignment } from './conciliar-proveedor-asignacion'
 import { classifyConciliarOwnTransferReviews, conciliarOwnTransferReviewMotive, hasExactOwnRecipientEvidence, normalizedRegisteredOwnIban } from './conciliar-transfer-classifier'
 import { readManualOwnAccountProofTx } from './conciliar-own-account-proof-db'
 import { cents, day, document, exactMoney, json, nullableText, object, projectionRow, type ProjectionSqlRow } from './conciliar-projection-read'
@@ -239,8 +242,29 @@ function providerAssignmentMotive(reason: ConciliarProviderAssignmentReason): st
     case 'FACTURA_EXACTA_RESERVADA': return 'Una factura exacta ya está reservada para otro cargo; revísalo antes de confirmar.'
     case 'CANDIDATAS_REVISION_AMBIGUAS': return 'Hay varias candidatas de revisión; no se propone una factura arbitraria.'
     case 'REFERENCIA_BANCARIA_SIN_FACTURA': return 'El banco cita una factura que no está disponible para este cargo; no se propone otra factura.'
+    case 'REFERENCIA_NUMERO_INCOMPLETO': return 'El número citado no coincide con el número completo de la factura candidata; el importe coincide, pero requiere revisión.'
     case 'NINGUNA_FACTURA_DE_ESTE_IMPORTE': return 'Ninguna factura de este importe está disponible para este cargo.'
     case 'REFERENCIA_EXACTA': return 'La referencia bancaria identifica exactamente la factura.'
+  }
+}
+
+function payrollReviewForConciliar(candidates: readonly unknown[]): ConciliarPayrollReview {
+  return candidates.length === 1 ? 'EXACT_PERSONAL' : candidates.length > 1 ? 'AMBIGUOUS_PERSONAL' : 'NOT_APPLICABLE'
+}
+function providerReviewForConciliar(assignment: ConciliarProviderPaymentAssignment | undefined): ConciliarProviderReview {
+  if (!assignment) return 'NONE'
+  if (assignment.kind === 'EXACT_REFERENCE') return 'EXACT_DOCUMENT_REFERENCE'
+  if (assignment.reason === 'REFERENCIA_NUMERO_INCOMPLETO') return 'NUMBER_CONFLICT'
+  if (assignment.reason === 'REFERENCIA_BANCARIA_SIN_FACTURA') return 'REFERENCE_MISSING'
+  if (assignment.kind === 'AMBAR') return 'AMBIGUOUS'
+  if (assignment.kind === 'EXACT_NO_REFERENCE' || assignment.kind === 'REVIEW') return 'CANDIDATE_WITHOUT_REFERENCE'
+  return 'NONE'
+}
+function requestKindInputForMovement(movement: any, amount: number, payrollReview: ConciliarPayrollReview, providerReview: ConciliarProviderReview = 'NONE'): ConciliarRequestKindInput {
+  return {
+    importeCentimos: amount, concepto: movement.concepto, referencia: movement.referencia,
+    infoAdicional: movement.info_adicional, tercero: movement.tercero, payrollReview, providerReview,
+    cardInstrument: /\b(?:TARJETA|CARD|VISA|MASTERCARD|AMEX|TPV|POS)\b/i.test(textoSeguro(movement.concepto)),
   }
 }
 
@@ -541,20 +565,151 @@ function proposalComposition(raw: unknown): Array<{ facturaEmitidaId: string | n
     return [{ facturaEmitidaId: invoice, numFactura: nullableText(value.numFactura, 240), cliente: nullableText(value.cliente, 300), importeCentimos: amount, vencimiento: typeof value.vencimiento === 'string' ? value.vencimiento.slice(0, 10) : null }]
   })
 }
+
+/** Observa capacidad documental vigente de los propietarios B4/B7 existentes.
+ * Sólo SELECT bajo la transacción del llamador; no crea reservas, tablas ni FI. */
+export async function readLiveCollectionDocumentReservations(base: Prisma.TransactionClient): Promise<readonly CollectionDocumentReservation[]> {
+  const tx = asTx(base)
+  const rows = await tx.$queryRaw<Array<{ documentKey: unknown; proposalKey: unknown; movementKey: unknown }>>(Prisma.sql`
+    SELECT d.factura_emitida_id AS "documentKey",e.detalle->>'propuestaId' AS "proposalKey",v.movimiento_id AS "movementKey"
+    FROM vinculos_movimiento_documento v
+    JOIN documentos_conciliables d ON d.id=v.documento_conciliable_id
+    JOIN operaciones_justificacion_b4 o ON o.id=v.operacion_creacion_id
+    JOIN estado_justificacion_movimientos state ON state.movimiento_id=v.movimiento_id
+    JOIN eventos_justificacion_b4 e ON e.operacion_id=o.id
+      AND e.accion='APROBACION'::"AccionEventoJustificacionB4"
+      AND e.detalle->>'origen'='PROPUESTA_COBRO'
+      AND e.detalle->>'propuestaId' IS NOT NULL
+    WHERE v.activo AND v.tipo_linea='DOCUMENTO'::"TipoLineaVinculo"
+      AND d.activo AND d.factura_emitida_id IS NOT NULL
+      AND o.estado='APLICADA'::"EstadoOperacionB4" AND o.revertida_at IS NULL
+      AND state.estado='JUSTIFICADO'::"EstadoJustificacionMovimiento"
+    UNION ALL
+    SELECT line.factura_emitida_id AS "documentKey",receipt.propuesta_id::text AS "proposalKey",receipt.movimiento_id AS "movementKey"
+    FROM recibos_cobro_remesa_b7 receipt
+    JOIN lineas_recibo_cobro_remesa_b7 line ON line.recibo_id=receipt.id
+    JOIN vinculos_movimiento_documento v ON v.id=receipt.vinculo_b4_id
+    JOIN documentos_conciliables d ON d.id=v.documento_conciliable_id
+    JOIN operaciones_justificacion_b4 o ON o.id=v.operacion_creacion_id
+    JOIN estado_justificacion_movimientos state ON state.movimiento_id=v.movimiento_id
+    WHERE receipt.schema_version='B7_REMESA_RECIBO_V1'
+      AND receipt.estado='CONFIRMADO'::"EstadoReciboCobroRemesaB7"
+      AND receipt.snapshot_solicitud->>'schemaVersion'='B7_REMESA_RECIBO_V1'
+      AND receipt.snapshot_resultado->>'schemaVersion'='B7_REMESA_RECIBO_V1'
+      AND line.snapshot->>'schemaVersion'='B7_REMESA_RECIBO_V1'
+      AND line.snapshot->'facturaEmitida'->>'id'=line.factura_emitida_id
+      AND (line.snapshot->>'importeCentimos')::integer=line.importe_centimos
+      AND v.activo AND v.tipo_linea='DOCUMENTO'::"TipoLineaVinculo"
+      AND d.activo
+      AND o.estado='APLICADA'::"EstadoOperacionB4" AND o.revertida_at IS NULL
+      AND state.estado='JUSTIFICADO'::"EstadoJustificacionMovimiento"
+    ORDER BY 1,2,3
+    LIMIT ${MAX_REBUILD_ROWS + 1}
+  `)
+  if (rows.length > MAX_REBUILD_ROWS) throw new Error('CONCILIAR_COLLECTION_RESERVATIONS_TOO_MANY')
+  return rows.map(row => ({
+    documentKey: typeof row.documentKey === 'string' ? row.documentKey : null,
+    proposalKey: typeof row.proposalKey === 'string' ? row.proposalKey : null,
+    movementKey: typeof row.movementKey === 'string' ? row.movementKey : null,
+    status: 'CONFIRMED' as const,
+  }))
+}
+export type CollectionReservationResolution = Readonly<{
+  plan: CollectionReservationPlan
+  selectedByMovement: ReadonlyMap<string, any>
+  soleReviewByMovement: ReadonlyMap<string, any>
+}>
+/** Construye G1 contra toda la población viva. No desempata por orden ni UUID. */
+export function collectionReservationResolution(input: Readonly<{
+  proposals: readonly any[]
+  movements: readonly any[]
+  invoiceDates: ConciliarInvoiceDateIndex
+  issuedReferences: readonly unknown[]
+  clientIdentityByProposal: ReadonlyMap<string, CollectionClientIdentityProfile>
+  reservations?: readonly CollectionDocumentReservation[]
+}>): CollectionReservationResolution {
+  const movementById = new Map(input.movements.map(movement => [String(movement.id), movement]))
+  const byProposal = new Map<string, any>()
+  const candidates: CollectionReservationProposal[] = []
+  for (const proposal of input.proposals) {
+    const proposalKey = typeof proposal?.propuestaId === 'string' ? proposal.propuestaId : null
+    const movementKey = typeof proposal?.movimientoId === 'string' ? proposal.movimientoId : null
+    const movement = movementKey ? movementById.get(movementKey) : undefined
+    if (!proposalKey || !movementKey || !movement || proposal.estadoPropuesto !== 'JUSTIFICADO'
+      || !['EXACTA', 'REVISAR'].includes(String(proposal.nivel))) continue
+    if (byProposal.has(proposalKey)) throw new Error('CONCILIAR_COLLECTION_RESERVATION_PROPOSAL_DUPLICATE')
+    byProposal.set(proposalKey, proposal)
+    const amount = safeInteger(movement.importeCentimos)
+    const status = amount === null ? null : collectionProposalStatus({
+      proposal, amount, fechaBanco: day(movement.fecha, 'El movimiento'), conceptoBanco: textoSeguro(movement.concepto),
+      movementAliases: movementPartyAliases(movement), invoiceDates: input.invoiceDates,
+      issuedReferences: input.issuedReferences, movementId: movementKey,
+      clientIdentity: input.clientIdentityByProposal.get(proposalKey),
+    })
+    const composition = proposalComposition(proposal.composicion)
+    const remittanceSeal = isRemittanceMethod(proposal.metodo)
+      ? remittanceSealForProposal({
+        propuestaId: proposalKey, movimientoId: movementKey, fingerprint: String(proposal.fingerprint),
+        metodo: String(proposal.metodo), importeMovimientoCentimos: amount ?? 0,
+        lineas: proposal.lineas, composicion: proposal.composicion,
+      })
+      : null
+    const remittanceComplete = !isRemittanceMethod(proposal.metodo) || remittanceSeal !== null
+    candidates.push({
+      proposalKey, movementKey, projection: 'BANK_MOVEMENT', state: 'ACTIVE',
+      quote: proposal.nivel === 'EXACTA' && remittanceComplete ? 'EXACT' : 'AMBER',
+      quotedAmountCents: safeInteger(proposal.importeCentimos), bankAmountCents: amount,
+      composition: composition.map(line => ({ documentKey: line.facturaEmitidaId, importeCentimos: line.importeCentimos })),
+      evidence: {
+        documentEvidenceComplete: status?.green === true && remittanceComplete,
+        counterpartyEvidenceComplete: status?.green === true && remittanceComplete,
+      },
+    })
+  }
+  const plan = planCollectionDocumentReservations({ proposals: candidates, reservations: input.reservations })
+  const selectedByMovement = new Map<string, any>()
+  for (const selected of plan.selected) {
+    const proposal = byProposal.get(selected.proposalKey)
+    if (!proposal || String(proposal.movimientoId) !== selected.movementKey || selectedByMovement.has(selected.movementKey)) {
+      throw new Error('CONCILIAR_COLLECTION_RESERVATION_PLAN_INVALID')
+    }
+    selectedByMovement.set(selected.movementKey, proposal)
+  }
+  const reviewsByMovement = new Map<string, string[]>()
+  for (const review of plan.review) reviewsByMovement.set(review.movementKey, [...(reviewsByMovement.get(review.movementKey) ?? []), review.proposalKey])
+  const soleReviewByMovement = new Map<string, any>()
+  for (const [movementKey, proposalKeys] of reviewsByMovement) {
+    if (proposalKeys.length !== 1 || selectedByMovement.has(movementKey)) continue
+    const proposal = byProposal.get(proposalKeys[0]!)
+    if (proposal) soleReviewByMovement.set(movementKey, proposal)
+  }
+  return { plan, selectedByMovement, soleReviewByMovement }
+}
 /** Same live classification before every human collection confirmation. This
  * validates current generation, own-reference namespace, dates and client proof;
  * the persisted green badge is not evidence and this helper writes nothing. */
 export async function assertLiveCollectionProjectionForActionTx(base: Prisma.TransactionClient, expected: Readonly<{id:string; importeCentimos:number; source:ConciliarProjectionSource}>) {
   const source = expected.source, tx = asTx(base)
   if (!source.propuestaId || !source.movimientoId || !source.proposalFingerprint) fail(409,'DECISION_CAMBIADA','La propuesta de cobro está incompleta. Actualiza la lista.')
-  const [movements,proposals,bank,profiles] = await Promise.all([
-    unresolvedMovements(tx,source.movimientoId), liveCollectionProposals(tx,source.propuestaId),
+  const [movements,proposals,bank,reservations] = await Promise.all([
+    unresolvedMovements(tx), liveCollectionProposals(tx),
     readBankInvoicingPopulation(tx as unknown as B7ReadDatabase,{enabled:true,assertIsolatedStaging:async()=>undefined}),
-    readCollectionClientIdentityProfiles(base,[source.propuestaId]),
+    readLiveCollectionDocumentReservations(base),
   ])
-  const movement = movements[0], proposal = proposals[0]
+  const proposal = proposals.find(item => String(item.propuestaId) === source.propuestaId)
+  const movement = movements.find(item => String(item.id) === source.movimientoId)
   if (!movement || !proposal || String(proposal.movimientoId)!==source.movimientoId || String(proposal.fingerprint)!==source.proposalFingerprint) fail(409,'DECISION_CAMBIADA','El cobro o su propuesta cambiaron. Actualiza la lista.')
-  const current = collectionProjectionForMovement(movement,proposal,new Map(bank.invoices.map(item=>[item.invoiceId,item.fechaISO])),bank.invoices.map(item=>item.numFactura),profiles?.get(source.propuestaId))
+  const profiles = await readCollectionClientIdentityProfiles(base,proposals.map(item => String(item.propuestaId)))
+  if (!profiles) fail(409,'DECISION_CAMBIADA','No se puede comprobar la evidencia documental vigente. Actualiza la lista.')
+  const invoiceDates = new Map(bank.invoices.map(item=>[item.invoiceId,item.fechaISO]))
+  const collectionReservations = collectionReservationResolution({
+    proposals,movements,invoiceDates,issuedReferences:bank.invoices.map(item=>item.numFactura),
+    clientIdentityByProposal:profiles,reservations,
+  })
+  if (collectionReservations.selectedByMovement.get(source.movimientoId)?.propuestaId !== source.propuestaId) {
+    fail(409,'DECISION_CAMBIADA','La reserva documental de este cobro cambió. Actualiza la lista.')
+  }
+  const current = collectionProjectionForMovement(movement,proposal,invoiceDates,bank.invoices.map(item=>item.numFactura),profiles.get(source.propuestaId))
   if (current.row.id!==expected.id || current.row.importeCentimos!==expected.importeCentimos || current.row.color!=='VERDE' || !current.row.seleccionable) fail(409,'DECISION_CAMBIADA','El cobro ya no coincide exactamente con la documentación y el cliente actuales. Actualiza la lista.')
 }
 
@@ -770,27 +925,32 @@ export function emittedProjection(settlement: InvoiceSettlement, candidate: Invo
 
 /** Constructor único para un cobro propuesto. Todas las entradas son fuentes
  * vivas leídas por el llamador; ni la fila anterior ni sus hashes participan. */
-export function collectionProjectionForMovement(movement: any, proposalRow: any | undefined, invoiceDates: ConciliarInvoiceDateIndex, issuedReferences?: readonly unknown[], clientIdentity?: CollectionClientIdentityProfile): RebuildRow {
+export function collectionProjectionForMovement(movement: any, proposalRow: any | undefined, invoiceDates: ConciliarInvoiceDateIndex, issuedReferences?: readonly unknown[], clientIdentity?: CollectionClientIdentityProfile, reservationReviewOnly = false): RebuildRow {
   const id = String(movement.id), amount = cents(movement.importeCentimos, 'El movimiento')
   const fecha = day(movement.fecha, 'El movimiento'), concepto = textoSeguro(movement.concepto)
   const cuentaId = String(movement.cuentaId), banco = nullableText(movement.banco, 300), cuenta = nullableText(movement.cuenta, 300)
   const status = collectionProposalStatus({ proposal: proposalRow, amount, fechaBanco: fecha, conceptoBanco: concepto, movementAliases: movementPartyAliases(movement), invoiceDates, issuedReferences, movementId: id, clientIdentity })
   const one = status.composition.length === 1 ? status.composition[0] : null
   const documentValue = one && one.importeCentimos !== null ? { referencia: one.numFactura ?? 'Factura emitida', tercero: one.cliente, importeCentimos: one.importeCentimos, fecha: one.facturaEmitidaId ? invoiceDates.get(one.facturaEmitidaId) ?? null : null, href: null } : null
+  const compositionTotal = status.composition.length && status.composition.every(line => line.importeCentimos !== null)
+    ? status.composition.reduce((sum, line) => sum + line.importeCentimos!, 0) : null
+  const documentaryDifference = compositionTotal !== null && Number.isSafeInteger(compositionTotal) ? amount - compositionTotal : 0
   const remesaProposal = proposalRow && /^REMESA_/.test(String(proposalRow.metodo))
   const remesaSeal = remesaProposal ? remittanceSealForProposal({ propuestaId: String(proposalRow.propuestaId), movimientoId: id, fingerprint: String(proposalRow.fingerprint), metodo: String(proposalRow.metodo), importeMovimientoCentimos: amount, lineas: proposalRow.lineas, composicion: proposalRow.composicion }) : null
-  const green = status.green && (!remesaProposal || remesaSeal !== null)
+  const green = !reservationReviewOnly && status.green && (!remesaProposal || remesaSeal !== null)
   const color: ConciliarColor = green ? 'VERDE' : proposalRow ? 'AMBAR' : 'ROJO'
-  const motivo = remesaProposal && !remesaSeal ? 'La remesa necesita una composición íntegra de sus facturas antes de confirmarla.' : green ? status.reason : proposalRow
-    ? status.reason
-    : redReasonForMovement({ importeCentimos: amount, concepto, tarjeta: false })
+  const motivo = reservationReviewOnly
+    ? 'La propuesta de cobro requiere revisión antes de confirmar.'
+    : remesaProposal && !remesaSeal ? 'La remesa necesita una composición íntegra de sus facturas antes de confirmarla.' : green ? status.reason : proposalRow
+      ? status.reason
+      : redReasonForMovement({ importeCentimos: amount, concepto, tarjeta: false })
   const source: ConciliarProjectionSource = proposalRow
     ? { kind: 'COBRO_PROPUESTA', movimientoId: id, propuestaId: String(proposalRow.propuestaId), proposalFingerprint: String(proposalRow.fingerprint), ...(remesaSeal ? { remesaId: remesaSeal.remesaId, proposalCompositionHash: remesaSeal.compositionHash } : {}), versionB4: cents(movement.versionB4, 'La versión') }
     : { kind: 'COBRO_PROPUESTA', movimientoId: id, versionB4: cents(movement.versionB4, 'La versión') }
   return projection('COBROS', baseRow({
     id: rowId('COBROS', `COBRO_PROPUESTA:${id}:${String(proposalRow?.propuestaId ?? 'SIN_PROPUESTA')}`), movimientoId: id, fecha, concepto, banco, cuenta,
     importeCentimos: amount, pendienteCentimos: amount, color, grupo: proposalRow ? nullableText(proposalRow.metodo, 120) : null, motivo, documento: documentValue,
-    propuesta: proposalRow ? String(proposalRow.propuestaId) : null, seleccionable: green, diferenciaCentimos: green ? 0 : amount - (proposalLineTotal(status.lines) ?? amount),
+    propuesta: proposalRow ? String(proposalRow.propuestaId) : null, seleccionable: green, diferenciaCentimos: green ? 0 : documentaryDifference,
     detail: proposalRow ? compactCompositionDetail(status.composition) ?? textoSeguro(proposalRow.explicacion).slice(0, 1_600) : null,
   }), source, cuentaId)
 }
@@ -1011,12 +1171,13 @@ export async function readStrictOwnTransfers(tx: Tx): Promise<ReadonlyMap<string
 export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClient, rebuiltById: number | null) {
   const tx = asTx(base)
   await assertProjectionSnapshot(tx)
-  const [movements, proposals, invoices, payroll, b5Documents, bank, confirming, transfers] = await Promise.all([
+  const [movements, proposals, invoices, payroll, b5Documents, bank, confirming, transfers, reservations] = await Promise.all([
     unresolvedMovements(tx), liveCollectionProposals(tx), receivedInvoices(tx), payrollSources(tx),
     b5DocumentSources(tx),
     readBankInvoicingPopulation(tx as unknown as B7ReadDatabase, { enabled: true, assertIsolatedStaging: async () => undefined }),
     readConciliarConfirmingCandidates(tx, { allRebuild: true }),
     readStrictOwnTransfers(tx),
+    readLiveCollectionDocumentReservations(tx),
   ])
   const manualOwnAccounts = await readManualOwnAccountProofTx(tx, movements.map(movement => String(movement.cuentaId)))
   const manualOwnIbanRows = manualOwnAccounts.proof.accountIds.size
@@ -1049,12 +1210,13 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
     attestedOwnAccountIds: manualOwnAccounts.proof.accountIds,
   })
   const rows: RebuildRow[] = []
-  const proposalByMovement = new Map<string, any>()
-  for (const proposal of proposals) if (!proposalByMovement.has(String(proposal.movimientoId))) proposalByMovement.set(String(proposal.movimientoId), proposal)
-  const clientIdentityProfiles = await readCollectionClientIdentityProfiles(tx, [...proposalByMovement.values()].map(proposal => String(proposal.propuestaId)))
+  const clientIdentityProfiles = await readCollectionClientIdentityProfiles(tx, proposals.map(proposal => String(proposal.propuestaId)))
   const clientIdentityByProposal = clientIdentityProfiles ?? new Map<string, CollectionClientIdentityProfile>()
   const invoiceDates = new Map(bank.invoices.map(item => [item.invoiceId, item.fechaISO]))
   const issuedReferences = bank.invoices.map(item => item.numFactura)
+  const collectionReservations = collectionReservationResolution({
+    proposals, movements, invoiceDates, issuedReferences, clientIdentityByProposal, reservations,
+  })
   const receivedByCounterparty = new Map<string, any[]>()
   for (const invoice of invoices) {
     const total = exactMoney(invoice.total_text), counterparty = conciliarExactCounterparty(invoice.proveedor)
@@ -1099,6 +1261,8 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
       return net !== null && -net === amount && payrollPeriodMatches(fecha, candidate) && conciliarAliasesMatch(aliases, [candidate.empleadoNombre])
     })
     if (payrollCandidates.length === 1) continue
+    const preProviderKind = classifyConciliarRequestKind(requestKindInputForMovement(movement, amount, payrollReviewForConciliar(payrollCandidates)))
+    if (preProviderKind && ['IMPUESTOS', 'PRESTAMO', 'NOMINA_PERSONAL', 'GASTO_BANCO'].includes(preProviderKind.kind)) continue
     providerPayments.push({
       movementId: id, fecha, importeBancoCentimos: amount, conceptoBanco: bankDocumentaryText(movement),
       referenciaBanco: nullableText(movement.referencia, 300),
@@ -1158,12 +1322,15 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
         rows.push(await confirmingProjectionForMovement(tx, movement, confirmingCandidate))
         continue
       }
-      const proposalRow = proposalByMovement.get(id)
+      const selectedProposal = collectionReservations.selectedByMovement.get(id)
+      const reviewProposal = selectedProposal ? undefined : collectionReservations.soleReviewByMovement.get(id)
+      const proposalRow = selectedProposal ?? reviewProposal
+      const reservationReviewOnly = !selectedProposal && !!reviewProposal
       const clientIdentity = proposalRow ? clientIdentityByProposal.get(String(proposalRow.propuestaId)) : undefined
       const proposalStatus = collectionProposalStatus({ proposal: proposalRow, amount, fechaBanco: fecha, conceptoBanco: concepto, movementAliases: movementPartyAliases(movement), invoiceDates, issuedReferences, movementId: id, clientIdentity })
-      const collection = collectionProjectionForMovement(movement, proposalRow, invoiceDates, issuedReferences, clientIdentity)
+      const collection = collectionProjectionForMovement(movement, proposalRow, invoiceDates, issuedReferences, clientIdentity, reservationReviewOnly)
       rows.push(collection)
-      if (proposalRow) for (const item of proposalStatus.composition) {
+      if (selectedProposal && collection.row.color === 'VERDE') for (const item of proposalStatus.composition) {
         if (!item.facturaEmitidaId) continue
         const prior = invoiceCandidate.get(item.facturaEmitidaId)
         if (!prior || conciliarColorRank(collection.row.color) < conciliarColorRank(prior.color)) invoiceCandidate.set(item.facturaEmitidaId, { movementId: id, color: collection.row.color, rowId: collection.row.id, propuestaId: String(proposalRow.propuestaId) })
@@ -1256,11 +1423,9 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
       receivedInvoicePaymentCandidates.set(invoiceId, [...(receivedInvoicePaymentCandidates.get(invoiceId) ?? []), { rowId: opaqueId, color }])
       continue
     }
-    const paymentColor: ConciliarColor = providerAssignment && providerAssignment.kind !== 'RED' ? 'AMBAR' : payrollCandidates.length > 1 ? 'AMBAR' : 'ROJO'
-    const paymentMotive = providerAssignment ? providerAssignmentMotive(providerAssignment.reason)
-      : payrollCandidates.length > 1 ? 'Hay varias nóminas posibles; revisa empleado y mes.'
-        : redReasonForMovement({ importeCentimos: amount, concepto, tarjeta: /\b(?:TARJETA|VISA|MASTERCARD|AMEX|TPV|POS)\b/i.test(concepto) })
-    rows.push(projection('PAGOS', baseRow({ id: rowId('PAGOS', `PAGO_SIN_DOCUMENTO:${id}`), movimientoId: id, fecha, concepto, banco, cuenta, importeCentimos: amount, pendienteCentimos: amount, color: paymentColor, grupo: null, motivo: paymentMotive, documento: null, propuesta: null, seleccionable: false, diferenciaCentimos: 0, detail: null }), { kind: 'PAGO_FACTURA_RECIBIDA', movimientoId: id, versionB4: cents(movement.versionB4, 'La versión') }, cuentaId))
+    const fallback = presentConciliarRequestKind(requestKindInputForMovement(movement, amount, payrollReviewForConciliar(payrollCandidates), providerReviewForConciliar(providerAssignment)))
+    if (!fallback) throw new Error('CONCILIAR_REQUEST_KIND_PAYMENT_INVALID')
+    rows.push(projection('PAGOS', baseRow({ id: rowId('PAGOS', `PAGO_SIN_DOCUMENTO:${id}`), movimientoId: id, fecha, concepto, banco, cuenta, importeCentimos: amount, pendienteCentimos: amount, color: fallback.color, grupo: fallback.grupo, motivo: fallback.motivo, documento: null, propuesta: null, seleccionable: false, diferenciaCentimos: 0, detail: null }), { kind: 'PAGO_FACTURA_RECIBIDA', movimientoId: id, versionB4: cents(movement.versionB4, 'La versión') }, cuentaId))
   }
 
   for (const settlement of bank.invoices) {
