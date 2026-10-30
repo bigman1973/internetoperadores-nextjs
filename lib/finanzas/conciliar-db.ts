@@ -28,6 +28,7 @@ import { selectConciliarB5DocumentReview, type ConciliarB5SupportCandidate, type
 import { conciliarAliasesContainDocumentaryAlias, conciliarAliasesMatch, conciliarColorRank, conciliarDecisionHash, conciliarExactCounterparty, conciliarHash, conciliarProjectionRowId, isoDay, safeInteger } from './conciliar-core'
 import { ConciliarDbError, conciliarDbErrorResponse } from './conciliar-errors'
 import { buildBankFeeProjectionSeed } from './conciliar-fee-undo'
+import { persistedImportedRemittanceCompositionMatchesCurrentFI } from './remittance-documentary-source-core'
 import { classifyConciliarRequestKind, type ConciliarPayrollReview, type ConciliarProviderReview, type ConciliarRequestKindInput } from './conciliar-request-kind-core'
 import { presentConciliarRequestKind } from './conciliar-request-kind-presentation'
 import { planCollectionDocumentReservations, type CollectionDocumentReservation, type CollectionReservationPlan, type CollectionReservationProposal } from './conciliar-collection-reservation'
@@ -566,6 +567,51 @@ function proposalComposition(raw: unknown): Array<{ facturaEmitidaId: string | n
   })
 }
 
+/** One bounded B7 canonical-FI index for remittance importer compatibility.
+ * Rebuild and action revalidation pass the same population already loaded by
+ * `readBankInvoicingPopulation`; this helper never reads, writes or aliases rows. */
+export type CurrentRemittanceInvoices = ReadonlyMap<string, readonly InvoiceSettlement[]>
+
+/**
+ * The exceptional importer path is limited to an already sealed remittance
+ * proposal. Its persisted entries must still match each current canonical FI by
+ * ID, number, client, nominal and date, with a positive exact total. It never
+ * creates a FI↔ISP alias or treats a missing historical remesa FK as a fact.
+ * The B7 confirmation retains its locked B6/FI/ISP/remesa checks.
+ */
+function remittanceCompositionMatchesPersistedImporter(
+  seal: Readonly<{ remesaId: number }> | null,
+  rawComposition: unknown,
+  amount: number,
+  currentInvoices: CurrentRemittanceInvoices | undefined,
+): boolean {
+  if (!seal || !Number.isSafeInteger(amount) || amount <= 0 || !currentInvoices) return false
+  const composition = proposalComposition(rawComposition)
+  return persistedImportedRemittanceCompositionMatchesCurrentFI({
+    composition: composition.map(item => ({
+      facturaEmitidaId: item.facturaEmitidaId, numeroFactura: item.numFactura, cliente: item.cliente,
+      importeCentimos: item.importeCentimos, fechaFactura: item.vencimiento,
+    })),
+    canonicalInvoices: composition.flatMap(item => item.facturaEmitidaId
+      ? (currentInvoices.get(item.facturaEmitidaId.toLowerCase()) ?? []).map(invoice => ({
+        facturaEmitidaId: invoice.invoiceId, numeroFactura: invoice.numFactura, cliente: invoice.cliente,
+        importeCentimos: invoice.targetCents, fechaFactura: invoice.fechaISO,
+      }))
+      : []),
+    importeBancoCentimos: amount,
+  })
+}
+
+export function currentRemittanceInvoices(invoices: readonly InvoiceSettlement[]): CurrentRemittanceInvoices {
+  const result = new Map<string, InvoiceSettlement[]>()
+  for (const invoice of invoices) {
+    const id = nullableText(invoice.invoiceId, 160)?.toLowerCase()
+    if (!id) continue
+    result.set(id, [...(result.get(id) ?? []), invoice])
+  }
+  return result
+}
+
 /** Observa capacidad documental vigente de los propietarios B4/B7 existentes.
  * Sólo SELECT bajo la transacción del llamador; no crea reservas, tablas ni FI. */
 export async function readLiveCollectionDocumentReservations(base: Prisma.TransactionClient): Promise<readonly CollectionDocumentReservation[]> {
@@ -626,6 +672,8 @@ export function collectionReservationResolution(input: Readonly<{
   invoiceDates: ConciliarInvoiceDateIndex
   issuedReferences: readonly unknown[]
   clientIdentityByProposal: ReadonlyMap<string, CollectionClientIdentityProfile>
+  /** Canonical FI rows already loaded by B7 for this rebuild/action. */
+  remittanceCurrentInvoices?: CurrentRemittanceInvoices
   reservations?: readonly CollectionDocumentReservation[]
 }>): CollectionReservationResolution {
   const movementById = new Map(input.movements.map(movement => [String(movement.id), movement]))
@@ -654,7 +702,8 @@ export function collectionReservationResolution(input: Readonly<{
         lineas: proposal.lineas, composicion: proposal.composicion,
       })
       : null
-    const remittanceComplete = !isRemittanceMethod(proposal.metodo) || remittanceSeal !== null
+    const remittanceComplete = !isRemittanceMethod(proposal.metodo)
+      || remittanceCompositionMatchesPersistedImporter(remittanceSeal, proposal.composicion, amount ?? 0, input.remittanceCurrentInvoices)
     candidates.push({
       proposalKey, movementKey, projection: 'BANK_MOVEMENT', state: 'ACTIVE',
       quote: proposal.nivel === 'EXACTA' && remittanceComplete ? 'EXACT' : 'AMBER',
@@ -663,6 +712,12 @@ export function collectionReservationResolution(input: Readonly<{
       evidence: {
         documentEvidenceComplete: status?.green === true && remittanceComplete,
         counterpartyEvidenceComplete: status?.green === true && remittanceComplete,
+        // Only a sealed persisted importer composition, revalidated against
+        // every current invoice number, client, date and nominal, gets priority.
+        // Equal complete claims remain ambiguous; no amount or ID breaks a tie.
+        canonicalDocumentIdentityComplete: isRemittanceMethod(proposal.metodo)
+          && remittanceSeal !== null
+          && remittanceComplete,
       },
     })
   }
@@ -704,7 +759,7 @@ export async function assertLiveCollectionProjectionForActionTx(base: Prisma.Tra
   const invoiceDates = new Map(bank.invoices.map(item=>[item.invoiceId,item.fechaISO]))
   const collectionReservations = collectionReservationResolution({
     proposals,movements,invoiceDates,issuedReferences:bank.invoices.map(item=>item.numFactura),
-    clientIdentityByProposal:profiles,reservations,
+    clientIdentityByProposal:profiles,reservations,remittanceCurrentInvoices:currentRemittanceInvoices(bank.invoices),
   })
   if (collectionReservations.selectedByMovement.get(source.movimientoId)?.propuestaId !== source.propuestaId) {
     fail(409,'DECISION_CAMBIADA','La reserva documental de este cobro cambió. Actualiza la lista.')
@@ -1216,6 +1271,7 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
   const issuedReferences = bank.invoices.map(item => item.numFactura)
   const collectionReservations = collectionReservationResolution({
     proposals, movements, invoiceDates, issuedReferences, clientIdentityByProposal, reservations,
+    remittanceCurrentInvoices: currentRemittanceInvoices(bank.invoices),
   })
   const receivedByCounterparty = new Map<string, any[]>()
   for (const invoice of invoices) {
