@@ -227,12 +227,15 @@ function materialMustMatchSealedRow(material: Area3ReviewConfirmMaterial, row: S
 }
 
 function decisionOrFail(decision: Area3ReviewDecision): asserts decision is Extract<Area3ReviewDecision, { ok: true }> {
-  if (decision.ok) return
-  throw new Area3ReviewConfirmDbError(
-    decision.codigo === 'ACK_REQUERIDO' ? 422 : 409,
-    decision.codigo,
-    decision.mensaje,
-  )
+  if (decision.ok === true) return
+  if (decision.ok === false) {
+    throw new Area3ReviewConfirmDbError(
+      decision.codigo === 'ACK_REQUERIDO' ? 422 : 409,
+      decision.codigo,
+      decision.mensaje,
+    )
+  }
+  throw new Error('AREA3_REVIEW_DECISION_INVALID')
 }
 
 /** Same G7 core as apply, without mutation. The acknowledgement is deliberately
@@ -245,7 +248,7 @@ export async function preflightArea3ReviewConfirmTx(tx: Tx, row: SealedReviewRow
   return {
     material,
     decision,
-    puedeAbrirRevisionHumana: decision.ok || (!decision.ok && decision.codigo === 'ACK_REQUERIDO'),
+    puedeAbrirRevisionHumana: decision.ok === true || (decision.ok === false && decision.codigo === 'ACK_REQUERIDO'),
   }
 }
 
@@ -294,6 +297,11 @@ export async function confirmArea3ReviewTx(
         sourceHash: decision.sourceHash,
         decisionHash: row.decisionHash,
         advertencia: decision.advertencia,
+        documentVersionHash: decision.documentVersionHash,
+        versionB4: decision.versionB4,
+        importeLineaCentimos: decision.importeLineaCentimos,
+        netoDocumentoPrevioCentimos: decision.netoDocumentoPrevioCentimos,
+        netoDocumentoResultanteCentimos: decision.netoDocumentoResultanteCentimos,
       },
     },
   }
