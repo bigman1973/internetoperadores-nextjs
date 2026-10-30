@@ -47,7 +47,7 @@ function database(permission: { lectura: boolean; escritura: boolean }): NonNull
       findMany: async () => [permission],
       count: async () => 1,
     },
-  } as NonNullable<PermissionDb>;
+  } as unknown as NonNullable<PermissionDb>;
 }
 
 async function main() {

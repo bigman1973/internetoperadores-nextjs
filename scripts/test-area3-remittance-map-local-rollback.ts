@@ -23,7 +23,7 @@ const DAY = new Date(Date.UTC(2044, 1, 3, 12, 0, 0))
 const BANK_DAY = new Date(Date.UTC(2044, 1, 4, 12, 0, 0))
 const GENERATION_AT = new Date(Date.UTC(2099, 0, 1, 0, 0, 0))
 
-type Tx = any
+type Tx = Prisma.TransactionClient
 class RollbackOnly extends Error { constructor() { super('AREA3_REMITTANCE_MAP_LOCAL_ROLLBACK_ONLY') } }
 
 function sha(value: string): string { return createHash('sha256').update(value, 'utf8').digest('hex') }
@@ -36,13 +36,21 @@ function safeFailure(error: unknown): void {
 /** Accept only a local socket or loopback URL from the private local admin file. */
 function localConnection(): string {
   const raw = JSON.parse(readFileSync(CONFIG_PATH, 'utf8')) as Record<string, unknown>
-  const candidate = [raw.databaseUrl, raw.url, raw.connectionString, raw.connection_url, raw.DATABASE_URL]
+  let candidate = [raw.databaseUrl, raw.url, raw.connectionString, raw.connection_url, raw.DATABASE_URL]
     .find((value): value is string => typeof value === 'string' && value.length > 0)
+  if (!candidate) {
+    assert(typeof raw.host === 'string' && raw.host.startsWith('/home/ubuntu/'), 'Sólo se admite el socket privado local.')
+    assert(Number.isSafeInteger(raw.port) && Number(raw.port) === 55440, 'El puerto local no está autorizado.')
+    assert(typeof raw.user === 'string' && typeof raw.password === 'string' && raw.ssl === false, 'La configuración administrativa local no es válida.')
+    const socket = new URLSearchParams({ host: raw.host, sslmode: 'disable' })
+    candidate = `postgresql://${encodeURIComponent(raw.user)}:${encodeURIComponent(raw.password)}@localhost:${raw.port}/${EXPECTED_DATABASE}?${socket}`
+  }
   assert(candidate, 'La configuración local no contiene una URL de conexión admitida.')
   const url = new URL(candidate)
   assert(['postgres:', 'postgresql:'].includes(url.protocol), 'La conexión local debe ser PostgreSQL.')
   const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase()
-  assert(['127.0.0.1', '::1', 'localhost', ''].includes(host) || url.searchParams.has('host'), 'Sólo se admite loopback o socket Unix local.')
+  assert(['127.0.0.1', '::1', 'localhost', ''].includes(host), 'Sólo se admite loopback o socket Unix local.')
+  if (url.searchParams.has('host')) assert(url.searchParams.get('host')!.startsWith('/home/ubuntu/'), 'El parámetro host no es un socket privado local.')
   const database = decodeURIComponent(url.pathname.slice(1))
   assert.equal(database, EXPECTED_DATABASE, 'La base no es la restauración local autorizada.')
   return candidate
@@ -149,7 +157,7 @@ async function run(): Promise<void> {
         }
         const completeProposal = randomUUID()
         await proposal(completeProposal, completeFi.id, `${TAG}-COMPLETA`)
-        const rawComplete = [{ propuestaId: completeProposal, generacionId, metodo: 'REMESA_VENCIMIENTO', lineas: [{ tipo: 'DOCUMENTO', tipoDocumento: 'REMESA', sourceId: String(remesa.id), importeCentimos: 10_000 }], composicion: [{ facturaEmitidaId: completeFi.id, importeCentimos: 10_000 }] }]
+        const rawComplete = [{ propuestaId: completeProposal, generacionId: generationId, metodo: 'REMESA_VENCIMIENTO', lineas: [{ tipo: 'DOCUMENTO', tipoDocumento: 'REMESA', sourceId: String(remesa.id), importeCentimos: 10_000 }], composicion: [{ facturaEmitidaId: completeFi.id, importeCentimos: 10_000 }] }]
         const complete = await mapDb.readArea3RemittanceMapPreflightsTx(tx, rawComplete)
         assert.equal(complete.get(completeProposal)?.complete, true, 'El candidato con mapa auditado y corroboración importada debe pasar G7.')
 
@@ -166,7 +174,7 @@ async function run(): Promise<void> {
           INSERT INTO modo_facil_propuestas_cobro(id,generacion_id,movimiento_id,movimiento_par_id,importe_movimiento_centimos,metodo,nivel,estado_propuesto,motivo_no_requiere,lineas,composicion,explicacion,fingerprint)
           VALUES(CAST(${missingProposal} AS uuid),CAST(${generationId} AS uuid),${missingMovement.id},NULL,10000,'REMESA_VENCIMIENTO','EXACTA','JUSTIFICADO',NULL,CAST(${JSON.stringify(missingLines)} AS jsonb),CAST(${JSON.stringify(missingComposition)} AS jsonb),${`${TAG}-SIN-MAPA`},${sha(`${TAG}:missing`)})
         `)
-        const rawMissing = [{ propuestaId: missingProposal, generacionId, metodo: 'REMESA_VENCIMIENTO', lineas: missingLines, composicion: missingComposition }]
+        const rawMissing = [{ propuestaId: missingProposal, generacionId: generationId, metodo: 'REMESA_VENCIMIENTO', lineas: missingLines, composicion: missingComposition }]
         const missing = await mapDb.lockArea3RemittanceMapPreflightsTx(tx, rawMissing)
         assert.deepEqual(missing.get(missingProposal) && { complete: missing.get(missingProposal)!.complete, missing: missing.get(missingProposal)!.missingReceiptCount }, { complete: false, missing: 1 }, 'El candidato sin FK FI→ISP debe quedar AMBAR antes de B4/B6/B7.')
         assert((await fixtureCount(tx)) > 0, 'Los fixtures deben existir dentro de la transacción antes del rollback.')

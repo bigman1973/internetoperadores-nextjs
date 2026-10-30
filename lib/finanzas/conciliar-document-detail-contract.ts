@@ -86,11 +86,12 @@ export function parseConciliarDocumentDetail(value: unknown): ConciliarDocumentD
     const estadoSaldo = row.estadoSaldo
     if (estadoSaldo !== undefined && estadoSaldo !== 'COINCIDE' && estadoSaldo !== 'NO_COINCIDE' && estadoSaldo !== 'NO_COMPROBABLE') throw new Error('El estado del saldo no es válido.')
     if (kind === 'COBRO_PROPUESTA' && (importePropuestoCentimos === undefined || saldoPendienteActualCentimos === undefined || estadoSaldo === undefined)) throw new Error('La línea de cobro propuesto no es íntegra.')
+    const estadoValidado = estadoSaldo as ConciliarProposalBalanceStatus | undefined
     return {
       numero: read('numero', false)!, cliente: read('cliente', true), fechaEmision: read('fechaEmision', true), fechaVencimiento: read('fechaVencimiento', true), nominalCentimos: row.nominalCentimos,
       ...(importePropuestoCentimos === undefined ? {} : { importePropuestoCentimos }),
       ...(saldoPendienteActualCentimos === undefined ? {} : { saldoPendienteActualCentimos }),
-      ...(estadoSaldo === undefined ? {} : { estadoSaldo }),
+      ...(estadoValidado === undefined ? {} : { estadoSaldo: estadoValidado }),
     }
   })
   const sumaPropuestaCentimos = optionalAmount(raw, 'sumaPropuestaCentimos')

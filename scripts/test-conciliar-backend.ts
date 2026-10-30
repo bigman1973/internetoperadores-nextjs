@@ -59,7 +59,7 @@ test('fixture sintética: POST confirmar usa sólo identidad opaca y hash de dec
     items: [{ id: 'fila-sintetica-b', decisionHash: b }, { id: 'fila-sintetica-a', decisionHash: a }],
   })
   assert.equal(parsed.action, 'confirmar')
-  if (parsed.action !== 'confirmar') throw new Error('fixture no confirmado')
+  if (parsed.action !== 'confirmar' || !('items' in parsed)) throw new Error('fixture no confirmado como lote')
   assert.deepEqual(parsed.items.map(item => item.id), ['fila-sintetica-a', 'fila-sintetica-b'])
   throwsValidation(() => parseConciliarCommand({ action: 'confirmar', idempotencyKey: '11111111-1111-4111-8111-111111111111', items: [{ id: 'fila-sintetica-a', decisionHash: a, importeCentimos: 1 }] }), 400)
   throwsValidation(() => parseConciliarCommand({ action: 'pedir', id: 'fila-sintetica-roja', decisionHash: a, idempotencyKey: 'not-a-uuid', movimientoId: 'nunca-aceptado' }), 400)

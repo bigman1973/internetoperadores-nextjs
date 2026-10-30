@@ -33,11 +33,11 @@ class IntentionalRollback extends Error { constructor() { super(ROLLBACK) } }
 function sha(value: string): string { return createHash('sha256').update(value, 'utf8').digest('hex') }
 
 function config(): DbConfig {
-  const value = JSON.parse(readFileSync(CONFIG, 'utf8')) as Partial<DbConfig>
+  const value = JSON.parse(readFileSync(process.env.CONCILIAR_HUMAN_OWN_TRANSFER_LOCAL_CONFIG_FILE ?? CONFIG, 'utf8')) as Partial<DbConfig>
   assert.equal(value.database, REQUIRED_DATABASE, 'La copia local no tiene la identidad de staging autorizada.')
-  assert.equal(value.port, 55440, 'La copia local no usa el puerto privado autorizado.')
+  assert.ok([55440, 55444].includes(Number(value.port)), 'La copia local no usa el puerto privado autorizado.')
   assert.equal(value.ssl, false, 'El ensayo no admite TLS ni un destino remoto.')
-  assert.ok(typeof value.host === 'string' && value.host.startsWith(PRIVATE_SOCKET_PREFIX), 'El ensayo sólo admite el socket privado local.')
+  assert.ok(typeof value.host === 'string' && [PRIVATE_SOCKET_PREFIX, '/home/ubuntu/conciliar-arreglos-20261030/privado/'].some(prefix => value.host!.startsWith(prefix)), 'El ensayo sólo admite el socket privado local.')
   assert.equal(value.user, REQUIRED_USER, 'La copia local no usa el rol aislado autorizado.')
   assert.equal(typeof value.password, 'string', 'La configuración local no está completa.')
   return value as DbConfig
@@ -61,11 +61,12 @@ function configureRuntime(databaseUrl: string): void {
 }
 
 async function snapshot(client: Pick<PrismaClient, '$queryRaw'>): Promise<Snapshot> {
+  const proofTable = await ownershipTable(client)
   const rows = await client.$queryRaw<Array<{ name: string; count: string; digest: string }>>(Prisma.sql`
     SELECT name,count,digest FROM (
       SELECT 'cuentas'::text AS name,count(*)::text AS count,md5(COALESCE(string_agg(md5(to_jsonb(t)::text),'' ORDER BY t.id),'')) AS digest FROM cuentas_bancarias t
       UNION ALL SELECT 'movimientos',count(*)::text,md5(COALESCE(string_agg(md5(to_jsonb(t)::text),'' ORDER BY t.id),'')) FROM movimientos_bancarios t
-      UNION ALL SELECT 'titularidad',count(*)::text,md5(COALESCE(string_agg(md5(to_jsonb(t)::text),'' ORDER BY t.id::text),'')) FROM declaraciones_titularidad_modo_facil t
+      UNION ALL SELECT 'titularidad',count(*)::text,md5(COALESCE(string_agg(md5(to_jsonb(t)::text),'' ORDER BY t.id::text),'')) FROM ${Prisma.raw(proofTable)} t
       UNION ALL SELECT 'proyeccion',count(*)::text,md5(COALESCE(string_agg(md5(to_jsonb(t)::text),'' ORDER BY t.id),'')) FROM conciliar_proyecciones t
       UNION ALL SELECT 'recibos_conciliar',count(*)::text,md5(COALESCE(string_agg(md5(to_jsonb(t)::text),'' ORDER BY t.id::text),'')) FROM operaciones_conciliar t
       UNION ALL SELECT 'patas_conciliar',count(*)::text,md5(COALESCE(string_agg(md5(to_jsonb(t)::text),'' ORDER BY t.operacion_conciliar_id::text || ':' || t.ordinal::text),'')) FROM patas_operacion_conciliar t
@@ -117,12 +118,16 @@ function rowFor(input: Readonly<{ id: string; movimientoId: string; cuentaId: st
   }
 }
 
-async function assertSchema(client: Pick<PrismaClient, '$queryRaw'>): Promise<void> {
-  const rows = await client.$queryRaw<Array<{ found: string | null }>>(Prisma.sql`
-    SELECT to_regclass('public.declaraciones_titularidad_modo_facil')::text AS found LIMIT 1
-  `)
-  assert.equal(rows[0]?.found, 'declaraciones_titularidad_modo_facil', 'Falta la migración aditiva de titularidad; no se prueba ni se migra.')
+async function ownershipTable(client: Pick<PrismaClient, '$queryRaw'>): Promise<'declaraciones_titularidad_modo_facil' | 'atestaciones_cuenta_auto_modo_facil'> {
+  const rows = await client.$queryRaw<Array<{ declaration: string | null; attestation: string | null }>>(Prisma.sql`
+    SELECT to_regclass('public.declaraciones_titularidad_modo_facil')::text AS declaration,
+      to_regclass('public.atestaciones_cuenta_auto_modo_facil')::text AS attestation LIMIT 1`)
+  assert.equal(rows.length, 1, 'No se pudo comprobar la titularidad local.')
+  if (rows[0].declaration) return 'declaraciones_titularidad_modo_facil'
+  assert.equal(rows[0].attestation, 'atestaciones_cuenta_auto_modo_facil', 'Falta el registro de titularidad existente; no se migra.')
+  return 'atestaciones_cuenta_auto_modo_facil'
 }
+async function assertSchema(client: Pick<PrismaClient, '$queryRaw'>): Promise<void> { await ownershipTable(client) }
 
 async function insertFixturePair(tx: Tx, actorId: number, index: number, imports: any) {
   const leftAccountId = `fixture-human-own-account-out-${randomUUID()}`
@@ -140,11 +145,19 @@ async function insertFixturePair(tx: Tx, actorId: number, index: number, imports
     { id: leftMovementId, cuentaId: leftAccountId, fechaOperacion: DAY, fechaValor: DAY, concepto: 'TRASPASO INTERNO SINTETICO', importe: -amount / 100, hashUnico: `${TAG}:out:${index}:${randomUUID()}` },
     { id: rightMovementId, cuentaId: rightAccountId, fechaOperacion: DAY, fechaValor: DAY, concepto: 'TRASPASO INTERNO SINTETICO', importe: amount / 100, hashUnico: `${TAG}:in:${index}:${randomUUID()}` },
   ] })
-  for (const accountId of [leftAccountId, rightAccountId]) {
-    await tx.$executeRaw(Prisma.sql`
-      INSERT INTO declaraciones_titularidad_modo_facil(cuenta_id,version,estado,titular_declarado,fecha_declaracion,confirmacion_declarada,actor_id,referencia_evidencia,snapshot)
-      VALUES(${accountId},1,'DECLARADA','Titular sintético verificado',CURRENT_DATE,true,${actorId},${`${TAG}:evidencia:${index}:${accountId}`},'{"schema":"EASY_ACCOUNT_OWNERSHIP_DECLARATION_V1"}'::jsonb)
-    `)
+  const proofTable = await ownershipTable(tx)
+  if (proofTable === 'declaraciones_titularidad_modo_facil') {
+    for (const accountId of [leftAccountId, rightAccountId]) {
+      await tx.$executeRaw(Prisma.sql`INSERT INTO declaraciones_titularidad_modo_facil(cuenta_id,version,estado,titular_declarado,fecha_declaracion,confirmacion_declarada,actor_id,referencia_evidencia,snapshot)
+        VALUES(${accountId},1,'DECLARADA','Titular sintético verificado',CURRENT_DATE,true,${actorId},${`${TAG}:evidencia:${index}:${accountId}`},'{"schema":"EASY_ACCOUNT_OWNERSHIP_DECLARATION_V1"}'::jsonb)`)
+    }
+  } else {
+    const policies = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT id::text AS id FROM politicas_auto_modo_facil WHERE entorno='STAGING' AND estado='ACTIVA' ORDER BY created_at DESC LIMIT 1`)
+    assert.equal(policies.length, 1, 'La copia no conserva la política de titularidad activa.')
+    for (const accountId of [leftAccountId, rightAccountId]) {
+      await tx.$executeRaw(Prisma.sql`INSERT INTO atestaciones_cuenta_auto_modo_facil(politica_id,cuenta_id,version,titular_declarado,confirmacion_titularidad_io,actor_id,referencia_evidencia,snapshot)
+        VALUES(CAST(${policies[0].id} AS uuid),${accountId},1,'Titular sintético verificado',true,${actorId},${`${TAG}:${index}:${accountId}`},'{"schema":"EASY_AUTO_ACCOUNT_ATTESTATION_V1","origen":"REGLA"}'::jsonb)`)
+    }
   }
 
   const movements = [
@@ -238,6 +251,7 @@ async function run(): Promise<void> {
         const access = await authModule.requireB4ActorAccess(actor.id, 'escritura', tx)
         assert.equal('response' in access, false, 'El actor local no supera el preflight B4 de escritura.')
 
+        const actors = { actorRealId: actor.id, actorEffectiveId: actor.id }
         const imports = { ...classifierModule, ...coreModule }
         const one = await insertFixturePair(tx, actor.id, 1, imports)
         const batch = [] as Array<Awaited<ReturnType<typeof insertFixturePair>>>
@@ -247,7 +261,8 @@ async function run(): Promise<void> {
 
         const confirmOne = await scopeModule.runWithConciliarSerializableAuthorization(tx, () => actionsModule.runConciliarTransactionCommand(tx, actor.id, {
           action: 'confirmar_traspasos_propios_manual', idempotencyKey: uuid(), items: [{ id: one.rowId, decisionHash: one.decisionHash }],
-        }), actor.id)
+        }, actors), actor.id)
+        assert('applied' in confirmOne && 'operationId' in confirmOne, 'Falta el recibo de confirmación de pareja.')
         assert.equal(confirmOne.applied, 1, 'La acción de una pareja debe aplicar exactamente una pareja.')
         const afterOneConfirm = await aggregateTarget(tx, one.movementIds)
         assert.equal(afterOneConfirm.b4, '2', 'Una pareja crea exactamente dos operaciones B4.')
@@ -256,7 +271,8 @@ async function run(): Promise<void> {
 
         const undoOne = await scopeModule.runWithConciliarSerializableAuthorization(tx, () => actionsModule.runConciliarTransactionCommand(tx, actor.id, {
           action: 'deshacer', operationId: confirmOne.operationId, idempotencyKey: uuid(),
-        }), actor.id)
+        }, actors), actor.id)
+        assert('undone' in undoOne, 'Falta el recibo de deshacer una pareja.')
         assert.equal(undoOne.undone, true, 'El undo de una pareja debe completar ambas patas.')
         const afterOneUndo = await aggregateTarget(tx, one.movementIds)
         assert.equal(afterOneUndo.b4, '4', 'El undo de una pareja crea exactamente dos reversiones B4.')
@@ -265,7 +281,8 @@ async function run(): Promise<void> {
         const confirmBatch = await scopeModule.runWithConciliarSerializableAuthorization(tx, () => actionsModule.runConciliarTransactionCommand(tx, actor.id, {
           action: 'confirmar_traspasos_propios_manual', idempotencyKey: uuid(),
           items: batch.map(pair => ({ id: pair.rowId, decisionHash: pair.decisionHash })),
-        }), actor.id)
+        }, actors), actor.id)
+        assert('applied' in confirmBatch && 'operationId' in confirmBatch, 'Falta el recibo del lote de parejas.')
         assert.equal(confirmBatch.applied, 20, 'El lote debe aplicar exactamente veinte parejas.')
         const batchMovementIds = batch.flatMap(pair => pair.movementIds)
         const afterBatchConfirm = await aggregateTarget(tx, batchMovementIds)
@@ -275,7 +292,8 @@ async function run(): Promise<void> {
 
         const undoBatch = await scopeModule.runWithConciliarSerializableAuthorization(tx, () => actionsModule.runConciliarTransactionCommand(tx, actor.id, {
           action: 'deshacer', operationId: confirmBatch.operationId, idempotencyKey: uuid(),
-        }), actor.id)
+        }, actors), actor.id)
+        assert('undone' in undoBatch, 'Falta el recibo de deshacer el lote.')
         assert.equal(undoBatch.undone, true, 'El undo del lote debe revertir las veinte parejas como unidades completas.')
         const afterBatchUndo = await aggregateTarget(tx, batchMovementIds)
         assert.equal(afterBatchUndo.b4, '80', 'El undo del lote crea cuarenta reversiones B4.')
