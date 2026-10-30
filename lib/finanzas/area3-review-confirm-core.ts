@@ -53,7 +53,9 @@ export type Area3ReviewConfirmMaterial = Readonly<{
   documentoCanonico: boolean
   /** Resultado de la misma guarda lifecycle que volverá a bloquearse al confirmar. */
   documentLifecycleEligible: boolean
-  /** SHA-256 de la versión documental CAPTURED actual; nunca es input HTTP. */
+  /** Procedencia de una prueba documental que el servidor volvió a comprobar. */
+  documentEvidenceKind: 'LIFECYCLE_CAPTURED' | 'LEGACY_CONTROLLED_FINGERPRINT' | null
+  /** SHA-256 documental verificado por servidor; nunca es input HTTP. */
   documentVersionHash: string | null
 }>
 
@@ -66,6 +68,7 @@ export type Area3ReviewBlockCode =
   | 'DOCUMENTO_NO_ACCESIBLE'
   | 'ARCHIVO_CONTROLADO_REQUERIDO'
   | 'DOCUMENT_LIFECYCLE_NO_VIGENTE'
+  | 'DOCUMENT_EVIDENCE_KIND_REQUIRED'
   | 'DOCUMENT_VERSION_HASH_REQUIRED'
   | 'IMPORTE_DOCUMENTAL_DESCONOCIDO'
   | 'IMPORTE_BANCARIO_INVALIDO'
@@ -93,6 +96,7 @@ export type Area3ReviewDecision =
     motivo: Area3ReviewConfirmReason
     advertencia: string
     sourceHash: string
+    documentEvidenceKind: 'LIFECYCLE_CAPTURED' | 'LEGACY_CONTROLLED_FINGERPRINT'
     documentVersionHash: string
     versionB4: number
     importeLineaCentimos: number
@@ -145,6 +149,7 @@ export function area3ReviewSourceHash(material: Area3ReviewConfirmMaterial): str
     documentoAccesible: material.documentoAccesible,
     documentoCanonico: material.documentoCanonico,
     documentLifecycleEligible: material.documentLifecycleEligible,
+    documentEvidenceKind: material.documentEvidenceKind,
     documentVersionHash: material.documentVersionHash,
   }
   return createHash('sha256').update(stable(canonical), 'utf8').digest('hex')
@@ -229,6 +234,9 @@ export function evaluateArea3ReviewConfirm(
   if (!material.documentLifecycleEligible) {
     return blocked('DOCUMENT_LIFECYCLE_NO_VIGENTE', 'La versión documental ya no es vigente o cambió desde la propuesta; actualiza y vuelve a revisar.', sourceHash)
   }
+  if (material.documentEvidenceKind !== 'LIFECYCLE_CAPTURED' && material.documentEvidenceKind !== 'LEGACY_CONTROLLED_FINGERPRINT') {
+    return blocked('DOCUMENT_EVIDENCE_KIND_REQUIRED', 'El documento no conserva una procedencia de evidencia verificable para esta excepción.', sourceHash)
+  }
   if (typeof material.documentVersionHash !== 'string' || !/^[a-f0-9]{64}$/.test(material.documentVersionHash)) {
     return blocked('DOCUMENT_VERSION_HASH_REQUIRED', 'El documento no conserva una huella de versión verificable para esta excepción.', sourceHash)
   }
@@ -283,6 +291,7 @@ export function evaluateArea3ReviewConfirm(
     motivo: material.motivoProyeccion,
     advertencia: warning(material.motivoProyeccion),
     sourceHash,
+    documentEvidenceKind: material.documentEvidenceKind,
     documentVersionHash: material.documentVersionHash,
     versionB4: material.versionB4,
     importeLineaCentimos: material.importeBancoCentimos,

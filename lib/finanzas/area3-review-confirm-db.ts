@@ -7,10 +7,7 @@ import { conciliarAliasesMatch } from './conciliar-core'
 import { movementPartyAliases } from './conciliar-db'
 import { type ConciliarProjectionSource } from './conciliar-contract'
 import { safeInteger } from './conciliar-core'
-import {
-  lockConciliarDocumentLifecycleForConfirmationTx,
-  readConciliarDocumentLifecycleEligibilityTx,
-} from './conciliar-document-lifecycle-guard'
+import { readArea3ReviewDocumentEvidenceTx } from './area3-review-document-evidence'
 import {
   evaluateArea3ReviewConfirm,
   type Area3ReviewAcknowledgement,
@@ -57,7 +54,6 @@ type ExistingWrapper = Readonly<{
   activo: boolean
   objetivo: number | bigint | string | null
 }>
-type DocumentVersionRow = Readonly<{ contentSha256: string | null }>
 
 export class Area3ReviewConfirmDbError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string) {
@@ -90,32 +86,6 @@ function requireReviewSource(row: SealedReviewRow): Readonly<{ movementId: strin
     fail(409, 'REVISION_AREA3_OBSOLETA', 'La propuesta ya no conserva una revisión de proveedor válida. Actualiza la lista.')
   }
   return { movementId: source.movimientoId, invoiceId: source.facturaRecibidaId, reason, versionB4: version }
-}
-
-/**
- * Relee exclusivamente la versión actual del archivo que el invoice persistido
- * identifica. La huella no procede de la UI ni sustituye la guarda lifecycle:
- * ambas se evalúan en preflight y de nuevo bajo los locks de confirmación.
- */
-async function currentDocumentVersionTx(tx: Tx, source: SourceRow, projectionSource: ConciliarProjectionSource, lock: boolean) {
-  const lifecycle = lock
-    ? await lockConciliarDocumentLifecycleForConfirmationTx(tx, { source: projectionSource, expectedVersionState: projectionSource.documentLifecycleVersionState })
-    : await readConciliarDocumentLifecycleEligibilityTx(tx, projectionSource)
-  if (!lifecycle.elegible) return { eligible: false, hash: null as string | null }
-  const rows = await tx.$queryRaw<DocumentVersionRow[]>(Prisma.sql`
-    SELECT s.content_sha256 AS "contentSha256"
-    FROM document_version_lifecycle l
-    JOIN document_version_snapshots s ON s.lifecycle_id=l.id AND s.version_number=l.current_version
-    WHERE l.source='ONEDRIVE'
-      AND l.state='ACTIVE'::"DocumentVersionLifecycleState"
-      AND l.source_item_key=(${source.driveId} || ':' || ${source.itemId})
-      AND s.artifact_state='CAPTURED'::"DocumentVersionArtifactState"
-    LIMIT 2${lock ? Prisma.sql` FOR KEY SHARE OF s` : Prisma.empty}
-  `)
-  const hash = rows.length === 1 && typeof rows[0]?.contentSha256 === 'string' && /^[a-f0-9]{64}$/.test(rows[0].contentSha256)
-    ? rows[0].contentSha256
-    : null
-  return { eligible: hash !== null, hash }
 }
 
 /**
@@ -159,7 +129,11 @@ async function currentMaterialTx(tx: Tx, row: SealedReviewRow, lock: boolean): P
   if (!source || source.movementId !== sealed.movementId || source.facturaId !== sealed.invoiceId) {
     fail(409, 'REVISION_AREA3_OBSOLETA', 'El movimiento o la factura ya no están disponibles para esta revisión.')
   }
-  const documentVersion = await currentDocumentVersionTx(tx, source, row.source, lock)
+  const documentEvidence = await readArea3ReviewDocumentEvidenceTx(tx, {
+    source: { invoiceId: source.facturaId, driveId: source.driveId, itemId: source.itemId, archivo: source.archivo },
+    projectionSource: row.source,
+    lock,
+  })
   const wrappers = await tx.$queryRaw<ExistingWrapper[]>(Prisma.sql`
     SELECT d.id::text AS id,d.activo,d.importe_objetivo_centimos AS objetivo
     FROM documentos_conciliables d
@@ -213,8 +187,9 @@ async function currentMaterialTx(tx: Tx, row: SealedReviewRow, lock: boolean): P
     archivoControladoDisponible: controlled,
     documentoAccesible: true,
     documentoCanonico: wrapperSound,
-    documentLifecycleEligible: documentVersion.eligible,
-    documentVersionHash: documentVersion.hash,
+    documentLifecycleEligible: documentEvidence.eligible,
+    documentEvidenceKind: documentEvidence.kind,
+    documentVersionHash: documentEvidence.hash,
   }
 }
 
@@ -297,6 +272,7 @@ export async function confirmArea3ReviewTx(
         sourceHash: decision.sourceHash,
         decisionHash: row.decisionHash,
         advertencia: decision.advertencia,
+        documentEvidenceKind: decision.documentEvidenceKind,
         documentVersionHash: decision.documentVersionHash,
         versionB4: decision.versionB4,
         importeLineaCentimos: decision.importeLineaCentimos,

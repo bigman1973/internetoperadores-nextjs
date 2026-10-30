@@ -31,6 +31,7 @@ function material(overrides: Partial<Area3ReviewConfirmMaterial> = {}): Area3Rev
     documentoAccesible: true,
     documentoCanonico: true,
     documentLifecycleEligible: true,
+    documentEvidenceKind: 'LIFECYCLE_CAPTURED',
     documentVersionHash: 'c'.repeat(64),
     ...overrides,
   }
@@ -84,4 +85,14 @@ test('un nÃºmero incompleto sigue siendo revisable, pero una referencia alfanumÃ
   assert.equal(contradictory.ok, false)
   assert.equal(contradictory.codigo, 'REFERENCIA_EXPLICITA_CONTRADICTORIA')
   assert.equal(contradictory.color, 'ROJO')
+})
+
+test('la procedencia legacy queda sellada en el ACK y una procedencia ausente bloquea aunque haya hash', () => {
+  const captured = material({ documentEvidenceKind: 'LIFECYCLE_CAPTURED' })
+  const legacy = material({ documentEvidenceKind: 'LEGACY_CONTROLLED_FINGERPRINT' })
+  assert.notEqual(area3ReviewSourceHash(captured), area3ReviewSourceHash(legacy), 'el ACK no sobrevive a un cambio entre snapshot y huella legacy')
+
+  const missing = evaluateArea3ReviewConfirm(material({ documentEvidenceKind: null }))
+  assert.equal(missing.ok, false)
+  assert.equal(missing.codigo, 'DOCUMENT_EVIDENCE_KIND_REQUIRED')
 })

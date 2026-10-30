@@ -726,11 +726,14 @@ async function confirmArea3Review(tx: Tx, actorId: number, command: Extract<Conc
         approverId: actorId,
         acknowledgement: command.review.acknowledgement,
         review: applied.result.review,
-        documentVersionHash: auditPreflight.material.documentVersionHash,
-        versionB4: auditPreflight.material.versionB4,
-        amountLineCentimos: auditPreflight.material.importeBancoCentimos,
-        documentNetBeforeCentimos: auditPreflight.material.netoActivoPrevioCentimos,
-        documentNetAfterCentimos: ((auditPreflight.material.netoActivoPrevioCentimos ?? 0) + auditPreflight.material.importeBancoCentimos),
+        // La decisión durable proviene del mismo preflight bloqueado que B4
+        // acaba de confirmar; la auditoría conserva también su procedencia.
+        documentEvidenceKind: applied.result.review.documentEvidenceKind,
+        documentVersionHash: applied.result.review.documentVersionHash,
+        versionB4: applied.result.review.versionB4,
+        amountLineCentimos: applied.result.review.importeLineaCentimos,
+        documentNetBeforeCentimos: applied.result.review.netoDocumentoPrevioCentimos,
+        documentNetAfterCentimos: applied.result.review.netoDocumentoResultanteCentimos,
         fullMovementClosure: true,
         remainderCentimos: 0,
       })} AS jsonb),CURRENT_TIMESTAMP)
