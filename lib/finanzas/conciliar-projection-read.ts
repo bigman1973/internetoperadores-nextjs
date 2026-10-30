@@ -91,6 +91,9 @@ function storedSource(value: unknown): ConciliarProjectionSource | null {
   const scalar = (key: string) => typeof row[key] === 'string' && row[key].length > 0 && row[key].length <= 200 ? row[key] : undefined
   const integer = (key: string) => Number.isSafeInteger(row[key]) ? Number(row[key]) : undefined
   const lifecycleVersionState = typeof row.documentLifecycleVersionState === 'string' && (row.documentLifecycleVersionState === 'SIN_LIFECYCLE_HISTORICO' || /^[a-f0-9]{64}$/.test(row.documentLifecycleVersionState)) ? row.documentLifecycleVersionState : undefined
+  const providerReviewReason = row.providerReviewReason === 'SIN_REFERENCIA_DOCUMENTAL' || row.providerReviewReason === 'REFERENCIA_NUMERO_INCOMPLETO'
+    ? row.providerReviewReason : undefined
+  if (row.providerReviewReason !== undefined && !providerReviewReason) return null
   if (kind === 'PAGO_TICKET_B5' && (!scalar('movimientoId') || !scalar('adjuntoB5Id') || !scalar('gastoId') || !scalar('documentoConciliableId') || !(integer('versionB4')! > 0))) return null
   const remesaIds = Array.isArray(row.remesaIds) && row.remesaIds.every(item => Number.isSafeInteger(item) && Number(item) > 0)
     ? row.remesaIds.map(Number).sort((a, b) => a - b) : undefined
@@ -110,6 +113,7 @@ function storedSource(value: unknown): ConciliarProjectionSource | null {
     ...(scalar('documentoConciliableId') ? { documentoConciliableId: scalar('documentoConciliableId') } : {}),
     ...(scalar('nominaId') ? { nominaId: scalar('nominaId') } : {}),
     ...(lifecycleVersionState ? { documentLifecycleVersionState: lifecycleVersionState } : {}),
+    ...(providerReviewReason ? { providerReviewReason } : {}),
     ...(scalar('movimientoParId') ? { movimientoParId: scalar('movimientoParId') } : {}),
     ...(scalar('transferFingerprint') ? { transferFingerprint: scalar('transferFingerprint') } : {}),
     ...(typeof row.pairId === 'string' && /^[a-f0-9]{64}$/.test(row.pairId) ? { pairId: row.pairId } : {}),

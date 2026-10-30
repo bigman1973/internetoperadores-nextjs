@@ -131,20 +131,26 @@ export async function POST(request: NextRequest) {
   try {
     phase('handler-start')
     await assertConciliarRuntime()
-    const access = await requireB4FinanceAccess('escritura', await getServerSession(authOptions))
-    if ('response' in access) return access.response
     if (!sameOrigin(request)) return privateJson({ error: 'Origen de la solicitud no válido.', codigo: 'INVALID_ORIGIN' }, 403)
     const command = (await readJsonLimited(request, MAX_JSON_BYTES)) as unknown
     // Parse here as well as in the action service: malformed input cannot reach it
     // and the route retains the exact command needed to normalize the UI response.
     const parsed = parseConciliarCommand(command)
+    const reviewPreview = parsed.action === 'confirmar' && 'review' in parsed && parsed.review.kind === 'REVIEW_PREVIEW'
+    const access = await requireB4FinanceAccess(reviewPreview ? 'lectura' : 'escritura', await getServerSession(authOptions))
+    if ('response' in access) return access.response
     phase('command-ready')
-    const [{ runConciliarAction, conciliarActionErrorResponse }, { scheduleConciliarProjectionRefresh }] = await Promise.all([
-      import('@/lib/finanzas/conciliar-actions'),
-      import('@/lib/finanzas/conciliar-refresh'),
-    ])
+    const { runConciliarAction, runConciliarReviewPreview, conciliarActionErrorResponse } = await import('@/lib/finanzas/conciliar-actions')
     phase('action-start')
-    if (parsed.action === 'confirmar' && acceptsConciliarNdjson(request.headers.get('accept'))) {
+    if (reviewPreview) {
+      // Esta vía no crea recibo, no cambia la proyección y no puede iniciar
+      // refresh/importación. Sólo devuelve el G7 de revisión en READ ONLY.
+      const result = await runConciliarReviewPreview(access.actor.id, parsed)
+      phase('preview-finished')
+      return privateJson(result)
+    }
+    const { scheduleConciliarProjectionRefresh } = await import('@/lib/finanzas/conciliar-refresh')
+    if (parsed.action === 'confirmar' && 'items' in parsed && acceptsConciliarNdjson(request.headers.get('accept'))) {
       // Same POST, same closed body and same auth/origin guard as JSON. Progress is
       // only negotiated by Accept; no uncommitted outcome reaches the browser.
       return streamConciliarConfirmation({

@@ -20,6 +20,9 @@ type MutableConciliarDisplayGroup = {
 
 export type SelectionReview = Readonly<{
   confirmableRows: readonly ConciliarRow[];
+  /** Parejas humanas verdes: siguen siendo no seleccionables para el comando
+   * genérico; la UI las entrega al comando manual cerrado. */
+  humanRows: readonly ConciliarRow[];
   hiddenCount: number;
   changedCount: number;
   unavailableCount: number;
@@ -112,11 +115,25 @@ export function setRowSelected(selection: ConciliarSelection, row: Pick<Concilia
   return next;
 }
 
+/** La capacidad humana no convierte la fila en seleccionable genérica: sólo
+ * autoriza el comando específico de parejas dentro de la transacción servidora. */
+export function hasHumanOwnTransferConfirmation(row: Pick<ConciliarRow, 'color' | 'seleccionable' | 'accionHumana'>): boolean {
+  return row.color === 'VERDE'
+    && row.seleccionable === false
+    && row.accionHumana?.kind === 'CONFIRMAR_PAREJA_PROPIA';
+}
+
+function isVisibleGreenConfirmationCandidate(row: ConciliarRow): boolean {
+  return row.color === 'VERDE'
+    && !requiresSeparateRemesaConfirmation(row)
+    && (row.seleccionable || hasHumanOwnTransferConfirmation(row));
+}
+
 /** Añade sólo verdes actualmente visibles. Desmarcar este gesto borra sólo los visibles; los otros siguen explícitos. */
 export function setVisibleGreenSelected(selection: ConciliarSelection, rows: readonly ConciliarRow[], checked: boolean): ConciliarSelection {
   const next = new Map(selection);
   for (const row of rows) {
-    if (row.color !== 'VERDE' || !row.seleccionable || requiresSeparateRemesaConfirmation(row)) continue;
+    if (!isVisibleGreenConfirmationCandidate(row)) continue;
     // Una marca previa con otro hash representa una decisión que cambió. El
     // gesto masivo no puede convertirla sin revisión en una autorización nueva.
     if (checked) {
@@ -127,7 +144,7 @@ export function setVisibleGreenSelected(selection: ConciliarSelection, rows: rea
 }
 
 export function areAllVisibleGreensSelected(selection: ConciliarSelection, rows: readonly ConciliarRow[]): boolean {
-  const candidates = rows.filter((row) => row.color === 'VERDE' && row.seleccionable && !requiresSeparateRemesaConfirmation(row));
+  const candidates = rows.filter(isVisibleGreenConfirmationCandidate);
   return candidates.length > 0 && candidates.every((row) => selection.get(row.id) === row.decisionHash);
 }
 
@@ -143,6 +160,7 @@ export function reviewSelectionForCurrentRows(selection: ConciliarSelection, cur
   let changedCount = 0;
   let unavailableCount = 0;
   const confirmableRows: ConciliarRow[] = [];
+  const humanRows: ConciliarRow[] = [];
   for (const [id, selectedHash] of selection) {
     const row = visible.get(id);
     if (!row) {
@@ -153,13 +171,14 @@ export function reviewSelectionForCurrentRows(selection: ConciliarSelection, cur
       changedCount += 1;
       continue;
     }
-    if (row.color !== 'VERDE' || !row.seleccionable) {
+    if (row.color !== 'VERDE' || (!row.seleccionable && !hasHumanOwnTransferConfirmation(row))) {
       unavailableCount += 1;
       continue;
     }
     confirmableRows.push(row);
+    if (hasHumanOwnTransferConfirmation(row)) humanRows.push(row);
   }
-  return { confirmableRows, hiddenCount, changedCount, unavailableCount };
+  return { confirmableRows, humanRows, hiddenCount, changedCount, unavailableCount };
 }
 
 function normalizedText(value: string | null | undefined): string {

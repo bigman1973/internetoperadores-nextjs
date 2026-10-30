@@ -178,9 +178,16 @@ export function classifyConciliarHumanOwnTransferRows(input: Readonly<{
 }
 
 export type ConciliarHumanOwnTransferPreflight = Readonly<{
+  /** Pata que seleccionó el navegador; sólo sirve para comprobar su foto sellada. */
+  selected: ConciliarTransferReviewMovement
+  /** Compatibilidad del preflight: conserva la pata que llegó sellada. */
   source: ConciliarHumanOwnTransferSource
   primary: ConciliarTransferReviewMovement
   paired: ConciliarTransferReviewMovement
+  /** La escritura se normaliza a este orden en el servidor, nunca en la UI. */
+  canonicalSource: ConciliarHumanOwnTransferSource
+  canonicalPrimary: ConciliarTransferReviewMovement
+  canonicalPaired: ConciliarTransferReviewMovement
 }>
 
 /**
@@ -198,17 +205,36 @@ export function preflightConciliarHumanOwnTransfer(input: Readonly<{
   const classified = classifyConciliarHumanOwnTransferRows(input)
   if (!source || new Set(classified.movements.map(movement => movement.id)).size !== classified.movements.length) return null
   const movements = new Map(classified.movements.map(movement => [movement.id, movement]))
-  const primary = movements.get(source.movimientoId)
-  const paired = movements.get(source.movimientoParId)
-  if (!primary || !paired || primary.versionB4 !== source.versionB4) return null
+  const selected = movements.get(source.movimientoId)
+  const selectedPair = movements.get(source.movimientoParId)
+  // La fuente de cada fila conserva la versión de la pata que representa. Una
+  // selección de la otra pata es válida, pero nunca puede reutilizar una versión
+  // antigua ni sustituir el movimiento que la proyección selló.
+  if (!selected || !selectedPair || selected.versionB4 !== source.versionB4) return null
   const reviews = classified.reviews
-  const primaryReview = reviews.get(primary.id)
-  const pairedReview = reviews.get(paired.id)
-  if (primaryReview?.kind !== 'PAREJA_UNICA_PENDIENTE_PRUEBA_ESTRICTA'
+  const selectedReview = reviews.get(selected.id)
+  const pairedReview = reviews.get(selectedPair.id)
+  if (selectedReview?.kind !== 'PAREJA_UNICA_PENDIENTE_PRUEBA_ESTRICTA'
     || pairedReview?.kind !== 'PAREJA_UNICA_PENDIENTE_PRUEBA_ESTRICTA'
-    || primaryReview.movimientoParId !== paired.id || pairedReview.movimientoParId !== primary.id
-    || primaryReview.transferFingerprint !== source.pairId || pairedReview.transferFingerprint !== source.pairId) return null
-  return { source, primary, paired }
+    || selectedReview.movimientoParId !== selectedPair.id || pairedReview.movimientoParId !== selected.id
+    || selectedReview.transferFingerprint !== source.pairId || pairedReview.transferFingerprint !== source.pairId) return null
+  // La escritura no depende del orden de la página, del tab ni de que el usuario
+  // haya pulsado la pata de entrada o la de salida. Conservamos `primary` para
+  // el contrato de lectura existente y exponemos el orden canónico separado.
+  const [canonicalPrimary, canonicalPaired] = [selected, selectedPair].sort((left, right) => left.id.localeCompare(right.id))
+  const canonicalSource: ConciliarHumanOwnTransferSource = {
+    kind: 'TRANSFERENCIA_PROPIA_MANUAL', movimientoId: canonicalPrimary.id, movimientoParId: canonicalPaired.id,
+    pairId: source.pairId, proofSource: CONCILIAR_MANUAL_OWN_ACCOUNT_PROOF_SOURCE, versionB4: canonicalPrimary.versionB4,
+  }
+  return {
+    selected,
+    source,
+    primary: selected,
+    paired: selectedPair,
+    canonicalSource,
+    canonicalPrimary,
+    canonicalPaired,
+  }
 }
 
 async function lockMovements(tx: Tx, movementIds: readonly string[]): Promise<void> {
@@ -456,7 +482,7 @@ export async function confirmConciliarHumanOwnTransferTx(
   actorId: number,
   operationId: string,
   rawSource: unknown,
-  expectedPrimaryAmount: number,
+  expectedSelectedAmount: number,
 ): Promise<Readonly<{
   operationB4Id: string
   result: Readonly<{
@@ -472,7 +498,7 @@ export async function confirmConciliarHumanOwnTransferTx(
 }>> {
   const tx = base as Tx
   const source = parseConciliarHumanOwnTransferSource(rawSource)
-  if (!source || !Number.isSafeInteger(actorId) || actorId < 1 || !Number.isSafeInteger(expectedPrimaryAmount)) {
+  if (!source || !Number.isSafeInteger(actorId) || actorId < 1 || !Number.isSafeInteger(expectedSelectedAmount)) {
     fail('TRANSFERENCIA_MANUAL_INVALIDA', 'La pareja de traspaso propia ya no es válida. Actualiza la lista.')
   }
   const movementIds = [source.movimientoId, source.movimientoParId]
@@ -492,23 +518,24 @@ export async function confirmConciliarHumanOwnTransferTx(
     attestedOwnAccountIds: proof.proof.accountIds,
     registeredAttestedOwnIbanKeys: ibanKeys,
   })
-  if (!preflight || preflight.primary.importeCentimos !== expectedPrimaryAmount || preflight.paired.importeCentimos !== -expectedPrimaryAmount) {
+  if (!preflight || preflight.selected.importeCentimos !== expectedSelectedAmount
+    || preflight.primary.importeCentimos !== -preflight.paired.importeCentimos) {
     fail('TRANSFERENCIA_CAMBIADA', 'La pareja ya no cumple la comprobación humana de cuentas propias. Actualiza la lista.')
   }
 
   const lockedById = new Map(locked.map(row => [String(row.id), row]))
-  const lockedPrimary = manualOwnTransferReviewMovement(lockedById.get(preflight.primary.id)!, ibanKeys)
-  const lockedPaired = manualOwnTransferReviewMovement(lockedById.get(preflight.paired.id)!, ibanKeys)
+  const lockedPrimary = manualOwnTransferReviewMovement(lockedById.get(preflight.canonicalPrimary.id)!, ibanKeys)
+  const lockedPaired = manualOwnTransferReviewMovement(lockedById.get(preflight.canonicalPaired.id)!, ibanKeys)
   if (!lockedPrimary || !lockedPaired
-    || lockedPrimary.versionB4 !== preflight.primary.versionB4 || lockedPaired.versionB4 !== preflight.paired.versionB4
-    || lockedPrimary.importeCentimos !== preflight.primary.importeCentimos || lockedPaired.importeCentimos !== preflight.paired.importeCentimos) {
+    || lockedPrimary.versionB4 !== preflight.canonicalPrimary.versionB4 || lockedPaired.versionB4 !== preflight.canonicalPaired.versionB4
+    || lockedPrimary.importeCentimos !== preflight.canonicalPrimary.importeCentimos || lockedPaired.importeCentimos !== preflight.canonicalPaired.importeCentimos) {
     fail('TRANSFERENCIA_CAMBIADA', 'Los movimientos cambiaron mientras se comprobaba la pareja. Actualiza la lista.')
   }
 
   const primaryResult: any = await confirmarB4Tx(tx, actorId, {
-    action: 'confirmar', confirmacion: true, idempotencyKey: confirmKey(operationId, preflight.primary.id), version: preflight.primary.versionB4,
+    action: 'confirmar', confirmacion: true, idempotencyKey: confirmKey(operationId, preflight.canonicalPrimary.id), version: preflight.canonicalPrimary.versionB4,
     borrador: {
-      movimientoId: preflight.primary.id, importeMovimientoCentimos: preflight.primary.importeCentimos,
+      movimientoId: preflight.canonicalPrimary.id, importeMovimientoCentimos: preflight.canonicalPrimary.importeCentimos,
       estado: 'NO_REQUIERE', motivoNoRequiere: 'TRASPASO_INTERNO_SIN_DOCUMENTO', lineas: [],
     },
   })
@@ -518,9 +545,9 @@ export async function confirmConciliarHumanOwnTransferTx(
   }
 
   const pairedResult: any = await confirmarB4Tx(tx, actorId, {
-    action: 'confirmar', confirmacion: true, idempotencyKey: confirmKey(operationId, preflight.paired.id), version: preflight.paired.versionB4,
+    action: 'confirmar', confirmacion: true, idempotencyKey: confirmKey(operationId, preflight.canonicalPaired.id), version: preflight.canonicalPaired.versionB4,
     borrador: {
-      movimientoId: preflight.paired.id, importeMovimientoCentimos: preflight.paired.importeCentimos,
+      movimientoId: preflight.canonicalPaired.id, importeMovimientoCentimos: preflight.canonicalPaired.importeCentimos,
       estado: 'NO_REQUIERE', motivoNoRequiere: 'TRASPASO_INTERNO_SIN_DOCUMENTO', lineas: [],
     },
   })
@@ -538,8 +565,8 @@ export async function confirmConciliarHumanOwnTransferTx(
       proofSource: CONCILIAR_MANUAL_OWN_ACCOUNT_PROOF_SOURCE,
       pairId: source.pairId,
       pairedOperationB4Id,
-      pairedMovementId: preflight.paired.id,
-      primaryMovementId: preflight.primary.id,
+      pairedMovementId: preflight.canonicalPaired.id,
+      primaryMovementId: preflight.canonicalPrimary.id,
     },
   }
 }

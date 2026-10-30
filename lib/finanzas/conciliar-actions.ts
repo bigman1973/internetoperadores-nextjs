@@ -22,6 +22,7 @@ import { ConciliarDbError, conciliarDbErrorResponse, movementPartyAliases, payro
 import { applyConciliarProjectionDeltaTx } from './conciliar-delta'
 import { knownBankFeeUndoMovements } from './conciliar-fee-undo'
 import { conciliarDocumentLifecycleGuardMessage, lockConciliarDocumentLifecycleForConfirmationTx, supportsConciliarDocumentLifecycleGuard } from './conciliar-document-lifecycle-guard'
+import { Area3ReviewConfirmDbError, confirmArea3ReviewTx, preflightArea3ReviewConfirmTx } from './area3-review-confirm-db'
 
 type Tx = Prisma.TransactionClient & Record<string, any>
 type Db = PrismaClient & Record<string, any>
@@ -48,7 +49,8 @@ function isRetryableSerializableP2034(error: unknown): boolean {
     error instanceof B4ServiceError ||
     error instanceof EasyReconciliationServiceError ||
     error instanceof EasyCollectionsServiceError ||
-    error instanceof ConciliarConfirmingServiceError
+    error instanceof ConciliarConfirmingServiceError ||
+    error instanceof Area3ReviewConfirmDbError
   ) return false
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034'
 }
@@ -520,6 +522,29 @@ async function undoB4Leg(tx: Tx, actorId: number, operationId: string, ordinal: 
     lineas: active.map(line => ({ id: line.id, importeCentimos: Number(line.amount) })),
   })
   if (reversal.idempotente) fail(409, 'B4_IDEMPOTENCY_EXTERNA', 'La reversión ya existe fuera del recibo de Conciliar.')
+  const review = json(priorResult.review)
+  if (review.schema === 'AREA3_REVIEW_APPROVED_V1'
+    && typeof review.motivo === 'string'
+    && typeof review.sourceHash === 'string'
+    && /^[a-f0-9]{64}$/.test(review.sourceHash)
+    && typeof review.decisionHash === 'string'
+    && /^[a-f0-9]{64}$/.test(review.decisionHash)) {
+    // El recibo de revisión no se modifica: su reversión queda como evento B4
+    // separado, ligado a la operación de reversión completa e irreversible.
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO eventos_justificacion_b4(operacion_id,movimiento_id,accion,actor_id,detalle,created_at)
+      VALUES(CAST(${String(reversal.operacion.id)} AS uuid),${original.movementId},'REVERSION'::"AccionEventoJustificacionB4",${actorId},
+        CAST(${JSON.stringify({
+          schema: 'AREA3_REVIEW_UNDO_V1',
+          originalOperationB4Id: operationIdB4,
+          originalConciliarOperationId: operationId,
+          motivo: review.motivo,
+          sourceHash: review.sourceHash,
+          decisionHash: review.decisionHash,
+          fullUndo: true,
+        })} AS jsonb),CURRENT_TIMESTAMP)
+    `)
+  }
   const support = json(priorResult.interestSupport)
   if (typeof support.loteId === 'string' && typeof support.version === 'number' && Number.isSafeInteger(support.version) && support.version > 0) {
     await undoDocumentedConfirmingInterestSupport(tx, actorId, {
@@ -543,7 +568,7 @@ async function requireLiveWrite(actorId: number, database: Tx) {
   if ('response' in access) fail(access.response.status, 'ACCESS_REVOKED', 'Tu permiso para conciliar ya no está vigente.')
 }
 
-async function confirm(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar' }>, onProgress?: (event: ConciliarBatchProgress) => void) {
+async function confirmStandard(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar'; items: readonly unknown[] }>, onProgress?: (event: ConciliarBatchProgress) => void) {
   const receipt = await lockOperationOrReplay(tx, actorId, 'CONFIRMAR', command.idempotencyKey, conciliarRequestHash(actorId, command))
   if (receipt.replay) return { operationId: receipt.id, idempotent: true, ...receipt.result }
   const stateAtStart = await projectionStateAtActionStart(tx)
@@ -630,8 +655,9 @@ async function confirmHumanOwnTransfers(tx: Tx, actorId: number, command: Extrac
   const receipt = await lockOperationOrReplay(tx, actorId, 'CONFIRMAR', command.idempotencyKey, conciliarRequestHash(actorId, command))
   if (receipt.replay) return { operationId: receipt.id, idempotent: true, ...receipt.result }
   await projectionStateAtActionStart(tx)
-  const rows: Array<Awaited<ReturnType<typeof readConciliarRowForAction>>> = []
-  const pairIds = new Set<string>()
+  const pairs = new Map<string, {
+    inputs: Array<{ row: Awaited<ReturnType<typeof readConciliarRowForAction>>; source: NonNullable<ReturnType<typeof parseConciliarHumanOwnTransferSource>> }>
+  }>()
   const movementIds = new Set<string>()
   for (const item of command.items) {
     const row = await readConciliarRowForAction(tx, item.id)
@@ -640,35 +666,45 @@ async function confirmHumanOwnTransfers(tx: Tx, actorId: number, command: Extrac
     }
     const action = humanOwnTransferActionForProjection({ color: row.color, seleccionable: row.seleccionable, grupo: row.grupo, source: row.source })
     const source = parseConciliarHumanOwnTransferSource(row.source)
-    // A projection id is only an opaque selector. Before its source can reach
-    // the pair engine, bind it back to this exact visible primary movement.
-    // This prevents a corrupt/stale persisted row from using a valid source of
-    // some other movement as its B4 write instruction.
+    // El id de proyección sólo selecciona su pata sellada. Nunca se acepta una
+    // fuente de otra fila, aunque comparta una pareja o un hash válido.
     if (!action || !source || row.movimientoId !== source.movimientoId) {
       fail(422, 'PAREJA_NO_CONFIRMABLE', 'Esta fila ya no permite confirmar una pareja propia. Actualiza la lista.')
     }
-    if (pairIds.has(action.pairId)) {
-      fail(422, 'PAREJA_REPETIDA', 'La selección contiene las dos patas de la misma pareja propia.')
+    const existing = pairs.get(action.pairId)
+    if (existing) {
+      const first = existing.inputs[0]!.source
+      // Las dos filas de la misma pareja se deduplican, no se ejecutan dos B4
+      // veces. Cualquier supuesta segunda pata debe ser exactamente recíproca.
+      if (first.movimientoId !== source.movimientoParId || first.movimientoParId !== source.movimientoId
+        || first.proofSource !== source.proofSource || movementIds.has(source.movimientoId) === false || movementIds.has(source.movimientoParId) === false) {
+        fail(422, 'PAREJA_REPETIDA', 'Las patas seleccionadas no conservan la misma pareja propia sellada. Actualiza la lista.')
+      }
+      existing.inputs.push({ row, source })
+      continue
     }
     if (movementIds.has(source.movimientoId) || movementIds.has(source.movimientoParId)) {
-      fail(422, 'MOVIMIENTO_REPETIDO', 'La selección repite una pata de una pareja propia.')
+      fail(422, 'MOVIMIENTO_REPETIDO', 'La selección mezcla movimientos de parejas propias distintas.')
     }
-    pairIds.add(action.pairId)
+    pairs.set(action.pairId, { inputs: [{ row, source }] })
     movementIds.add(source.movimientoId)
     movementIds.add(source.movimientoParId)
-    rows.push(row)
   }
-  if (rows.length !== command.items.length || rows.length < 1 || rows.length > 20) {
+  if (pairs.size < 1 || pairs.size > 20) {
     fail(400, 'VALIDATION_ERROR', 'Selecciona entre una y veinte parejas propias.')
   }
 
   const legs: Array<{ ordinal: number; rowId: string; movimientoId: string | null; operationB4Id: string; result: Record<string, unknown> }> = []
   const outcomes: Array<Record<string, unknown>> = []
-  for (let index = 0; index < rows.length; index += 1) {
-    const row = rows[index]
-    const result = await confirmConciliarHumanOwnTransferTx(tx, actorId, receipt.id, row.source, row.importeCentimos)
-    legs.push({ ordinal: index + 1, rowId: row.id, movimientoId: row.movimientoId, operationB4Id: result.operationB4Id, result: result.result })
-    outcomes.push({ id: row.id, ok: true, code: 'PAREJA_CONFIRMADA', message: 'Pareja propia confirmada. Puedes deshacer la pareja completa.', operationId: receipt.id })
+  for (const [index, [, pair]] of [...pairs.entries()].sort(([left], [right]) => left.localeCompare(right)).entries()) {
+    // El selector de menor movimiento sólo hace estable el recibo. El motor
+    // vuelve a normalizar sobre las filas bloqueadas, sin confiar en este orden.
+    const selected = pair.inputs.slice().sort((left, right) => left.source.movimientoId.localeCompare(right.source.movimientoId) || left.row.id.localeCompare(right.row.id))[0]!
+    const result = await confirmConciliarHumanOwnTransferTx(tx, actorId, receipt.id, selected.source, selected.row.importeCentimos)
+    legs.push({ ordinal: index + 1, rowId: selected.row.id, movimientoId: result.result.primaryMovementId, operationB4Id: result.operationB4Id, result: result.result })
+    for (const input of pair.inputs) {
+      outcomes.push({ id: input.row.id, ok: true, code: 'PAREJA_CONFIRMADA', message: 'Pareja propia confirmada. Puedes deshacer la pareja completa.', operationId: receipt.id })
+    }
   }
   await appendLegs(tx, receipt.id, legs)
   // Las dos patas se retiran a la vez sólo después del recibo íntegro del lote.
@@ -676,7 +712,7 @@ async function confirmHumanOwnTransfers(tx: Tx, actorId: number, command: Extrac
   const result = {
     ok: true,
     outcomes,
-    applied: rows.length,
+    applied: pairs.size,
     failed: 0,
     reversible: true,
     confirmationMode: 'HUMANA_PAREJA_ATESTADA_V1',
@@ -685,6 +721,86 @@ async function confirmHumanOwnTransfers(tx: Tx, actorId: number, command: Extrac
   }
   await complete(tx, receipt.id, 'APLICADA', result)
   return { operationId: receipt.id, idempotent: false, ...result }
+}
+
+/** Sólo lectura: aplica el mismo núcleo G7 que REVIEW_CONFIRM, sin recibo,
+ * auditoría, B4, refresh ni cambio de proyección. */
+async function previewArea3Review(tx: Tx, command: Extract<ConciliarCommand, { action: 'confirmar'; review: { kind: 'REVIEW_PREVIEW' } }>) {
+  const row = await readConciliarRowForAction(tx, command.review.id)
+  if (row.decisionHash !== command.review.decisionHash) fail(409, 'DECISION_CAMBIADA', 'La propuesta cambió desde que abriste la página. Actualiza y vuelve a revisar.')
+  const preview = await preflightArea3ReviewConfirmTx(tx, row)
+  const decision = preview.decision
+  if (decision.ok) fail(409, 'REVISION_AREA3_INESPERADA', 'La propuesta requiere reconocer la advertencia vigente antes de confirmar.')
+  return {
+    ok: decision.codigo === 'ACK_REQUERIDO',
+    reviewPreview: {
+      id: row.id,
+      decisionHash: row.decisionHash,
+      color: decision.color,
+      puedeConfirmarRevision: decision.codigo === 'ACK_REQUERIDO',
+      confirmableGreen: false,
+      codigo: decision.codigo,
+      mensaje: decision.mensaje,
+      sourceHash: decision.sourceHash,
+      acknowledgement: decision.codigo === 'ACK_REQUERIDO' ? {
+        schema: 'AREA3_REVIEW_ACK_V1', version: '2026-10-30', motivo: row.source.providerReviewReason, sourceHash: decision.sourceHash,
+      } : null,
+    },
+  }
+}
+
+/** REVIEW_CONFIRM nunca entra en `confirmStandard`: es una sola fila ÁMBAR,
+ * su ACK queda dentro de la pata reversible y B4 conserva su undo real. */
+async function confirmArea3Review(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar'; review: { kind: 'REVIEW_CONFIRM' } }>) {
+  const receipt = await lockOperationOrReplay(tx, actorId, 'CONFIRMAR', command.idempotencyKey, conciliarRequestHash(actorId, command))
+  if (receipt.replay) return { operationId: receipt.id, idempotent: true, ...receipt.result }
+  const stateAtStart = await projectionStateAtActionStart(tx)
+  const row = await readConciliarRowForAction(tx, command.review.id)
+  if (row.decisionHash !== command.review.decisionHash) fail(409, 'DECISION_CAMBIADA', 'La propuesta cambió desde que abriste la página. Actualiza y vuelve a revisar.')
+  await requireCurrentDocumentLifecycleForConfirmation(tx, row.source)
+  const applied = await confirmArea3ReviewTx(tx, actorId, receipt.id, row, command.review.acknowledgement)
+  await tx.$executeRaw(Prisma.sql`
+    INSERT INTO eventos_justificacion_b4(operacion_id,movimiento_id,accion,actor_id,detalle,created_at)
+    VALUES(CAST(${applied.operationB4Id} AS uuid),${applied.result.movimientoId},'APROBACION'::"AccionEventoJustificacionB4",${actorId},
+      CAST(${JSON.stringify({
+        schema: 'AREA3_REVIEW_CONFIRM_AUDIT_V1',
+        conciliarOperationId: receipt.id,
+        rowId: row.id,
+        actorId,
+        approverId: actorId,
+        acknowledgement: command.review.acknowledgement,
+        review: applied.result.review,
+        documentVersionHash: applied.result.review.documentVersionHash,
+        versionB4: applied.result.review.versionB4,
+        amountLineCentimos: applied.result.review.importeLineaCentimos,
+        documentNetBeforeCentimos: applied.result.review.netoDocumentoPrevioCentimos,
+        documentNetAfterCentimos: applied.result.review.netoDocumentoResultanteCentimos,
+        fullMovementClosure: true,
+        remainderCentimos: 0,
+      })} AS jsonb),CURRENT_TIMESTAMP)
+  `)
+  await appendLeg(tx, receipt.id, {
+    ordinal: 1, rowId: row.id, movimientoId: row.movimientoId, operationB4Id: applied.operationB4Id, result: applied.result,
+  })
+  // Sólo se retira la fila afectada. El trigger B4 deja el resto marcado como
+  // pendiente; la lectura/búsqueda posterior no recalcula finanzas.
+  await deleteConciliarBatchProjectionRowsTx(tx, [applied.result.movimientoId])
+  const result = {
+    ok: true,
+    outcomes: [{ id: row.id, ok: true, code: 'REVIEW_APPROVED', message: 'Revisión confirmada. La advertencia queda registrada y puedes deshacer esta confirmación.', operationId: receipt.id }],
+    applied: 1, failed: 0, reversible: true, projectionSynchronized: false,
+    refreshScope: 'AFECTADA_PENDIENTE', refreshedAt: new Date().toISOString(),
+    review: applied.result.review, projectionWasDirty: stateAtStart.wasDirty,
+  }
+  await complete(tx, receipt.id, 'APLICADA', result)
+  return { operationId: receipt.id, idempotent: false, ...result }
+}
+
+async function confirm(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar' }>, onProgress?: (event: ConciliarBatchProgress) => void) {
+  if ('review' in command) return command.review.kind === 'REVIEW_PREVIEW'
+    ? previewArea3Review(tx, command)
+    : confirmArea3Review(tx, actorId, command)
+  return confirmStandard(tx, actorId, command, onProgress)
 }
 
 async function ask(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'pedir' }>) {
@@ -748,6 +864,9 @@ async function undo(tx: Tx, actorId: number, command: Extract<ConciliarCommand, 
  * business services still revalidate the effective actor inside this tx. */
 export async function runConciliarTransactionCommand(tx: Tx, actorId: number, raw: unknown, onProgress?: (event: ConciliarBatchProgress) => void) {
   const command = parseConciliarCommand(raw)
+  if (command.action === 'confirmar' && 'review' in command && command.review.kind === 'REVIEW_PREVIEW') {
+    fail(409, 'REVIEW_PREVIEW_SOLO_LECTURA', 'La previsualización de revisión se ejecuta únicamente en su transacción de sólo lectura.')
+  }
   if (command.action === 'confirmar') return confirm(tx, actorId, command, onProgress)
   if (command.action === 'confirmar_traspasos_propios_manual') return confirmHumanOwnTransfers(tx, actorId, command)
   if (command.action === 'pedir') return ask(tx, actorId, command)
@@ -759,8 +878,31 @@ export type ConciliarActionRunOptions = Readonly<{
   onProgress?: (event: ConciliarBatchProgress) => void
 }>
 
+/**
+ * REVIEW_PREVIEW no crea recibos, no agenda refresh y no exige permiso de
+ * escritura. El núcleo G7 se evalúa contra una foto declarada READ ONLY; un
+ * bloqueo permanece ámbar con su razón llana y nunca promociona la fila a verde.
+ */
+export async function runConciliarReviewPreview(actorId: number, raw: unknown) {
+  const command = parseConciliarCommand(raw)
+  if (command.action !== 'confirmar' || !('review' in command) || command.review.kind !== 'REVIEW_PREVIEW') {
+    fail(400, 'REVIEW_PREVIEW_INVALIDA', 'La acción no es una previsualización de revisión válida.')
+  }
+  return db().$transaction(async base => {
+    const tx = asTx(base)
+    await tx.$executeRaw(Prisma.sql`SET TRANSACTION READ ONLY`)
+    await assertConciliarRuntime(tx)
+    const access = await requireB4ActorAccess(actorId, 'lectura', tx)
+    if ('response' in access) fail(access.response.status, 'ACCESS_REVOKED', 'Tu permiso para revisar la propuesta ya no está vigente.')
+    return previewArea3Review(tx, command)
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 10_000, timeout: 30_000 })
+}
+
 export async function runConciliarAction(actorId: number, raw: unknown, options: ConciliarActionRunOptions = {}) {
   const command = parseConciliarCommand(raw)
+  if (command.action === 'confirmar' && 'review' in command && command.review.kind === 'REVIEW_PREVIEW') {
+    fail(409, 'REVIEW_PREVIEW_SOLO_LECTURA', 'La previsualización de revisión no es una mutación.')
+  }
   let provisionalCompleted = 0
   const reportProgress = (event: ConciliarBatchProgress) => {
     if (event.kind === 'row-applied') provisionalCompleted = event.completed
@@ -774,7 +916,7 @@ export async function runConciliarAction(actorId: number, raw: unknown, options:
     return runWithConciliarSerializableAuthorization(tx, () => runConciliarTransactionCommand(tx, actorId, command, command.action === 'confirmar' ? reportProgress : undefined), actorId)
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 90_000 })
   return retryConciliarSerializableP2034(txSerializable, waitForSerializableRetry, retrying => {
-    if (command.action === 'confirmar') {
+    if (command.action === 'confirmar' && 'items' in command) {
       options.onProgress?.({ kind: 'attempt-rolled-back', completed: provisionalCompleted, total: command.items.length, retrying })
       provisionalCompleted = 0
     }

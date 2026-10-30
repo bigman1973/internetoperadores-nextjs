@@ -16,6 +16,7 @@ import type {
   ConciliarSortField as ServerConciliarSortField,
   ConciliarTab as ServerConciliarTab,
   ConciliarTabSummary,
+  ConciliarReviewPreviewCommand,
   ConciliarUndoCommand,
 } from '@/lib/finanzas/conciliar-contract';
 
@@ -64,7 +65,10 @@ export type ConciliarConfirmItem = ServerConciliarConfirmItem;
 export type ConciliarConfirmPayload = ConciliarConfirmCommand;
 export type ConciliarAskPayload = ConciliarAskCommand;
 export type ConciliarUndoPayload = ConciliarUndoCommand;
-export type ConciliarMutationPayload = ConciliarCommand;
+/** Preflight independiente: no lleva idempotencia ni responseView porque no muta. */
+export type ConciliarReviewPreviewPayload = ConciliarReviewPreviewCommand;
+/** REVIEW_PREVIEW no puede entrar en el envío que reintenta mutaciones. */
+export type ConciliarMutationPayload = Exclude<ConciliarCommand, ConciliarReviewPreviewCommand>;
 
 export type ConciliarOutcome = Readonly<{
   id: string;
@@ -87,6 +91,22 @@ export type ConciliarUndoResponse = Readonly<{
   refreshedAt: string;
   projectionSynchronized: boolean;
   projection?: ConciliarReadResponse;
+}>;
+export type ConciliarReviewPreview = Readonly<{
+  id: string;
+  decisionHash: string;
+  color: 'AMBAR' | 'ROJO';
+  puedeConfirmarRevision: boolean;
+  confirmableGreen: false;
+  codigo: string;
+  mensaje: string;
+  sourceHash: string | null;
+  acknowledgement: Readonly<{
+    schema: 'AREA3_REVIEW_ACK_V1';
+    version: '2026-10-30';
+    motivo: 'SIN_REFERENCIA_DOCUMENTAL' | 'REFERENCIA_NUMERO_INCOMPLETO';
+    sourceHash: string;
+  }> | null;
 }>;
 /** Vista previa sellada por el servidor. Las filas son la composición completa,
  * nunca la muestra compacta que usan las tarjetas de la cola. */
@@ -381,6 +401,38 @@ export function parseConciliarRemesaPreviewResponse(value: unknown): ConciliarRe
     importeBancoCentimos,
     compositionHash: decisionHash(raw.compositionHash, 'preview.remesaDetalle.compositionHash'),
     filas: parsed.sort((left, right) => left.ordinal - right.ordinal),
+  };
+}
+
+/** Una respuesta incompleta no habilita una excepción humana. */
+export function parseConciliarReviewPreviewResponse(value: unknown): ConciliarReviewPreview {
+  const root = object(value, 'previsualización de revisión');
+  const raw = object(root.reviewPreview, 'reviewPreview');
+  const color = raw.color;
+  if (color !== 'AMBAR' && color !== 'ROJO') throw new Error('La revisión no conserva un color verificable.');
+  const acknowledgement = raw.acknowledgement === null ? null : object(raw.acknowledgement, 'reviewPreview.acknowledgement');
+  const parsedAcknowledgement = acknowledgement === null ? null : {
+    schema: acknowledgement.schema === 'AREA3_REVIEW_ACK_V1' ? acknowledgement.schema : (() => { throw new Error('La revisión no conserva la advertencia vigente.'); })(),
+    version: acknowledgement.version === '2026-10-30' ? acknowledgement.version : (() => { throw new Error('La revisión no conserva la advertencia vigente.'); })(),
+    motivo: acknowledgement.motivo === 'SIN_REFERENCIA_DOCUMENTAL' || acknowledgement.motivo === 'REFERENCIA_NUMERO_INCOMPLETO'
+      ? acknowledgement.motivo : (() => { throw new Error('La revisión no conserva un motivo permitido.'); })(),
+    sourceHash: decisionHash(acknowledgement.sourceHash, 'reviewPreview.acknowledgement.sourceHash'),
+  } as const;
+  const sourceHash = raw.sourceHash === null ? null : decisionHash(raw.sourceHash, 'reviewPreview.sourceHash');
+  const canConfirm = boolean(raw.puedeConfirmarRevision, 'reviewPreview.puedeConfirmarRevision');
+  if (raw.confirmableGreen !== false || (canConfirm !== (raw.codigo === 'ACK_REQUERIDO')) || (canConfirm && (!parsedAcknowledgement || sourceHash !== parsedAcknowledgement.sourceHash || color !== 'AMBAR'))) {
+    throw new Error('La revisión no conserva un estado humano confirmable.');
+  }
+  return {
+    id: opaqueId(raw.id, 'reviewPreview.id'),
+    decisionHash: decisionHash(raw.decisionHash, 'reviewPreview.decisionHash'),
+    color,
+    puedeConfirmarRevision: canConfirm,
+    confirmableGreen: false,
+    codigo: text(raw.codigo, 'reviewPreview.codigo', 160),
+    mensaje: text(raw.mensaje, 'reviewPreview.mensaje', 900),
+    sourceHash,
+    acknowledgement: parsedAcknowledgement,
   };
 }
 

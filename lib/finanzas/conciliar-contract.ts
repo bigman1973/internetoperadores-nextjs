@@ -4,6 +4,13 @@ import {
   referenciasFacturaCitadas,
   type ReferenciasEmitidasCanonicas,
 } from './conciliar-issued-reference-core'
+import {
+  AREA3_REVIEW_ACK_SCHEMA,
+  AREA3_REVIEW_ACK_VERSION,
+  AREA3_REVIEW_CONFIRM_REASONS,
+  type Area3ReviewAcknowledgement,
+  type Area3ReviewConfirmReason,
+} from './area3-review-confirm-core'
 
 export { normalizarReferenciaFactura, referenciasFacturaCitadas }
 
@@ -116,6 +123,28 @@ export type ConciliarHumanOwnTransferConfirmCommand = Readonly<{
   items: readonly ConciliarConfirmItem[]
   responseView?: ConciliarResponseView
 }>
+/** REVIEW_CONFIRM no comparte la selección verde de `items`: requiere una sola
+ * propuesta ámbar sellada y un reconocimiento humano versionado. */
+export type ConciliarReviewConfirmCommand = Readonly<{
+  action: 'confirmar'
+  idempotencyKey: string
+  review: Readonly<{
+    kind: 'REVIEW_CONFIRM'
+    id: string
+    decisionHash: string
+    acknowledgement: Area3ReviewAcknowledgement
+  }>
+  responseView?: ConciliarResponseView
+}>
+/** Preflight G7 sin DML: entrega el hash que deberá reconocer REVIEW_CONFIRM. */
+export type ConciliarReviewPreviewCommand = Readonly<{
+  action: 'confirmar'
+  review: Readonly<{
+    kind: 'REVIEW_PREVIEW'
+    id: string
+    decisionHash: string
+  }>
+}>
 export type ConciliarUndoCommand = Readonly<{
   action: 'deshacer'
   operationId: string
@@ -129,7 +158,7 @@ export type ConciliarAskCommand = Readonly<{
   idempotencyKey: string
   responseView?: ConciliarResponseView
 }>
-export type ConciliarCommand = ConciliarConfirmCommand | ConciliarHumanOwnTransferConfirmCommand | ConciliarUndoCommand | ConciliarAskCommand
+export type ConciliarCommand = ConciliarConfirmCommand | ConciliarHumanOwnTransferConfirmCommand | ConciliarReviewConfirmCommand | ConciliarReviewPreviewCommand | ConciliarUndoCommand | ConciliarAskCommand
 
 /** Datos de fuente persistidos en la proyección; nunca se reciben del navegador. */
 export type ConciliarProjectionSource = Readonly<{
@@ -154,6 +183,8 @@ export type ConciliarProjectionSource = Readonly<{
   documentoConciliableId?: string
   /** Server-only lifecycle state sealed in the persisted projection, never accepted as HTTP input. */
   documentLifecycleVersionState?: string
+  /** Sólo los dos motivos Ámbar revisables de Área 3; se recalcula al refrescar la proyección. */
+  providerReviewReason?: 'SIN_REFERENCIA_DOCUMENTAL' | 'REFERENCIA_NUMERO_INCOMPLETO'
   versionB4?: number
   remesaIds?: readonly number[]
 }>
@@ -301,17 +332,64 @@ function parseConfirmItems(raw: unknown, maximum = CONCILIAR_MAX_ITEMS): readonl
   })
   return parsed.sort((left, right) => left.id.localeCompare(right.id))
 }
+function sha256(value: unknown, field: string): string {
+  const parsed = text(value, field, 64).toLowerCase()
+  if (!SHA256.test(parsed)) fail(400, 'VALIDATION_ERROR', `${field} no es válido.`)
+  return parsed
+}
+function parseReviewAcknowledgement(raw: unknown): Area3ReviewAcknowledgement {
+  const value = exactKeys(raw, ['schema', 'version', 'motivo', 'sourceHash', 'advertenciaReconocida'])
+  if (value.schema !== AREA3_REVIEW_ACK_SCHEMA || value.version !== AREA3_REVIEW_ACK_VERSION) {
+    fail(400, 'VALIDATION_ERROR', 'La versión de la advertencia de revisión no es válida.')
+  }
+  if (!(AREA3_REVIEW_CONFIRM_REASONS as readonly string[]).includes(String(value.motivo))) {
+    fail(400, 'VALIDATION_ERROR', 'El motivo de revisión no es válido.')
+  }
+  if (value.advertenciaReconocida !== true) fail(400, 'VALIDATION_ERROR', 'La advertencia debe reconocerse expresamente.')
+  return {
+    schema: AREA3_REVIEW_ACK_SCHEMA,
+    version: AREA3_REVIEW_ACK_VERSION,
+    motivo: value.motivo as Area3ReviewConfirmReason,
+    sourceHash: sha256(value.sourceHash, 'review.acknowledgement.sourceHash'),
+    advertenciaReconocida: true,
+  }
+}
+function parseReview(raw: unknown): ConciliarReviewConfirmCommand['review'] | ConciliarReviewPreviewCommand['review'] {
+  const kind = object(raw).kind
+  if (kind === 'REVIEW_PREVIEW') {
+    const preview = exactKeys(raw, ['kind', 'id', 'decisionHash'])
+    return { kind: 'REVIEW_PREVIEW', id: text(preview.id, 'review.id', 240), decisionHash: sha256(preview.decisionHash, 'review.decisionHash') }
+  }
+  const value = exactKeys(raw, ['kind', 'id', 'decisionHash', 'acknowledgement'])
+  if (value.kind !== 'REVIEW_CONFIRM') fail(400, 'VALIDATION_ERROR', 'La acción de revisión no es válida.')
+  return {
+    kind: 'REVIEW_CONFIRM',
+    id: text(value.id, 'review.id', 240),
+    decisionHash: sha256(value.decisionHash, 'review.decisionHash'),
+    acknowledgement: parseReviewAcknowledgement(value.acknowledgement),
+  }
+}
 
 export function parseConciliarCommand(raw: unknown): ConciliarCommand {
   const root = object(raw)
   if (root.action === 'confirmar') {
+    if (Object.prototype.hasOwnProperty.call(root, 'review')) {
+      const previewKind = object(root.review).kind === 'REVIEW_PREVIEW'
+      const value = previewKind ? exactKeys(root, ['action', 'review']) : commandKeys(root, ['action', 'idempotencyKey', 'review'])
+      const review = parseReview(value.review)
+      if (review.kind === 'REVIEW_PREVIEW') return { action: 'confirmar', review }
+      return {
+        action: 'confirmar', idempotencyKey: uuid(value.idempotencyKey, 'idempotencyKey'), review,
+        ...(value.responseView === undefined ? {} : { responseView: responseView(value.responseView) }),
+      }
+    }
     const value = commandKeys(root, ['action', 'idempotencyKey', 'items'])
     return { action: 'confirmar', idempotencyKey: uuid(value.idempotencyKey, 'idempotencyKey'), items: parseConfirmItems(value.items), ...(value.responseView === undefined ? {} : { responseView: responseView(value.responseView) }) }
   }
   if (root.action === 'confirmar_traspasos_propios_manual') {
     const value = commandKeys(root, ['action', 'idempotencyKey', 'items'])
-    // El lote humano tiene como unidad una pareja; se admite una sola pata por
-    // pareja y nunca más de veinte confirmaciones atómicas en este comando.
+    // La unidad es una pareja. El lote mantiene el máximo histórico de veinte
+    // selectores y deduplica dos patas recíprocas antes de cualquier B4.
     return { action: 'confirmar_traspasos_propios_manual', idempotencyKey: uuid(value.idempotencyKey, 'idempotencyKey'), items: parseConfirmItems(value.items, 20), ...(value.responseView === undefined ? {} : { responseView: responseView(value.responseView) }) }
   }
   if (root.action === 'deshacer') {
