@@ -18,7 +18,7 @@ import { deleteConciliarBatchProjectionRowsTx, readConciliarConfirmBatchForActio
 import type { ConciliarBatchProgress } from './conciliar-stream'
 import { confirmConciliarTransferTx, undoConciliarPairedTransferTx } from './conciliar-transfers'
 import { assertConciliarHumanOwnTransferPrimaryUndoTx, confirmConciliarHumanOwnTransferTx, humanOwnTransferActionForProjection, lockConciliarHumanOwnTransferUndoTx, parseConciliarHumanOwnTransferSource, undoConciliarHumanOwnTransferTx } from './conciliar-human-own-transfer'
-import { ConciliarDbError, conciliarDbErrorResponse, movementPartyAliases, payrollPeriodMatches, readConciliarProjectionTx, readConciliarRowForAction, restoreLiveBankFeeProjectionBatchTx, unresolvedMovements } from './conciliar-db'
+import { ConciliarDbError, conciliarDbErrorResponse, movementPartyAliases, payrollPeriodMatches, readConciliarProjectionTx, readConciliarRowForAction, readConciliarRowForReviewPreflight, restoreLiveBankFeeProjectionBatchTx, unresolvedMovements } from './conciliar-db'
 import { applyConciliarProjectionDeltaTx } from './conciliar-delta'
 import { knownBankFeeUndoMovements } from './conciliar-fee-undo'
 import { conciliarDocumentLifecycleGuardMessage, lockConciliarDocumentLifecycleForConfirmationTx, supportsConciliarDocumentLifecycleGuard } from './conciliar-document-lifecycle-guard'
@@ -786,7 +786,7 @@ async function confirmHumanOwnTransfers(tx: Tx, actorId: number, command: Extrac
 /** Sólo lectura: aplica el mismo núcleo G7 que REVIEW_CONFIRM, sin recibo,
  * auditoría, B4, refresh ni cambio de proyección. */
 async function previewArea3Review(tx: Tx, command: Extract<ConciliarCommand, { action: 'confirmar'; review: { kind: 'REVIEW_PREVIEW' } }>) {
-  const row = await readConciliarRowForAction(tx, command.review.id)
+  const row = await readConciliarRowForReviewPreflight(tx, command.review.id)
   if (row.decisionHash !== command.review.decisionHash) fail(409, 'DECISION_CAMBIADA', 'La propuesta cambió desde que abriste la página. Actualiza y vuelve a revisar.')
   const preview = await preflightArea3ReviewConfirmTx(tx, row)
   const decision = preview.decision

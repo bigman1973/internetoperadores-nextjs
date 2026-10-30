@@ -223,6 +223,26 @@ export function evaluateArea3RemittanceMapPreflight(
   return { complete: missing === 0, missingReceiptCount: missing, proposalSetHash, expectedReceiptCount: expected.size }
 }
 
+/** Shared G7 grouping for projection, release readback and confirmation. Every
+ * sibling in one current remesa generation receives the exact same preflight;
+ * callers cannot promote a single proposal by omitting its siblings. */
+export function evaluateArea3RemittanceMapPreflights(
+  proposals: readonly Area3RemittanceMapProposal[],
+  evidence: readonly Area3RemittanceMapEvidence[],
+): ReadonlyMap<string, Area3RemittanceMapPreflight> {
+  const byRemesa = new Map<string, Area3RemittanceMapProposal[]>()
+  for (const proposal of proposals) {
+    const key = `${proposal.generacionId}:${proposal.remesaId}`
+    byRemesa.set(key, [...(byRemesa.get(key) ?? []), proposal])
+  }
+  const result = new Map<string, Area3RemittanceMapPreflight>()
+  for (const members of byRemesa.values()) {
+    const preflight = evaluateArea3RemittanceMapPreflight(members, evidence)
+    for (const proposal of members) result.set(proposal.propuestaId, preflight)
+  }
+  return result
+}
+
 export function area3RemittanceMapAmberReason(preflight: Area3RemittanceMapPreflight | undefined): string {
   const missing = preflight?.missingReceiptCount
   if (Number.isSafeInteger(missing) && missing! > 0) return `Falta enlazar ${missing} recibos.`

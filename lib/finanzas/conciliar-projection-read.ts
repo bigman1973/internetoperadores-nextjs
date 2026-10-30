@@ -425,6 +425,51 @@ export async function readConciliarRow(id: string) {
   return row
 }
 
+/** G7 preview runs in a real READ ONLY transaction. It must retain the sealed
+ * source internally, but may never obtain a row lock just to render the warning. */
+export async function readConciliarRowForReviewPreflight(tx: Prisma.TransactionClient, id: string) {
+  const rows = await (tx as Tx).$queryRaw<ProjectionSqlRow[]>(Prisma.sql`SELECT * FROM conciliar_proyecciones WHERE id=${id} LIMIT 1`)
+  if (!rows.length) fail(409, 'FILA_OBSOLETA', 'La fila ya no está disponible. Actualiza la lista.')
+  return projectionRow(rows[0])
+}
+
+/** Server-only G7 sweep. The source criterion comes from the persisted projection,
+ * never from an API DTO; every page is read inside the caller's READ ONLY photo. */
+export async function readArea3ReviewPreflightCandidatesTx(tx: Prisma.TransactionClient) {
+  const client = tx as Tx
+  const countRows = await client.$queryRaw<Array<{ total: bigint | number | string }>>(Prisma.sql`
+    SELECT COUNT(*)::bigint AS total
+    FROM conciliar_proyecciones
+    WHERE color='AMBAR' AND seleccionable=false
+      AND source->>'kind'='PAGO_FACTURA_RECIBIDA'
+      AND source->>'providerReviewReason' IN ('SIN_REFERENCIA_DOCUMENTAL','REFERENCIA_NUMERO_INCOMPLETO')
+    LIMIT 1
+  `)
+  const total = safeInteger(countRows[0]?.total)
+  if (countRows.length !== 1 || total === null || total < 0 || total > 25_000) {
+    fail(503, 'REVISION_AREA3_CANDIDATOS_INVALIDOS', 'No se pudo leer una lista completa de revisiones Área 3.')
+  }
+  const pageSize = 100
+  const result: Array<ReturnType<typeof projectionRow>> = []
+  for (let offset = 0; offset < total; offset += pageSize) {
+    const page = await client.$queryRaw<ProjectionSqlRow[]>(Prisma.sql`
+      SELECT * FROM conciliar_proyecciones
+      WHERE color='AMBAR' AND seleccionable=false
+        AND source->>'kind'='PAGO_FACTURA_RECIBIDA'
+        AND source->>'providerReviewReason' IN ('SIN_REFERENCIA_DOCUMENTAL','REFERENCIA_NUMERO_INCOMPLETO')
+      ORDER BY id ASC LIMIT ${pageSize} OFFSET ${offset}
+    `)
+    if (page.length < 1 || page.length > pageSize) {
+      fail(503, 'REVISION_AREA3_CANDIDATOS_INVALIDOS', 'No se pudo leer una lista completa de revisiones Área 3.')
+    }
+    result.push(...page.map(projectionRow))
+  }
+  if (result.length !== total || new Set(result.map(row => row.id)).size !== result.length) {
+    fail(503, 'REVISION_AREA3_CANDIDATOS_INVALIDOS', 'No se pudo leer una lista completa de revisiones Área 3.')
+  }
+  return result
+}
+
 export async function readConciliarRowForAction(tx: Prisma.TransactionClient, id: string) {
   const rows = await (tx as Tx).$queryRaw<ProjectionSqlRow[]>(Prisma.sql`SELECT * FROM conciliar_proyecciones WHERE id=${id} LIMIT 1 FOR UPDATE`)
   if (!rows.length) fail(409, 'FILA_OBSOLETA', 'La fila ya no está disponible. Actualiza la lista.')

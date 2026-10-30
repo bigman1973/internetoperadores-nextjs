@@ -9,7 +9,7 @@
 import { Prisma } from '@prisma/client'
 import {
   area3RemittanceMapProposalFromRaw,
-  evaluateArea3RemittanceMapPreflight,
+  evaluateArea3RemittanceMapPreflights,
   type Area3RemittanceMapEvidence,
   type Area3RemittanceMapPreflight,
   type Area3RemittanceMapProposal,
@@ -53,6 +53,21 @@ function proposalRows(raw: readonly RawProposal[]): Area3RemittanceMapProposal[]
   return result
 }
 
+async function currentProposalRows(tx: Tx): Promise<RawProposal[]> {
+  const rows = await tx.$queryRaw<RawProposal[]>(Prisma.sql`
+    WITH current_generation AS (
+      SELECT id FROM modo_facil_generaciones_cobro ORDER BY creada_at DESC,id DESC LIMIT 1
+    )
+    SELECT p.id::text AS "propuestaId",p.generacion_id::text AS "generacionId",p.metodo,p.lineas,p.composicion
+    FROM modo_facil_propuestas_cobro p
+    JOIN current_generation g ON g.id=p.generacion_id
+    WHERE p.estado_propuesto IN ('JUSTIFICADO','NO_REQUIERE')
+    ORDER BY p.id ASC LIMIT ${MAX_REMITTANCE_PROPOSALS + 1}
+  `)
+  if (rows.length > MAX_REMITTANCE_PROPOSALS) throw new Error('AREA3_REMITTANCE_MAP_PROPOSAL_LIMIT')
+  return rows
+}
+
 function sourceEvidence(rows: readonly SourceRow[]): Area3RemittanceMapEvidence[] {
   return rows.map(row => ({
     facturaEmitidaId: row.facturaEmitidaId,
@@ -71,20 +86,6 @@ function sourceEvidence(rows: readonly SourceRow[]): Area3RemittanceMapEvidence[
     facturaEmitidaCif: row.facturaEmitidaCif,
     facturaISPCif: row.facturaISPCif,
   }))
-}
-
-function groupedPreflight(proposals: readonly Area3RemittanceMapProposal[], evidence: readonly Area3RemittanceMapEvidence[]): ReadonlyMap<string, Area3RemittanceMapPreflight> {
-  const byRemesa = new Map<string, Area3RemittanceMapProposal[]>()
-  for (const proposal of proposals) {
-    const key = `${proposal.generacionId}:${proposal.remesaId}`
-    byRemesa.set(key, [...(byRemesa.get(key) ?? []), proposal])
-  }
-  const result = new Map<string, Area3RemittanceMapPreflight>()
-  for (const members of byRemesa.values()) {
-    const preflight = evaluateArea3RemittanceMapPreflight(members, evidence)
-    for (const proposal of members) result.set(proposal.propuestaId, preflight)
-  }
-  return result
 }
 
 const sourceEvidenceSelect = (ids: readonly string[]) => Prisma.sql`
@@ -147,7 +148,21 @@ export async function readArea3RemittanceMapPreflightsTx(base: Prisma.Transactio
   const proposals = proposalRows(raw)
   const ids = [...new Set(proposals.flatMap(proposal => proposal.facturaEmitidaIds))].sort()
   const rows = await rowsForInvoices(tx, ids, false)
-  return groupedPreflight(proposals, sourceEvidence(rows))
+  return evaluateArea3RemittanceMapPreflights(proposals, sourceEvidence(rows))
+}
+
+/** Complete current-generation G7 photo for read-only release evidence. The
+ * projection and the confirmation path keep their existing entry points; this
+ * reader merely prevents a release runner from inventing a narrower sibling set. */
+export async function readCurrentArea3RemittanceMapPreflightsTx(base: Prisma.TransactionClient): Promise<Readonly<{
+  proposals: readonly Area3RemittanceMapProposal[]
+  preflights: ReadonlyMap<string, Area3RemittanceMapPreflight>
+}>> {
+  const tx = base as Tx
+  const proposals = proposalRows(await currentProposalRows(tx))
+  const ids = [...new Set(proposals.flatMap(proposal => proposal.facturaEmitidaIds))].sort()
+  const rows = await rowsForInvoices(tx, ids, false)
+  return { proposals, preflights: evaluateArea3RemittanceMapPreflights(proposals, sourceEvidence(rows)) }
 }
 
 /** Locked confirmation preflight. Its pure predicate is exactly the UI predicate. */
@@ -156,5 +171,5 @@ export async function lockArea3RemittanceMapPreflightsTx(base: Prisma.Transactio
   const proposals = proposalRows(raw)
   const ids = [...new Set(proposals.flatMap(proposal => proposal.facturaEmitidaIds))].sort()
   const rows = await rowsForInvoices(tx, ids, true)
-  return groupedPreflight(proposals, sourceEvidence(rows))
+  return evaluateArea3RemittanceMapPreflights(proposals, sourceEvidence(rows))
 }

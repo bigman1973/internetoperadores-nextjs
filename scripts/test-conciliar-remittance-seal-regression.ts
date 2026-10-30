@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { remittanceSealForProposal } from '../lib/finanzas/remittance-payment-receipts-db'
 import { documentaryRemittanceSourceMatchesCanonicalFI, persistedImportedRemittanceCompositionMatchesCurrentFI } from '../lib/finanzas/remittance-documentary-source-core'
+import { area3RemittanceMapAmberReason, area3RemittanceMapProposalFromRaw, evaluateArea3RemittanceMapPreflight } from '../lib/finanzas/area3-remittance-map-core'
 
 const COUNT = 167
 const REMITTANCE_ID = 71
@@ -78,6 +79,20 @@ test('C4: una composición importada de 167 filas sólo supera el sello si coinc
   assert.ok(remesaSeal, 'la forma persistida de la propuesta sintética debe ser sellable')
   assert.equal(remesaSeal.remesaId, REMITTANCE_ID)
   assert.equal(persistedImportedRemittanceCompositionMatchesCurrentFI(persistedImporterSource()), true)
+})
+
+test('C4/G7: 167 FI sin enlace explícito siguen ámbar con el aviso llano, sin inferir un mapa', () => {
+  const parsed = area3RemittanceMapProposalFromRaw({
+    propuestaId: PROPOSAL_ID,
+    generacionId: '88888888-8888-4888-8888-888888888888',
+    metodo: 'REMESA_VENCIMIENTO',
+    lineas: proposal().lineas,
+    composicion: composition().map(item => ({ facturaEmitidaId: item.facturaEmitidaId, importeCentimos: item.importeCentimos })),
+  })
+  assert(parsed, 'la remesa sintética debe conservar una composición válida antes de verificar el mapa')
+  const result = evaluateArea3RemittanceMapPreflight([parsed], [])
+  assert.deepEqual({ complete: result.complete, missing: result.missingReceiptCount, expected: result.expectedReceiptCount }, { complete: false, missing: 167, expected: 167 })
+  assert.equal(area3RemittanceMapAmberReason(result), 'Falta enlazar 167 recibos.')
 })
 
 test('C4: el sello no permite composición repetida, sin FI o con suma distinta', () => {

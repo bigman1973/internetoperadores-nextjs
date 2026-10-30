@@ -54,7 +54,15 @@ import {
 } from './conciliar-document-lifecycle-guard'
 
 export { ConciliarDbError, conciliarDbErrorResponse } from './conciliar-errors'
-export { readConciliarHistory, readConciliarProjection, readConciliarProjectionTx, readConciliarRow, readConciliarRowForAction } from './conciliar-projection-read'
+export {
+  readArea3ReviewPreflightCandidatesTx,
+  readConciliarHistory,
+  readConciliarProjection,
+  readConciliarProjectionTx,
+  readConciliarRow,
+  readConciliarRowForAction,
+  readConciliarRowForReviewPreflight,
+} from './conciliar-projection-read'
 // The thin reader retains the exact aggregate: COALESCE(SUM(p.pendiente_centimos::bigint),0)::text AS amount
 
 /** No Prisma schema edit is needed for Conciliar's additive migration. */
