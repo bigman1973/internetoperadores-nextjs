@@ -23,6 +23,7 @@ import { applyConciliarProjectionDeltaTx } from './conciliar-delta'
 import { knownBankFeeUndoMovements } from './conciliar-fee-undo'
 import { conciliarDocumentLifecycleGuardMessage, lockConciliarDocumentLifecycleForConfirmationTx, supportsConciliarDocumentLifecycleGuard } from './conciliar-document-lifecycle-guard'
 import { Area3ReviewConfirmDbError, confirmArea3ReviewTx, preflightArea3ReviewConfirmTx } from './area3-review-confirm-db'
+import { trustedImpersonationContextResolutionFromRequest } from '@/lib/impersonation-context'
 
 type Tx = Prisma.TransactionClient & Record<string, any>
 type Db = PrismaClient & Record<string, any>
@@ -97,6 +98,55 @@ function receiptSourceFields(source: ConciliarProjectionSource): Readonly<{ reme
 }
 function isVersionedRemittanceSource(source: ConciliarProjectionSource): boolean {
   return source.kind === 'COBRO_PROPUESTA' && receiptSourceFields(source) !== null
+}
+
+type ConciliarHistoryActors = Readonly<{
+  actorRealId: number
+  actorEffectiveId: number
+}>
+type ConciliarHistoryActorSnapshot = Readonly<{
+  actorRealDisplay: string
+  actorEffectiveDisplay: string
+}>
+
+/** El actor real/efectivo sólo procede del contexto firmado; nunca se infiere
+ * por proximidad temporal de registros de actuación. */
+async function conciliarHistoryActors(actorId: number): Promise<ConciliarHistoryActors> {
+  const context = await trustedImpersonationContextResolutionFromRequest()
+  if (context.status === 'invalid' || (context.status === 'valid' && context.context.targetId !== actorId)) {
+    fail(403, 'CONTEXTO_ACTUACION_CONCILIAR_INVALIDO', 'La identidad efectiva no coincide con el contexto firmado de actuación.')
+  }
+  return {
+    actorRealId: context.status === 'valid' ? context.context.actorId : actorId,
+    actorEffectiveId: actorId,
+  }
+}
+
+async function conciliarHistoryActorSnapshot(tx: Tx, actors: ConciliarHistoryActors): Promise<ConciliarHistoryActorSnapshot> {
+  const rows = await tx.$queryRaw<Array<{ id: number; nombre: string }>>(Prisma.sql`
+    SELECT id,nombre FROM usuarios_admin
+    WHERE id IN (${actors.actorRealId},${actors.actorEffectiveId})
+    ORDER BY id ASC LIMIT 2
+  `)
+  const names = new Map(rows.map(row => [row.id, typeof row.nombre === 'string' ? row.nombre.trim().slice(0, 240) : '']))
+  const actorEffectiveDisplay = names.get(actors.actorEffectiveId)
+  const actorRealDisplay = names.get(actors.actorRealId)
+  if (!actorEffectiveDisplay || !actorRealDisplay) {
+    fail(503, 'AUDITORIA_ACTOR_NO_DISPONIBLE', 'No se pudo conservar la identidad de la confirmación.')
+  }
+  return { actorRealDisplay, actorEffectiveDisplay }
+}
+
+/** Snapshot de presentación al confirmar. La lectura histórica nunca recompone
+ * evidencia desde fuentes financieras actuales. */
+function conciliarHistoryLegSnapshot(row: Awaited<ReturnType<typeof readConciliarRowForAction>>) {
+  return {
+    schema: 'CONCILIAR_CONFIRMACION_PATA_V1',
+    fecha: row.fecha,
+    concepto: row.concepto.slice(0, 500),
+    importeCentimos: row.importeCentimos,
+    documento: row.documento?.referencia?.slice(0, 300) ?? null,
+  }
 }
 
 async function projectionStateAtActionStart(tx: Tx): Promise<{ wasDirty: boolean }> {
@@ -568,9 +618,10 @@ async function requireLiveWrite(actorId: number, database: Tx) {
   if ('response' in access) fail(access.response.status, 'ACCESS_REVOKED', 'Tu permiso para conciliar ya no está vigente.')
 }
 
-async function confirmStandard(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar'; items: readonly unknown[] }>, onProgress?: (event: ConciliarBatchProgress) => void) {
+async function confirmStandard(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar'; items: readonly unknown[] }>, actors: ConciliarHistoryActors, onProgress?: (event: ConciliarBatchProgress) => void) {
   const receipt = await lockOperationOrReplay(tx, actorId, 'CONFIRMAR', command.idempotencyKey, conciliarRequestHash(actorId, command))
   if (receipt.replay) return { operationId: receipt.id, idempotent: true, ...receipt.result }
+  const historyActors = await conciliarHistoryActorSnapshot(tx, actors)
   const stateAtStart = await projectionStateAtActionStart(tx)
   const outcomes: Array<Record<string, unknown>> = []
   const plan = await readConciliarConfirmBatchForActionTx(tx, command.items, fail)
@@ -609,6 +660,7 @@ async function confirmStandard(tx: Tx, actorId: number, command: Extract<Concili
     const detail = {
       ...result.result,
       sourceKind: row.source.kind,
+      presentation: conciliarHistoryLegSnapshot(row),
       ...(fee?.counterpartyReceipt ? { counterpartyReceipt: fee.counterpartyReceipt } : {}),
       ...(counterparty?.assigned ? { counterpartyReceipt: counterparty.receipt } : {}),
     }
@@ -640,7 +692,11 @@ async function confirmStandard(tx: Tx, actorId: number, command: Extract<Concili
       projectionSynchronized = delta.projectionSynchronized
     }
   }
-  const result = { ok: true, outcomes, applied: command.items.length, failed: 0, reversible: true, projectionSynchronized, refreshedAt: new Date().toISOString() }
+  const result = {
+    ok: true, outcomes, applied: command.items.length, failed: 0, reversible: true, projectionSynchronized,
+    history: { schema: 'CONCILIAR_HISTORIAL_V1', ...actors, ...historyActors },
+    refreshedAt: new Date().toISOString(),
+  }
   await complete(tx, receipt.id, 'APLICADA', result)
   const projection = await responseProjection(tx, command.responseView, projectionSynchronized)
   return { operationId: receipt.id, idempotent: false, ...result, ...(projection ? { projection } : {}) }
@@ -651,9 +707,10 @@ async function confirmStandard(tx: Tx, actorId: number, command: Extract<Concili
  * sellada y sólo el servidor deriva su otra pata, importes, titularidad y B4.
  * Mantiene `seleccionable:false`, por lo que el lote ordinario nunca la absorbe.
  */
-async function confirmHumanOwnTransfers(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar_traspasos_propios_manual' }>) {
+async function confirmHumanOwnTransfers(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar_traspasos_propios_manual' }>, actors: ConciliarHistoryActors) {
   const receipt = await lockOperationOrReplay(tx, actorId, 'CONFIRMAR', command.idempotencyKey, conciliarRequestHash(actorId, command))
   if (receipt.replay) return { operationId: receipt.id, idempotent: true, ...receipt.result }
+  const historyActors = await conciliarHistoryActorSnapshot(tx, actors)
   await projectionStateAtActionStart(tx)
   const pairs = new Map<string, {
     inputs: Array<{ row: Awaited<ReturnType<typeof readConciliarRowForAction>>; source: NonNullable<ReturnType<typeof parseConciliarHumanOwnTransferSource>> }>
@@ -717,6 +774,9 @@ async function confirmHumanOwnTransfers(tx: Tx, actorId: number, command: Extrac
     reversible: true,
     confirmationMode: 'HUMANA_PAREJA_ATESTADA_V1',
     projectionSynchronized: false,
+    // La pareja tiene dos outcomes pero una sola pata durable canónica; el
+    // lector la mostrará explícitamente sin detalle antes que reconstruirla.
+    history: { schema: 'CONCILIAR_HISTORIAL_V1', ...actors, ...historyActors },
     refreshedAt: new Date().toISOString(),
   }
   await complete(tx, receipt.id, 'APLICADA', result)
@@ -751,9 +811,10 @@ async function previewArea3Review(tx: Tx, command: Extract<ConciliarCommand, { a
 
 /** REVIEW_CONFIRM nunca entra en `confirmStandard`: es una sola fila ÁMBAR,
  * su ACK queda dentro de la pata reversible y B4 conserva su undo real. */
-async function confirmArea3Review(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar'; review: { kind: 'REVIEW_CONFIRM' } }>) {
+async function confirmArea3Review(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar'; review: { kind: 'REVIEW_CONFIRM' } }>, actors: ConciliarHistoryActors) {
   const receipt = await lockOperationOrReplay(tx, actorId, 'CONFIRMAR', command.idempotencyKey, conciliarRequestHash(actorId, command))
   if (receipt.replay) return { operationId: receipt.id, idempotent: true, ...receipt.result }
+  const historyActors = await conciliarHistoryActorSnapshot(tx, actors)
   const stateAtStart = await projectionStateAtActionStart(tx)
   const row = await readConciliarRowForAction(tx, command.review.id)
   if (row.decisionHash !== command.review.decisionHash) fail(409, 'DECISION_CAMBIADA', 'La propuesta cambió desde que abriste la página. Actualiza y vuelve a revisar.')
@@ -780,7 +841,8 @@ async function confirmArea3Review(tx: Tx, actorId: number, command: Extract<Conc
       })} AS jsonb),CURRENT_TIMESTAMP)
   `)
   await appendLeg(tx, receipt.id, {
-    ordinal: 1, rowId: row.id, movimientoId: row.movimientoId, operationB4Id: applied.operationB4Id, result: applied.result,
+    ordinal: 1, rowId: row.id, movimientoId: row.movimientoId, operationB4Id: applied.operationB4Id,
+    result: { ...applied.result, presentation: conciliarHistoryLegSnapshot(row) },
   })
   // Sólo se retira la fila afectada. El trigger B4 deja el resto marcado como
   // pendiente; la lectura/búsqueda posterior no recalcula finanzas.
@@ -789,18 +851,20 @@ async function confirmArea3Review(tx: Tx, actorId: number, command: Extract<Conc
     ok: true,
     outcomes: [{ id: row.id, ok: true, code: 'REVIEW_APPROVED', message: 'Revisión confirmada. La advertencia queda registrada y puedes deshacer esta confirmación.', operationId: receipt.id }],
     applied: 1, failed: 0, reversible: true, projectionSynchronized: false,
-    refreshScope: 'AFECTADA_PENDIENTE', refreshedAt: new Date().toISOString(),
+    refreshScope: 'AFECTADA_PENDIENTE',
+    history: { schema: 'CONCILIAR_HISTORIAL_V1', ...actors, ...historyActors },
+    refreshedAt: new Date().toISOString(),
     review: applied.result.review, projectionWasDirty: stateAtStart.wasDirty,
   }
   await complete(tx, receipt.id, 'APLICADA', result)
   return { operationId: receipt.id, idempotent: false, ...result }
 }
 
-async function confirm(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar' }>, onProgress?: (event: ConciliarBatchProgress) => void) {
+async function confirm(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar' }>, actors: ConciliarHistoryActors, onProgress?: (event: ConciliarBatchProgress) => void) {
   if ('review' in command) return command.review.kind === 'REVIEW_PREVIEW'
     ? previewArea3Review(tx, command)
-    : confirmArea3Review(tx, actorId, command)
-  return confirmStandard(tx, actorId, command, onProgress)
+    : confirmArea3Review(tx, actorId, command, actors)
+  return confirmStandard(tx, actorId, command, actors, onProgress)
 }
 
 async function ask(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'pedir' }>) {
@@ -862,13 +926,13 @@ async function undo(tx: Tx, actorId: number, command: Extract<ConciliarCommand, 
  * mandatory rollback. The public host below always performs the same live
  * staging/access checks before opening the SERIALIZABLE transaction. All
  * business services still revalidate the effective actor inside this tx. */
-export async function runConciliarTransactionCommand(tx: Tx, actorId: number, raw: unknown, onProgress?: (event: ConciliarBatchProgress) => void) {
+export async function runConciliarTransactionCommand(tx: Tx, actorId: number, raw: unknown, actors: ConciliarHistoryActors, onProgress?: (event: ConciliarBatchProgress) => void) {
   const command = parseConciliarCommand(raw)
   if (command.action === 'confirmar' && 'review' in command && command.review.kind === 'REVIEW_PREVIEW') {
     fail(409, 'REVIEW_PREVIEW_SOLO_LECTURA', 'La previsualización de revisión se ejecuta únicamente en su transacción de sólo lectura.')
   }
-  if (command.action === 'confirmar') return confirm(tx, actorId, command, onProgress)
-  if (command.action === 'confirmar_traspasos_propios_manual') return confirmHumanOwnTransfers(tx, actorId, command)
+  if (command.action === 'confirmar') return confirm(tx, actorId, command, actors, onProgress)
+  if (command.action === 'confirmar_traspasos_propios_manual') return confirmHumanOwnTransfers(tx, actorId, command, actors)
   if (command.action === 'pedir') return ask(tx, actorId, command)
   return undo(tx, actorId, command)
 }
@@ -903,6 +967,7 @@ export async function runConciliarAction(actorId: number, raw: unknown, options:
   if (command.action === 'confirmar' && 'review' in command && command.review.kind === 'REVIEW_PREVIEW') {
     fail(409, 'REVIEW_PREVIEW_SOLO_LECTURA', 'La previsualización de revisión no es una mutación.')
   }
+  const actors = await conciliarHistoryActors(actorId)
   let provisionalCompleted = 0
   const reportProgress = (event: ConciliarBatchProgress) => {
     if (event.kind === 'row-applied') provisionalCompleted = event.completed
@@ -913,7 +978,7 @@ export async function runConciliarAction(actorId: number, raw: unknown, options:
     // Runtime identity and the actor's B4 write ACL are both reread in the
     // SERIALIZABLE transaction immediately before the receipt and business DML.
     await requireLiveWrite(actorId, tx)
-    return runWithConciliarSerializableAuthorization(tx, () => runConciliarTransactionCommand(tx, actorId, command, command.action === 'confirmar' ? reportProgress : undefined), actorId)
+    return runWithConciliarSerializableAuthorization(tx, () => runConciliarTransactionCommand(tx, actorId, command, actors, command.action === 'confirmar' ? reportProgress : undefined), actorId)
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 90_000 })
   return retryConciliarSerializableP2034(txSerializable, waitForSerializableRetry, retrying => {
     if (command.action === 'confirmar' && 'items' in command) {

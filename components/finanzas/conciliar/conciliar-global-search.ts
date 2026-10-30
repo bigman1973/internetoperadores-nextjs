@@ -72,6 +72,8 @@ export type ConciliarGlobalSearch = Readonly<{
   changeTab: (tab: ConciliarTab) => void
   changeOffset: (offset: number) => void
   refresh: () => void
+  /** Adopta sólo una foto ya autorizada para la vista/generación actualmente visible. */
+  adopt: (data: ConciliarReadResponse) => boolean
 }>
 
 export function normalizeConciliarSearchQuery(value: string): string {
@@ -204,6 +206,8 @@ export function useConciliarGlobalSearch(options: UseConciliarGlobalSearchOption
   )
   const [acceptedData, setAcceptedData] = useState<ConciliarReadResponse | null>(initial.current.initialData ?? null)
   const [dataGeneration, setDataGeneration] = useState<number | null>(initial.current.initialData ? 0 : null)
+  const stateRef = useRef(state)
+  stateRef.current = state
   const readRef = useRef(options.read)
   readRef.current = options.read
   const controllerRef = useRef<AbortController | null>(null)
@@ -264,6 +268,16 @@ export function useConciliarGlobalSearch(options: UseConciliarGlobalSearchOption
     dispatch(action)
   }, [abortCurrentRead])
 
+  /** Una mutación puede devolver la foto exacta del mismo servidor. No cambia
+   * view, URL ni generación, y se rechaza si ya hay una lectura/transición. */
+  const adopt = useCallback((data: ConciliarReadResponse): boolean => {
+    const current = stateRef.current
+    if (current.phase !== 'idle' || dataGeneration !== current.generation) return false
+    setAcceptedData(data)
+    setDataGeneration(current.generation)
+    return true
+  }, [dataGeneration])
+
   const visibleData = state.phase === 'idle' && dataGeneration === state.generation ? acceptedData : null
 
   return {
@@ -284,5 +298,6 @@ export function useConciliarGlobalSearch(options: UseConciliarGlobalSearchOption
     changeTab: (tab) => transition({ type: 'TAB', tab }),
     changeOffset: (offset) => transition({ type: 'OFFSET', offset }),
     refresh: () => transition({ type: 'REFRESH' }),
+    adopt,
   }
 }

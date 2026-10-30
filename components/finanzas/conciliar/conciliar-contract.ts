@@ -108,6 +108,35 @@ export type ConciliarReviewPreview = Readonly<{
     sourceHash: string;
   }> | null;
 }>;
+export type ConciliarHistoryLeg = Readonly<{
+  ordinal: number;
+  confirmedAt: string;
+  fecha: string;
+  concepto: string;
+  importeCentimos: number;
+  documento: string | null;
+}>;
+export type ConciliarHistoryOperation = Readonly<{
+  operationId: string;
+  confirmedAt: string;
+  revertedAt: string | null;
+  state: 'APLICADA' | 'REVERTIDA';
+  reversible: boolean;
+  scope: 'single' | 'batch';
+  count: number;
+  detailsAvailable: boolean;
+  actorEffectiveDisplay: string | null;
+  actorRealDisplay: string | null;
+  actorRealStatus: 'VINCULADO' | 'IGUAL_AL_EFECTIVO' | 'NO_DISPONIBLE_HISTORICO';
+  legs: readonly ConciliarHistoryLeg[];
+}>;
+export type ConciliarHistoryResponse = Readonly<{
+  view: 'hoy' | 'historial';
+  total: number;
+  limit: number;
+  offset: number;
+  operations: readonly ConciliarHistoryOperation[];
+}>;
 /** Vista previa sellada por el servidor. Las filas son la composición completa,
  * nunca la muestra compacta que usan las tarjetas de la cola. */
 export type ConciliarRemesaPreviewLine = Readonly<{
@@ -474,24 +503,63 @@ export function parseConciliarUndoResponse(value: unknown): ConciliarUndoRespons
   };
 }
 
-export function parseConciliarHistoryResponse(value: unknown) {
+function historyTimestamp(value: unknown, field: string, nullable = false): string | null {
+  if (nullable && value === null) return null;
+  const parsed = text(value, field, 80);
+  if (Number.isNaN(new Date(parsed).getTime())) throw new Error(`La respuesta no incluye ${field} correctamente.`);
+  return parsed;
+}
+
+export function parseConciliarHistoryResponse(value: unknown): ConciliarHistoryResponse {
   const raw = object(value, 'historial');
   const operations = array(raw.operations, 'operations');
   if (operations.length > 100) throw new Error('El historial supera el límite permitido.');
-  return operations.filter((valueForOperation) => {
-    const operation = object(valueForOperation, 'operación');
-    return operation.action === 'CONFIRMAR';
-  }).map((valueForOperation) => {
-    const operation = object(valueForOperation, 'operación');
-    const result = object(operation.result, 'resultado');
-    return {
-      operationId: parseOperationId(operation.id, 'operationId'),
-      reversible: operation.reversible === true && operation.state === 'APLICADA',
-      undone: operation.state === 'REVERTIDA',
-      count: Array.isArray(result.outcomes) ? result.outcomes.length : 1,
-      createdAt: text(operation.createdAt, 'createdAt', 80),
-    };
-  });
+  const view = raw.view;
+  if (view !== 'hoy' && view !== 'historial') throw new Error('La respuesta no incluye la vista de historial correctamente.');
+  const total = integer(raw.total, 'total', true), limit = integer(raw.limit, 'limit', true), offset = integer(raw.offset, 'offset', true);
+  if (limit < 1 || limit > 100 || offset > 100_000 || operations.length > limit) throw new Error('La respuesta no incluye paginación de historial correcta.');
+  return {
+    view, total, limit, offset,
+    operations: operations.map((valueForOperation) => {
+      const operation = object(valueForOperation, 'operación');
+      const legs = array(operation.legs, 'patas');
+      const state = operation.state;
+      const scope = operation.scope;
+      const actorRealStatus = operation.actorRealStatus;
+      if (state !== 'APLICADA' && state !== 'REVERTIDA') throw new Error('La respuesta no incluye el estado de historial correctamente.');
+      if (scope !== 'single' && scope !== 'batch') throw new Error('La respuesta no incluye el alcance de historial correctamente.');
+      if (!['VINCULADO', 'IGUAL_AL_EFECTIVO', 'NO_DISPONIBLE_HISTORICO'].includes(String(actorRealStatus))) throw new Error('La respuesta no incluye la auditoría de historial correctamente.');
+      const count = integer(operation.count, 'count', true);
+      const detailsAvailable = boolean(operation.detailsAvailable, 'detailsAvailable');
+      if ((detailsAvailable && count !== legs.length) || (!detailsAvailable && legs.length !== 0) || count < 1 || count > 100 || (scope === 'single') !== (count === 1)) throw new Error('La respuesta no incluye patas de historial correctas.');
+      return {
+        operationId: parseOperationId(operation.operationId, 'operationId'),
+        confirmedAt: historyTimestamp(operation.confirmedAt, 'confirmedAt')!,
+        revertedAt: historyTimestamp(operation.revertedAt, 'revertedAt', true),
+        state,
+        reversible: boolean(operation.reversible, 'reversible') && state === 'APLICADA',
+        scope,
+        count,
+        detailsAvailable,
+        actorEffectiveDisplay: nullableText(operation.actorEffectiveDisplay, 'actorEffectiveDisplay', 240),
+        actorRealDisplay: nullableText(operation.actorRealDisplay, 'actorRealDisplay', 240),
+        actorRealStatus: actorRealStatus as ConciliarHistoryOperation['actorRealStatus'],
+        legs: legs.map((valueForLeg, index) => {
+          const leg = object(valueForLeg, `patas[${index}]`);
+          const ordinal = integer(leg.ordinal, `patas[${index}].ordinal`, true);
+          if (ordinal !== index + 1) throw new Error('La respuesta no incluye el orden de historial correctamente.');
+          return {
+            ordinal,
+            confirmedAt: historyTimestamp(leg.confirmedAt, `patas[${index}].confirmedAt`)!,
+            fecha: date(leg.fecha, `patas[${index}].fecha`)! ,
+            concepto: text(leg.concepto, `patas[${index}].concepto`, 500),
+            importeCentimos: integer(leg.importeCentimos, `patas[${index}].importeCentimos`),
+            documento: nullableText(leg.documento, `patas[${index}].documento`, 300),
+          };
+        }),
+      };
+    }),
+  };
 }
 
 export function makeIdempotencyKey(): string {

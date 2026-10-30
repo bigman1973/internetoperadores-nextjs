@@ -7,7 +7,7 @@ import {
 } from '@heroicons/react/24/outline';
 import {
   CONCILIAR_COLORS, CONCILIAR_GROUPS, CONCILIAR_TABS, formatDate, formatMagnitude, formatMoney,
-  makeIdempotencyKey, parseConciliarActionResponse, parseConciliarHistoryResponse, parseConciliarReadResponse, parseConciliarRemesaPreviewResponse, parseConciliarReviewPreviewResponse, parseConciliarUndoResponse,
+  makeIdempotencyKey, parseConciliarActionResponse, parseConciliarReadResponse, parseConciliarRemesaPreviewResponse, parseConciliarReviewPreviewResponse, parseConciliarUndoResponse,
   safeDocumentHref, safeFinanceHref, safeOutcomeMessage,
   type ConciliarActionResponse, type ConciliarColor, type ConciliarConfirmItem, type ConciliarMutationPayload,
   type ConciliarEmitidasGroup, type ConciliarGroup, type ConciliarReadResponse, type ConciliarRemesaPreview, type ConciliarReviewPreview, type ConciliarRow, type ConciliarSortDirection, type ConciliarSortField, type ConciliarSummary, type ConciliarTab,
@@ -17,6 +17,8 @@ import { ConciliarStreamRejectedError, ConciliarStreamUncertainError, readConcil
 import { useActuation } from '@/components/impersonation/ActuationProvider';
 import { parseConciliarDocumentDetail, type ConciliarDocumentDetail } from '@/lib/finanzas/conciliar-document-detail-contract';
 import { ConciliarDetailMemoryCache, conciliarDetailCacheKey, formatConciliarUpdatedAt } from './conciliar-detail-client';
+import { useConciliarGlobalSearch } from './conciliar-global-search';
+import { formatConciliarConfirmationNotice } from './conciliar-confirmation-notice';
 import { ConfirmingReadingReviewQueue } from '@/components/finanzas/confirming/ConfirmingReadingReviewQueue';
 import type { FinanceConfirmingReadingAccess } from '@/lib/finanzas/finance-confirming-reading-access';
 import type { FinanceConfirmingReadingQueueDto } from '@/lib/finanzas/finance-confirming-reading-contract';
@@ -25,6 +27,8 @@ import { useSession } from 'next-auth/react';
 const loadConciliarDocumentPreview = () => import('./ConciliarDocumentPreview');
 const ConciliarDocumentPreview = dynamic(loadConciliarDocumentPreview);
 const ConciliarRecentHistory = dynamic(() => import('./ConciliarRecentHistory'));
+const loadConciliarConfirmationHistory = () => import('./ConciliarConfirmationHistory');
+const ConciliarConfirmationHistory = dynamic(loadConciliarConfirmationHistory);
 const ConciliarRemesaConfirmationDialog = dynamic(() => import('./ConciliarRemesaConfirmationDialog'));
 const ConciliarArea3ReviewDialog = dynamic(() => import('./ConciliarArea3ReviewDialog'));
 const ConfirmingInterestInvoices = dynamic(() => import('./ConfirmingInterestInvoices'), { ssr: false });
@@ -297,12 +301,9 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const { active: activeActuation } = useActuation();
   const { data: session } = useSession();
   const initialParsed = useMemo(() => initialData === undefined ? null : parseConciliarReadResponse(initialData), [initialData]);
-  const [tab, setTab] = useState<ConciliarTab>(initialTab);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [accountId, setAccountId] = useState('');
-  const [queryInput, setQueryInput] = useState(initialQuery);
-  const [query, setQuery] = useState(initialQuery);
   const [cutoffDate, setCutoffDate] = useState(initialCutoff);
   const [emitidasGrupo, setEmitidasGrupo] = useState<ConciliarEmitidasGroup | ''>('');
   const [estado, setEstado] = useState<ConciliarColor | ''>('');
@@ -310,17 +311,12 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const [orden, setOrden] = useState<ConciliarSortField>(initialOrden);
   const [direccion, setDireccion] = useState<ConciliarSortDirection>(initialDireccion);
   const [globalOrder, setGlobalOrder] = useState(initialGlobalOrder);
-  const [presentationRefreshRevision, setPresentationRefreshRevision] = useState(0);
-  const [showHistory, setShowHistory] = useState(false);
+  const [confirmationHistoryRevision, setConfirmationHistoryRevision] = useState(0);
   const [showInterestInvoices, setShowInterestInvoices] = useState(false);
   const [historicData, setHistoricData] = useState<ConciliarReadResponse | null>(null);
   const [historicLoading, setHistoricLoading] = useState(false);
   const [historicOpen, setHistoricOpen] = useState(false);
   const [historicOffset, setHistoricOffset] = useState(0);
-  const [offset, setOffset] = useState(0);
-  const [data, setData] = useState<ConciliarReadResponse | null>(initialParsed);
-  const [loading, setLoading] = useState(initialParsed === null);
-  const [refreshing, setRefreshing] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   /** id -> hash sellado: una selección no confía en filas que ya no son vigentes. */
   const [selected, setSelected] = useState<ReadonlyMap<string, string>>(new Map());
@@ -335,8 +331,6 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const [area3ReviewLoading, setArea3ReviewLoading] = useState(false);
   const [remesaPreviewLoading, setRemesaPreviewLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const readController = useRef<AbortController | null>(null);
-  const readSequence = useRef(0);
   const activeViewKey = useRef('');
   const exportController = useRef<AbortController | null>(null);
   const detailSequence = useRef(0);
@@ -349,9 +343,24 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const detailProjectionUpdatedAt = useRef<string | null>(null);
   const detailIdentityScope = activeActuation ? `actuacion:${activeActuation.sessionId}:${activeActuation.targetId}` : `usuario:${session?.user?.id ?? 'sin-sesion'}`;
 
+  /** Una única lectura privada devuelve filas y los cuatro badges de la misma foto. */
+  const readGlobal = useCallback(async (view: Readonly<{ tab: ConciliarTab; query: string; offset: number }>, { signal }: Readonly<{ signal: AbortSignal; generation: number }>) => {
+    const params = buildQuery({
+      tab: view.tab, from, to, accountId, query: view.query, cutoffDate,
+      emitidasGrupo, estado, grupo, orden, direccion, limit: PAGE_SIZE, offset: view.offset,
+    });
+    const response = await fetch(`${API}?${params.toString()}`, { cache: 'no-store', signal });
+    const raw: unknown = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(friendlyError(raw, 'No se pudo actualizar la conciliación.'));
+    return parseConciliarReadResponse(raw);
+  }, [accountId, cutoffDate, direccion, emitidasGrupo, estado, from, grupo, orden, to]);
+  const search = useConciliarGlobalSearch({ initialTab, initialQuery, initialOffset: 0, initialData: initialParsed, read: readGlobal });
+  const { tab, query: appliedQuery, queryBox, offset, data } = search;
+  const query = appliedQuery;
+  const loading = search.searching;
+  const refreshing = search.searching;
   const requestInput = useMemo(() => ({ tab, from, to, accountId, query, cutoffDate, emitidasGrupo, estado, grupo, ...(orden === 'IMPORTE' && direccion === 'DESC' ? {} : { orden, direccion }), limit: PAGE_SIZE, offset }), [accountId, direccion, emitidasGrupo, estado, from, grupo, offset, orden, query, tab, to, cutoffDate]);
   activeViewKey.current = buildQuery(requestInput).toString();
-  const initialRequestKey = useRef(initialParsed ? buildQuery({ tab: initialTab, from: '', to: '', accountId: '', query: initialQuery, cutoffDate: initialCutoff, ...(initialOrden === 'IMPORTE' && initialDireccion === 'DESC' ? {} : { orden: initialOrden, direccion: initialDireccion }), limit: PAGE_SIZE, offset: 0 }).toString() : null);
   const rows = data?.rows ?? [];
   const visibleSelectable = useMemo(() => rows.filter((row) => row.color === 'VERDE' && !remesaHint(row) && (row.seleccionable || hasHumanOwnTransferConfirmation(row))), [rows]);
   const selectionReview = useMemo(() => reviewSelectionForCurrentRows(selected, rows), [rows, selected]);
@@ -385,35 +394,17 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     setBatchResult(null);
   }, [detailIdentityScope]);
 
-  const load = useCallback(async (silent = false, keepNotice = false) => {
-    readController.current?.abort();
-    const controller = new AbortController();
-    readController.current = controller;
-    const sequence = ++readSequence.current;
-    if (silent) setRefreshing(true); else { setLoading(true); setData(null); }
-    try {
-      const response = await fetch(`${API}?${buildQuery(requestInput).toString()}`, { cache: 'no-store', signal: controller.signal });
-      const raw: unknown = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(friendlyError(raw, 'No se pudo actualizar la conciliación.'));
-      const parsed = parseConciliarReadResponse(raw);
-      if (sequence !== readSequence.current) return;
-      setData(parsed);
-      if (!keepNotice) setNotice(null);
-    } catch (error) {
-      if (sequence !== readSequence.current || (error instanceof DOMException && error.name === 'AbortError')) return;
-      setNotice({ tone: 'error', text: error instanceof Error ? safeOutcomeMessage(error.message, 'No se pudo actualizar la conciliación.') : 'No se pudo actualizar la conciliación.' });
-    } finally {
-      if (sequence === readSequence.current) { setLoading(false); setRefreshing(false); }
-      if (readController.current === controller) readController.current = null;
-    }
-  }, [requestInput]);
-
+  /** Las acciones y filtros vuelven a pedir sólo la foto privada; nunca navegan ni recargan la página. */
+  const load = useCallback(async (_silent = false, _keepNotice = false) => { search.refresh(); }, [search]);
+  const refreshSearch = useRef(search.refresh);
+  refreshSearch.current = search.refresh;
+  const externalFilterKey = `${from}\u0000${to}\u0000${accountId}\u0000${cutoffDate}\u0000${emitidasGrupo}\u0000${estado}\u0000${grupo}\u0000${orden}\u0000${direccion}`;
+  const initialExternalFilterKey = useRef(externalFilterKey);
   useEffect(() => {
-    // El HTML ya incluye las filas autorizadas. No borrarlas para pedir lo mismo
-    // después de hidratar ni arrancar una segunda consulta en StrictMode.
-    if (readSequence.current === 0 && initialRequestKey.current === buildQuery(requestInput).toString()) return;
-    void load();
-  }, [load, presentationRefreshRevision, requestInput]);
+    if (initialExternalFilterKey.current === externalFilterKey) return;
+    initialExternalFilterKey.current = externalFilterKey;
+    refreshSearch.current();
+  }, [externalFilterKey]);
   useEffect(() => {
     const updatedAt = data?.updatedAt;
     if (!updatedAt) return;
@@ -428,44 +419,45 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     }
     detailProjectionUpdatedAt.current = updatedAt;
   }, [data?.updatedAt]);
-  useEffect(() => () => { readSequence.current += 1; detailSequence.current += 1; remesaPreviewSequence.current += 1; readController.current?.abort(); detailCache.current.clear(); detailRequestKey.current = null; remesaPreviewController.current?.abort(); exportController.current?.abort(); }, []);
+  useEffect(() => () => { detailSequence.current += 1; remesaPreviewSequence.current += 1; detailCache.current.clear(); detailRequestKey.current = null; remesaPreviewController.current?.abort(); exportController.current?.abort(); }, []);
 
-  const changeTab = useCallback((next: ConciliarTab) => { if (next === tab) return; closeDetail(); remesaPreviewController.current?.abort(); setRemesaConfirmation(null); setTab(next); if (next !== 'EMITIDAS') setEmitidasGrupo(''); setOffset(0); }, [closeDetail, tab]);
-  const changeAccount = useCallback((next: string) => { closeDetail(); setAccountId(next); setOffset(0); }, [closeDetail]);
-  const changeDate = useCallback((kind: 'from' | 'to', value: string) => { closeDetail(); if (kind === 'from') setFrom(value); else setTo(value); setOffset(0); }, [closeDetail]);
+  const changeTab = useCallback((next: ConciliarTab) => { if (next === tab) return; closeDetail(); remesaPreviewController.current?.abort(); setRemesaConfirmation(null); search.changeTab(next); if (next !== 'EMITIDAS') setEmitidasGrupo(''); }, [closeDetail, search, tab]);
+  const changeAccount = useCallback((next: string) => { closeDetail(); setAccountId(next); search.changeOffset(0); }, [closeDetail, search]);
+  const changeDate = useCallback((kind: 'from' | 'to', value: string) => { closeDetail(); if (kind === 'from') setFrom(value); else setTo(value); search.changeOffset(0); }, [closeDetail, search]);
   const submitSearch = useCallback((event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     closeDetail();
-    const next = queryInput.trim().slice(0, 120);
-    if (next) { setQuery(next); setOffset(0); return; }
-    // Buscar vacío significa mostrar todo: restablece filtros de presentación
-    // de forma visible, sin destruir la selección sellada que pueda quedar fuera.
-    setQueryInput(''); setQuery(''); setFrom(''); setTo(''); setAccountId('');
-    setEmitidasGrupo(''); setEstado(''); setGrupo(''); setOrden('IMPORTE'); setDireccion('DESC'); setGlobalOrder(false); setOffset(0);
-    setPresentationRefreshRevision((current) => current + 1);
-  }, [closeDetail, queryInput]);
+    // q nunca queda oculto: caja, URL y lectura usan el mismo valor canónico.
+    if (!queryBox.trim()) {
+      setFrom(''); setTo(''); setAccountId(''); setEmitidasGrupo(''); setEstado(''); setGrupo('');
+      setOrden('IMPORTE'); setDireccion('DESC'); setGlobalOrder(false);
+      search.clearSearch();
+      return;
+    }
+    search.submitSearch();
+  }, [closeDetail, queryBox, search]);
   const changeEmitidasGrupo = useCallback((next: ConciliarEmitidasGroup) => {
     closeDetail(); remesaPreviewController.current?.abort(); setRemesaConfirmation(null);
     setEmitidasGrupo((current) => current === next ? '' : next);
-    setOffset(0);
-  }, [closeDetail]);
-  const changeEstado = useCallback((next: ConciliarColor | '') => { closeDetail(); setEstado(next); setOffset(0); }, [closeDetail]);
-  const changeGrupo = useCallback((next: ConciliarGroup | '') => { closeDetail(); setGrupo(next); setOffset(0); }, [closeDetail]);
+    search.changeOffset(0);
+  }, [closeDetail, search]);
+  const changeEstado = useCallback((next: ConciliarColor | '') => { closeDetail(); setEstado(next); search.changeOffset(0); }, [closeDetail, search]);
+  const changeGrupo = useCallback((next: ConciliarGroup | '') => { closeDetail(); setGrupo(next); search.changeOffset(0); }, [closeDetail, search]);
   const changeOrder = useCallback((field: ConciliarSortField) => {
     closeDetail();
     setGlobalOrder(true);
     if (field === orden) setDireccion((current) => current === 'ASC' ? 'DESC' : 'ASC');
     else { setOrden(field); setDireccion(field === 'IMPORTE' ? 'DESC' : 'ASC'); }
-    setOffset(0);
-  }, [closeDetail, orden]);
+    search.changeOffset(0);
+  }, [closeDetail, orden, search]);
   const changeCutoff = useCallback((value: string) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return;
     const date = new Date(`${value}T00:00:00Z`);
     if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value) return;
-    closeDetail(); setCutoffDate(value); setOffset(0); setHistoricOffset(0); setHistoricData(null);
+    closeDetail(); setCutoffDate(value); search.changeOffset(0); setHistoricOffset(0); setHistoricData(null);
     // Una fecha de presentación, no autorización ni estado de cobro.
     document.cookie = `io_conciliar_cutoff=${value}; Path=/admin/finanzas/conciliar; SameSite=Lax; Secure; Max-Age=31536000`;
-  }, [closeDetail]);
+  }, [closeDetail, search]);
 
   useEffect(() => {
     if (!historicOpen || tab !== 'EMITIDAS') return;
@@ -485,23 +477,6 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const addReceipt = useCallback((receipt: Receipt) => {
     setReceipts((current) => [receipt, ...current.filter((item) => item.key !== receipt.key && item.rowId !== receipt.rowId)].slice(0, 20));
   }, []);
-
-  const loadHistory = useCallback(async () => {
-    try {
-      const response = await fetch(`${API}/historial?limit=20&offset=0`, { cache: 'no-store' });
-      if (!response.ok) return;
-      const operations = parseConciliarHistoryResponse(await response.json());
-      const persisted: Receipt[] = operations.map((operation) => ({
-        key: operation.operationId, rowId: operation.operationId,
-        label: `Confirmación de ${operation.count} movimiento(s)`,
-        message: operation.undone ? 'Deshecho' : 'Confirmación conservada en el historial',
-        operationId: operation.reversible ? operation.operationId : null,
-        status: operation.undone ? 'undone' : 'done', createdAt: new Date(operation.createdAt).getTime(),
-      }));
-      setReceipts((current) => [...current.filter((receipt) => !persisted.some((item) => item.operationId === receipt.operationId)), ...persisted].sort((left, right) => right.createdAt - left.createdAt).slice(0, 20));
-    } catch { /* El historial secundario no bloquea la lectura de las cuatro pestañas. */ }
-  }, []);
-  useEffect(() => { if (showHistory) void loadHistory(); }, [loadHistory, showHistory]);
 
   const finishOutcomes = useCallback((response: ConciliarActionResponse, action: 'confirmar' | 'pedir', rowLabels: ReadonlyMap<string, string>) => {
     for (const outcome of response.outcomes) {
@@ -528,10 +503,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       if (!projection || !commandViewKey || commandViewKey !== activeViewKey.current) return false;
       // Cancel an earlier GET of the old projection; it must not overwrite this
       // same-transaction snapshot with a stale pre-action response.
-      readSequence.current += 1;
-      readController.current?.abort();
-      setData(projection);
-      return true;
+      return search.adopt(projection);
     };
     const batchItems = command.action === 'confirmar' && 'items' in command ? command.items : null;
     const isBatch = batchItems !== null && batchItems.length > 1;
@@ -569,7 +541,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
         setRetry(null);
         setNotice({ tone: result.undone ? 'success' : 'info', text: safeOutcomeMessage(result.message, result.undone ? 'Acción deshecha.' : 'La acción ya no se puede deshacer.') });
         if (!adoptProjection(result.projection)) void load(true, true);
-        if (showHistory) void loadHistory();
+        setConfirmationHistoryRevision((current) => current + 1);
         return;
       }
       let result;
@@ -585,9 +557,9 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       });
       const succeeded = result.outcomes.filter((outcome) => outcome.ok).length;
       const failed = result.outcomes.length - succeeded;
-      setNotice({ tone: failed ? 'info' : 'success', text: failed ? `${succeeded} hecha(s); ${failed} necesita(n) revisión. Consulta la actividad reciente.` : payload.action === 'pedir' ? 'Añadido a Para pedir. No se ha enviado ningún aviso.' : 'Hecho. Puedes deshacerlo aquí o desde la actividad reciente.' });
+      setNotice({ tone: failed ? 'info' : 'success', text: failed ? `${succeeded} hecha(s); ${failed} necesita(n) revisión. Consulta la actividad reciente.` : formatConciliarConfirmationNotice({ action: payload.action === 'pedir' ? 'pedir' : 'confirmar', succeeded, failed, labels: result.outcomes.filter((outcome) => outcome.ok).map((outcome) => labels.get(outcome.id) ?? 'Confirmación') }) });
       if (!adoptProjection(result.projection)) void load(true, true);
-      if (showHistory) void loadHistory();
+      if (payload.action !== 'pedir') setConfirmationHistoryRevision((current) => current + 1);
     } catch (error) {
       if (error instanceof ConciliarStreamRejectedError) {
         setRetry(null);
@@ -601,7 +573,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
         setNotice({ tone: 'error', text: error instanceof Error ? safeOutcomeMessage(error.message, 'No se pudo completar la acción.') : 'No se pudo completar la acción.' });
       }
     } finally { setBatchProgress(null); setSending(false); }
-  }, [activeActuation, finishOutcomes, load, loadHistory, requestInput, rows, sending, showHistory]);
+  }, [activeActuation, finishOutcomes, load, requestInput, rows, search, sending]);
 
   const confirmRows = useCallback((source: readonly ConciliarRow[]) => {
     if (mutationsBlocked || remesaPreviewLoading) return;
@@ -908,13 +880,13 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
 
     <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm panel-dark:border-slate-700 panel-dark:bg-slate-900">
       <form onSubmit={submitSearch} className="grid min-w-0 gap-2 md:grid-cols-2 xl:grid-cols-[minmax(180px,1fr)_145px_145px_190px_160px_210px_auto] xl:items-end">
-        <label className="block min-w-0 text-sm font-semibold text-slate-800 panel-dark:text-slate-100">Buscar<span className="relative mt-1 block"><MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" aria-hidden="true" /><input value={queryInput} onChange={(event) => setQueryInput(event.target.value.slice(0, 120))} maxLength={120} placeholder="Concepto, factura, tercero o importe" className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 panel-dark:border-slate-600 panel-dark:bg-slate-950 panel-dark:text-white" /></span></label>
+        <label className="block min-w-0 text-sm font-semibold text-slate-800 panel-dark:text-slate-100">Buscar<span className="relative mt-1 block"><MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" aria-hidden="true" /><input value={queryBox} onChange={(event) => search.onQueryChange(event.target.value.slice(0, 120))} maxLength={120} placeholder="Concepto, factura, tercero o importe" className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 panel-dark:border-slate-600 panel-dark:bg-slate-950 panel-dark:text-white" /></span></label>
         <label className="block text-sm font-semibold text-slate-800 panel-dark:text-slate-100">Estado<select value={estado} onChange={(event) => changeEstado(event.target.value as ConciliarColor | '')} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 panel-dark:border-slate-600 panel-dark:bg-slate-950 panel-dark:text-white"><option value="">Todos los estados</option><option value="VERDE">Verde · listo</option><option value="AMBAR">Ámbar · revisar</option><option value="ROJO">Rojo · falta el papel</option></select></label>
         <label className="block text-sm font-semibold text-slate-800 panel-dark:text-slate-100">Grupo / tipo<select value={grupo} onChange={(event) => changeGrupo(event.target.value as ConciliarGroup | '')} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 panel-dark:border-slate-600 panel-dark:bg-slate-950 panel-dark:text-white"><option value="">Todos los grupos / tipos</option>{CONCILIAR_GROUPS.map((item) => <option key={item} value={item}>{GROUP_FILTER_COPY[item]}</option>)}</select></label>
         <label className="block text-sm font-semibold text-slate-800 panel-dark:text-slate-100">Desde<input type="date" value={from} onChange={(event) => changeDate('from', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 panel-dark:border-slate-600 panel-dark:bg-slate-950 panel-dark:text-white" /></label>
         <label className="block text-sm font-semibold text-slate-800 panel-dark:text-slate-100">Hasta<input type="date" value={to} onChange={(event) => changeDate('to', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 panel-dark:border-slate-600 panel-dark:bg-slate-950 panel-dark:text-white" /></label>
         <label className="block min-w-0 text-sm font-semibold text-slate-800 panel-dark:text-slate-100">Cuenta<select value={accountId} onChange={(event) => changeAccount(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 panel-dark:border-slate-600 panel-dark:bg-slate-950 panel-dark:text-white"><option value="">Todas las cuentas</option>{(data?.cuentas ?? []).map((account) => <option key={account.id} value={account.id}>{accountLabel(account)}</option>)}</select></label>
-        <button type="submit" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[#FF5300] px-3 py-2 text-sm font-extrabold text-white hover:bg-[#E04900] focus:outline-none focus:ring-2 focus:ring-[#FF5300] focus:ring-offset-2 panel-dark:focus:ring-offset-slate-950"><MagnifyingGlassIcon className="h-4 w-4" aria-hidden="true" />Buscar</button>
+        {search.searching && <span className="self-end pb-2 text-xs font-semibold text-slate-600 panel-dark:text-slate-300">Buscando…</span>}<button type="button" onClick={() => search.clearSearch()} className="self-end min-h-10 rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold panel-dark:border-slate-600">Limpiar</button><button type="submit" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[#FF5300] px-3 py-2 text-sm font-extrabold text-white hover:bg-[#E04900] focus:outline-none focus:ring-2 focus:ring-[#FF5300] focus:ring-offset-2 panel-dark:focus:ring-offset-slate-950"><MagnifyingGlassIcon className="h-4 w-4" aria-hidden="true" />Buscar</button>
       </form>
       <p className="mt-2 text-xs text-slate-600 panel-dark:text-slate-300">Buscar vacío restablece las fechas, cuenta, estado, grupo y orden para mostrar todo. No confirma selecciones que queden fuera del filtro.</p>
     </section>
@@ -930,7 +902,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
         {showGroupedRows ? displayGroups.map((group) => group.rows.length > 1 ? <section data-conciliar-group={group.label} key={group.key}><GroupHeader group={group} />{group.rows.map(renderRow)}</section> : group.rows.map(renderRow)) : <div data-testid="conciliar-global-order">{rows.map(renderRow)}</div>}
       </>}</div>
       {openDocument && <ConciliarDocumentPreview document={openDocument} onClose={closeDetail} onRetry={() => { if (openDocument) void openDetail(openDocument.row); }} />}
-      {data && <footer className="flex flex-col gap-2 border-t border-slate-200 px-3 py-3 text-sm panel-dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-slate-600 panel-dark:text-slate-300">Mostrando {data.total === 0 ? 0 : data.offset + 1}–{Math.min(data.offset + data.rows.length, data.total)} de {data.total.toLocaleString('es-ES')}.</p><div className="flex gap-2"><button type="button" disabled={data.offset === 0 || mutationsBlocked} onClick={() => { closeDetail(); setOffset(Math.max(0, data.offset - data.limit)); }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 panel-dark:border-slate-600 panel-dark:text-slate-100"><ChevronLeftIcon className="h-4 w-4" aria-hidden="true" />Anterior</button><button type="button" disabled={data.rows.length === 0 || data.offset + data.rows.length >= data.total || mutationsBlocked} onClick={() => { closeDetail(); setOffset(data.offset + data.rows.length); }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 panel-dark:border-slate-600 panel-dark:text-slate-100">Ver más<ChevronRightIcon className="h-4 w-4" aria-hidden="true" /></button></div></footer>}
+      {data && <footer className="flex flex-col gap-2 border-t border-slate-200 px-3 py-3 text-sm panel-dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-slate-600 panel-dark:text-slate-300">Mostrando {data.total === 0 ? 0 : data.offset + 1}–{Math.min(data.offset + data.rows.length, data.total)} de {data.total.toLocaleString('es-ES')}.</p><div className="flex gap-2"><button type="button" disabled={data.offset === 0 || mutationsBlocked} onClick={() => { closeDetail(); search.changeOffset(Math.max(0, data.offset - data.limit)); }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 panel-dark:border-slate-600 panel-dark:text-slate-100"><ChevronLeftIcon className="h-4 w-4" aria-hidden="true" />Anterior</button><button type="button" disabled={data.rows.length === 0 || data.offset + data.rows.length >= data.total || mutationsBlocked} onClick={() => { closeDetail(); search.changeOffset(data.offset + data.rows.length); }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 panel-dark:border-slate-600 panel-dark:text-slate-100">Ver más<ChevronRightIcon className="h-4 w-4" aria-hidden="true" /></button></div></footer>}
     </section>
 
     {tab === 'EMITIDAS' && data && <details onToggle={(event) => setHistoricOpen(event.currentTarget.open)} className="rounded-xl border border-slate-200 bg-white p-3 panel-dark:border-slate-700 panel-dark:bg-slate-900">
@@ -943,7 +915,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     </details>}
 
     {receipts.length > 0 && <ConciliarRecentHistory receipts={receipts} busy={mutationsBlocked} onUndo={undoReceipt} />}
-    <button type="button" onClick={() => setShowHistory(true)} className="min-h-10 rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold panel-dark:border-slate-700">{showHistory ? 'Historial cargado' : 'Ver historial de confirmaciones'}</button>
+    <ConciliarConfirmationHistory activeActuationSessionId={activeActuation?.sessionId ?? null} busy={mutationsBlocked} refreshKey={confirmationHistoryRevision} onUndo={(operationId) => { if (!mutationsBlocked) void post({ action: 'deshacer', operationId, idempotencyKey: makeIdempotencyKey() }, 'deshacer confirmación'); }} onLoadError={(message) => setNotice({ tone: 'error', text: safeOutcomeMessage(message, 'No se pudieron leer las confirmaciones.') })} />
     <details onToggle={(event) => setShowInterestInvoices(event.currentTarget.open)} className="rounded-xl border border-slate-200 bg-white p-3 panel-dark:border-slate-700 panel-dark:bg-slate-900"><summary className="cursor-pointer text-sm font-semibold">Facturas bancarias de intereses de confirming</summary>{showInterestInvoices && <ConfirmingInterestInvoices />}</details>
     <p className="px-1 text-xs text-slate-500 panel-dark:text-slate-400">Las confirmaciones se hacen una vez, quedan registradas y se pueden deshacer. Pedir sólo añade la fila a la lista interna; no envía correos ni notificaciones.</p>
     {remesaConfirmation && <ConciliarRemesaConfirmationDialog confirmation={remesaConfirmation} busy={sending} onCancel={() => { if (!sending) setRemesaConfirmation(null); }} onConfirm={() => { if (!sending) { const current = remesaConfirmation; setRemesaConfirmation(null); void post(current.payload, 'confirmación de remesa revisada'); } }} />}

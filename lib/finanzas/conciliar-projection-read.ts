@@ -431,18 +431,103 @@ export async function readConciliarRowForAction(tx: Prisma.TransactionClient, id
   return projectionRow(rows[0])
 }
 
-export async function readConciliarHistory(actorId: number, limit: number, offset: number) {
+export type ConciliarHistoryView = 'hoy' | 'historial'
+
+type ConciliarHistoryOperationRow = Readonly<{
+  id: string
+  estado: string
+  resultado: unknown
+  createdAt: Date
+  revertedAt: Date | null
+  legs: unknown
+}>
+
+function historyDisplay(value: unknown, field: string): string | null {
+  const parsed = nullableText(value, 240)
+  return parsed && parsed.trim().length > 0 ? parsed.trim() : null
+}
+
+function historyLegs(value: unknown, createdAt: Date) {
+  return jsonRecords(value, 'Las patas del historial').flatMap((raw, index) => {
+    const result = json(raw.resultado)
+    const presentation = json(result.presentation)
+    const ordinal = safeInteger(raw.ordinal)
+    if (presentation.schema !== 'CONCILIAR_CONFIRMACION_PATA_V1') return []
+    if (ordinal === null || ordinal !== index + 1) return []
+    const fecha = typeof presentation.fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(presentation.fecha) ? presentation.fecha : null
+    const concepto = historyDisplay(presentation.concepto, 'El concepto')
+    const importeCentimos = safeInteger(presentation.importeCentimos)
+    const documento = presentation.documento === null ? null : historyDisplay(presentation.documento, 'El documento')
+    if (!fecha || !concepto || importeCentimos === null || importeCentimos < -2_147_483_648 || importeCentimos > 2_147_483_647) return []
+    return [{ ordinal, confirmedAt: createdAt.toISOString(), fecha, concepto, importeCentimos, documento }]
+  })
+}
+
+function historyOperation(row: ConciliarHistoryOperationRow) {
+  const result = json(row.resultado)
+  const history = json(result.history)
+  const actorIdsValid = history.schema === 'CONCILIAR_HISTORIAL_V1'
+    && safeInteger(history.actorRealId) !== null && safeInteger(history.actorRealId)! > 0
+    && safeInteger(history.actorEffectiveId) !== null && safeInteger(history.actorEffectiveId)! > 0
+  const actorEffectiveDisplay = actorIdsValid ? historyDisplay(history.actorEffectiveDisplay, 'El actor efectivo') : null
+  const actorRealDisplay = actorIdsValid ? historyDisplay(history.actorRealDisplay, 'El actor real') : null
+  const legs = historyLegs(row.legs, row.createdAt)
+  const durableOutcomes = Array.isArray(result.outcomes) ? result.outcomes.length : 0
+  const storedLegCount = jsonRecords(row.legs, 'Las patas del historial').length
+  const count = durableOutcomes >= 1 && durableOutcomes <= 100 ? durableOutcomes : storedLegCount || 1
+  const detailsAvailable = legs.length === count
+  return {
+    operationId: row.id,
+    confirmedAt: row.createdAt.toISOString(),
+    revertedAt: row.revertedAt?.toISOString() ?? null,
+    state: row.estado === 'REVERTIDA' ? 'REVERTIDA' : 'APLICADA',
+    reversible: row.estado === 'APLICADA',
+    scope: count === 1 ? 'single' as const : 'batch' as const,
+    count,
+    detailsAvailable,
+    actorEffectiveDisplay,
+    actorRealDisplay,
+    actorRealStatus: actorRealDisplay ? (actorRealDisplay === actorEffectiveDisplay ? 'IGUAL_AL_EFECTIVO' : 'VINCULADO') : 'NO_DISPONIBLE_HISTORICO',
+    legs: detailsAvailable ? legs : [],
+  }
+}
+
+/** Ledger-only reader: no projection rebuild, source lookup or financial join can
+ * occur here. SET TRANSACTION READ ONLY is a real server guard, not a DTO flag. */
+export async function readConciliarHistory(actorId: number, limit: number, offset: number, view: ConciliarHistoryView = 'historial') {
   if (!Number.isSafeInteger(actorId) || actorId < 1) fail(401, 'NO_AUTORIZADO', 'No autorizado.')
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || !Number.isSafeInteger(offset) || offset < 0 || offset > 100_000) fail(400, 'PAGINACION_INVALIDA', 'La paginación no es válida.')
-  const [rows, totals] = await Promise.all([
-    db().$queryRaw<Array<{ id: string; accion: string; estado: string; resultado: unknown; createdAt: Date; revertedAt: Date | null; parentId: string | null }>>(Prisma.sql`
-      SELECT id::text,accion::text,estado::text,resultado,created_at AS "createdAt",revertida_at AS "revertedAt",operacion_padre_id::text AS "parentId"
-      FROM operaciones_conciliar WHERE actor_id=${actorId} ORDER BY created_at DESC,id DESC LIMIT ${limit} OFFSET ${offset}
-    `),
-    db().$queryRaw<Array<{ total: bigint | number | string }>>(Prisma.sql`SELECT COUNT(*) AS total FROM operaciones_conciliar WHERE actor_id=${actorId}`),
-  ])
-  return { total: count(totals[0]?.total), limit, offset, operations: rows.map(row => ({
-    id: row.id, action: row.accion, state: row.estado, createdAt: row.createdAt.toISOString(), revertedAt: row.revertedAt?.toISOString() ?? null,
-    reversible: row.accion === 'CONFIRMAR' && row.estado !== 'REVERTIDA', parentId: row.parentId, result: json(row.resultado),
-  })) }
+  if (view !== 'hoy' && view !== 'historial') fail(400, 'PAGINACION_INVALIDA', 'La vista de historial no es válida.')
+  return db().$transaction(async base => {
+    const client = base as Tx
+    await client.$executeRaw(Prisma.sql`SET TRANSACTION READ ONLY`)
+    const todayScope = view === 'hoy'
+      ? Prisma.sql`AND (created_at AT TIME ZONE 'Europe/Madrid')::date=(CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Madrid')::date`
+      : Prisma.empty
+    const [rows, totals] = await Promise.all([
+      client.$queryRaw<ConciliarHistoryOperationRow[]>(Prisma.sql`
+        WITH page AS (
+          SELECT id,estado,resultado,created_at,revertida_at
+          FROM operaciones_conciliar
+          WHERE actor_id=${actorId} AND accion='CONFIRMAR'::"AccionOperacionConciliar" ${todayScope}
+          ORDER BY created_at DESC,id DESC LIMIT ${limit} OFFSET ${offset}
+        )
+        SELECT p.id::text,p.estado::text,p.resultado,p.created_at AS "createdAt",p.revertida_at AS "revertedAt",
+          COALESCE(json_agg(json_build_object('ordinal',l.ordinal,'resultado',l.resultado) ORDER BY l.ordinal ASC)
+            FILTER (WHERE l.ordinal IS NOT NULL),'[]'::json) AS legs
+        FROM page p
+        LEFT JOIN patas_operacion_conciliar l ON l.operacion_conciliar_id=p.id
+        GROUP BY p.id,p.estado,p.resultado,p.created_at,p.revertida_at
+        ORDER BY p.created_at DESC,p.id DESC
+      `),
+      client.$queryRaw<Array<{ total: bigint | number | string }>>(Prisma.sql`
+        SELECT COUNT(*) AS total FROM operaciones_conciliar
+        WHERE actor_id=${actorId} AND accion='CONFIRMAR'::"AccionOperacionConciliar" ${todayScope}
+      `),
+    ])
+    return {
+      view, total: count(totals[0]?.total), limit, offset,
+      operations: rows.map(historyOperation),
+    }
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 5_000, timeout: 15_000 })
 }

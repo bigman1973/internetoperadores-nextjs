@@ -10,6 +10,9 @@ const xlsx = readFileSync(resolve(root, 'components/finanzas/conciliar/conciliar
 const documentPreview = readFileSync(resolve(root, 'components/finanzas/conciliar/ConciliarDocumentPreview.tsx'), 'utf8');
 const remesaDialog = readFileSync(resolve(root, 'components/finanzas/conciliar/ConciliarRemesaConfirmationDialog.tsx'), 'utf8');
 const recentHistory = readFileSync(resolve(root, 'components/finanzas/conciliar/ConciliarRecentHistory.tsx'), 'utf8');
+const confirmationHistory = readFileSync(resolve(root, 'components/finanzas/conciliar/ConciliarConfirmationHistory.tsx'), 'utf8');
+const confirmationNotice = readFileSync(resolve(root, 'components/finanzas/conciliar/conciliar-confirmation-notice.ts'), 'utf8');
+const globalSearch = readFileSync(resolve(root, 'components/finanzas/conciliar/conciliar-global-search.ts'), 'utf8');
 const fileHrefGuard = readFileSync(resolve(root, 'lib/finanzas/conciliar-file-href.ts'), 'utf8');
 
 function required(source, name, fragments) {
@@ -64,11 +67,10 @@ required(fileHrefGuard, 'lectores privados compartidos', ['conciliar\\/archivo\\
 
 required(workspace, 'espacio de trabajo', [
   "const API = '/api/admin/finanzas/conciliar'",
+  "useConciliarGlobalSearch({ initialTab, initialQuery",
   "action: 'confirmar'",
   "action: 'deshacer'",
   "action: 'pedir'",
-  'AbortController',
-  'readController.current?.abort()',
   'response.status === 409',
   'Reintenta exactamente la misma acción',
   'Todos los verdes visibles',
@@ -110,6 +112,17 @@ required(workspace, 'espacio de trabajo', [
   'SortHeader field="FECHA"',
   'SortHeader field="CONCEPTO"',
   'SortHeader field="IMPORTE"',
+  "const loadConciliarConfirmationHistory = () => import('./ConciliarConfirmationHistory')",
+  'dynamic(loadConciliarConfirmationHistory)',
+  'formatConciliarConfirmationNotice',
+  'refreshKey={confirmationHistoryRevision}',
+]);
+required(globalSearch, 'búsqueda canónica', [
+  'AbortController',
+  'controllerRef.current?.abort()',
+  'dataGeneration === state.generation',
+  'CONCILIAR_SEARCH_DEBOUNCE_MS = 180',
+  'writeConciliarSearchHistory',
 ]);
 
 required(helpers, 'helpers de presentación', [
@@ -122,6 +135,19 @@ required(helpers, 'helpers de presentación', [
 required(documentPreview, 'detalle diferido', ['role="dialog"', 'target="_blank"', 'drawer.row.importeCentimos', 'drawer.row.motivo', 'Abrir PDF']);
 required(remesaDialog, 'remesa diferida', ['Segunda confirmación humana de la remesa', 'Confirmar sólo estas', 'confirmation.preview.filas.slice', 'onClick={onConfirm}', 'onClick={onCancel}']);
 required(recentHistory, 'actividad diferida', ['onUndo(receipt)', '>Deshacer</button>']);
+required(confirmationHistory, 'historial durable diferido', [
+  "const HISTORY_API = '/api/admin/finanzas/conciliar/historial'",
+  "vista: view",
+  "'x-io-acting-session': activeActuationSessionId",
+  'Confirmados hoy',
+  'Historial',
+  'Deshacer lote de ${operation.count} confirmaciones',
+  'deshace el lote completo; no revierte una confirmación aislada',
+  'Actor real no disponible en el recibo histórico',
+  'No se reconstruye con datos actuales',
+  'operation.operationId',
+]);
+required(confirmationNotice, 'aviso posterior al recibo', ['formatConciliarConfirmationNotice', 'Confirmado: ${label}.', 'Confirmadas ${input.succeeded} filas', 'No se ha enviado ningún aviso.']);
 if (/fetch\([^)]*https?:\/\//.test(workspace)) throw new Error('La UI no debe llamar a una URL externa.');
 if (/window\.open\(/.test(workspace)) throw new Error('La UI no debe abrir documentos sin control de URL.');
 if (/import\s+(?!type\s*\{)[^;]+from\s+['"]@\/lib\/finanzas\/conciliar-contract['"]/.test(contract)) throw new Error('El contrato de navegador sólo puede importar tipos del contrato servidor.');
@@ -129,6 +155,7 @@ if (/node:crypto|createHash/.test(contract)) throw new Error('El contrato de nav
 if (!/for \(let pageOffset = 0; pageOffset < data\.total; pageOffset \+= EXPORT_PAGE_SIZE\)/.test(workspace)) throw new Error('La exportación debe paginar todas las filas filtradas.');
 if (!/new Map\(\)/.test(workspace) || !/reviewSelectionForCurrentRows\(selected, rows\)/.test(workspace)) throw new Error('La selección debe conservar su hash y revisar sólo las filas visibles actuales.');
 if (/setSelected\(new Set\(\)\)/.test(workspace)) throw new Error('Un refresco no debe borrar selecciones ocultas automáticamente.');
+if (/operationId.*(?:notice|innerHTML)|(?:notice|innerHTML).*operationId/.test(confirmationNotice)) throw new Error('El aviso no puede imprimir un identificador de operación.');
 if (!/tab: 'EMITIDAS', from, to, accountId, query, cutoffDate, historic: true, estado, grupo, orden, direccion, limit: PAGE_SIZE, offset: historicOffset/.test(workspace)) throw new Error('La consulta histórica debe heredar filtros comunes, no emitidasGrupo.');
 if (/onConfirm=.*EmitidasGroupFilters|onAsk=.*EmitidasGroupFilters/.test(workspace)) throw new Error('Las tarjetas de Emitidas sólo pueden filtrar; no pueden mutar.');
 if (!/showGroupedRows \? displayGroups\.map\([\s\S]*?\) : <div data-testid="conciliar-global-order">\{rows\.map\(renderRow\)\}<\/div>/.test(workspace)) throw new Error('Cualquier cabecera ordenable debe renderizar la lista plana, también Importe.');

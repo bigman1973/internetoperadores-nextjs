@@ -125,3 +125,17 @@ test('SQL: SUM(bigint) de PostgreSQL se entrega como texto de céntimos exactos'
   const source=readFileSync(resolve(process.cwd(),'lib/finanzas/conciliar-db.ts'),'utf8');
   assert.match(source,/COALESCE\(SUM\(p\.pendiente_centimos::bigint\),0\)::text AS amount/);
 });
+
+test('historial: el lector usa transacción read-only y sólo el ledger de Conciliar', () => {
+  const reader = readFileSync(resolve(process.cwd(), 'lib/finanzas/conciliar-projection-read.ts'), 'utf8');
+  const route = readFileSync(resolve(process.cwd(), 'app/api/admin/finanzas/conciliar/historial/route.ts'), 'utf8');
+  assert.match(reader, /SET TRANSACTION READ ONLY/);
+  assert.match(reader, /FROM operaciones_conciliar/);
+  assert.match(reader, /LEFT JOIN patas_operacion_conciliar/);
+  assert.doesNotMatch(reader.slice(reader.indexOf('export async function readConciliarHistory')), /movimientos_bancarios|facturas_recibidas|vinculos_movimiento_documento/);
+  assert.match(reader, /history\.schema === 'CONCILIAR_HISTORIAL_V1'/);
+  assert.doesNotMatch(reader.slice(reader.indexOf('function historyOperation'), reader.indexOf('export async function readConciliarHistory')), /actorRealId:|actorEffectiveId:/);
+  assert.match(route, /requireB4FinanceAccess\('lectura'/);
+  assert.match(route, /\['limit', 'offset', 'vista'\]/);
+  assert.match(route, /view !== 'hoy' && view !== 'historial'/);
+});
