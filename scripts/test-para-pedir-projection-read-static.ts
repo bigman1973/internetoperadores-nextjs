@@ -27,6 +27,13 @@ assert.match(reader, /u\.nombre AS actor_nombre/);
 assert.match(reader, /PEDIDO_SIN_AUDITORIA/);
 assert.match(reader, /GROUP BY grupo_tercero/);
 assert.match(reader, /CURRENT_DATE-15/);
+assert.match(reader, /estado_pedido='SIN_PEDIR'.*AS faltan_pedir/);
+assert.match(reader, /estado_pedido='PEDIDO'.*AS pedidos/);
+assert.match(reader, /estado_pedido='PEDIDO_SIN_AUDITORIA'.*AS pedidos_sin_auditoria/);
+assert.match(reader, /estado_pedido='RECIBIDO'.*AS recibidos/);
+assert.match(reader, /faltanPedir: integer\(row\.faltan_pedir/);
+assert.match(reader, /pedidosSinAuditoria: integer\(row\.pedidos_sin_auditoria/);
+assert.match(reader, /recibidos: integer\(row\.recibidos/);
 assert.match(reader, /LIMIT \$\{input\.limit\} OFFSET \$\{input\.offset\}/);
 assert.doesNotMatch(reader, /readEasyReconciliation|candidatesForMovement|rebuildConciliarProjection|\b(?:INSERT|UPDATE|DELETE)\b|fetch\(/i, 'el lector no recalcula, no crea candidatos ni muta');
 

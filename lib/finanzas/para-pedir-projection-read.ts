@@ -169,7 +169,10 @@ export async function readParaPedirProjection(input: ParaPedirInput, client: Pic
     ), grouped AS (
       SELECT grupo_tercero AS tercero,COUNT(*)::text AS movimientos,
         COALESCE(SUM(abs(pendiente_centimos::bigint)),0)::text AS pendiente_centimos,
+        COUNT(*) FILTER (WHERE estado_pedido='SIN_PEDIR')::text AS faltan_pedir,
         COUNT(*) FILTER (WHERE estado_pedido='PEDIDO')::text AS pedidos,
+        COUNT(*) FILTER (WHERE estado_pedido='PEDIDO_SIN_AUDITORIA')::text AS pedidos_sin_auditoria,
+        COUNT(*) FILTER (WHERE estado_pedido='RECIBIDO')::text AS recibidos,
         COUNT(*) FILTER (WHERE estado_pedido='PEDIDO' AND pedido_dia < CURRENT_DATE-15)::text AS pedidos_mas_15_dias
       FROM filtered
       GROUP BY grupo_tercero
@@ -221,7 +224,10 @@ export async function readParaPedirProjection(input: ParaPedirInput, client: Pic
     tercero: text(row.tercero, 'El tercero agrupado', 320),
     movimientos: integer(row.movimientos, 'El número de movimientos', true),
     pendienteCentimos: integer(row.pendiente_centimos, 'El pendiente agrupado'),
+    faltanPedir: integer(row.faltan_pedir, 'El número de documentos que falta pedir', true),
     pedidos: integer(row.pedidos, 'El número de pedidos', true),
+    pedidosSinAuditoria: integer(row.pedidos_sin_auditoria, 'El número de pedidos sin auditoría', true),
+    recibidos: integer(row.recibidos, 'El número de documentos recibidos', true),
     pedidosMas15Dias: integer(row.pedidos_mas_15_dias, 'El número de pedidos antiguos', true),
   }));
   const summary = object(bundle.summary);

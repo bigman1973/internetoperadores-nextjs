@@ -125,7 +125,7 @@ test('Para Pedir sólo acepta la proyección documental B4 sin acciones externas
     filtro: { estado: 'TODOS', q: null, tercero: null }, total: 1, limit: 25, offset: 0, totalPagina: 1,
     resumen: { movimientos: 1, pendienteCentimos: 2500 },
     proyeccion: { actualizadaEn: '2026-01-02T12:00:00.000Z', version: 1, pendienteActualizacion: false },
-    agrupaciones: [{ tercero: 'Proveedor documental', movimientos: 1, pendienteCentimos: 2500, pedidos: 0, pedidosMas15Dias: 0 }],
+    agrupaciones: [{ tercero: 'Proveedor documental', movimientos: 1, pendienteCentimos: 2500, faltanPedir: 1, pedidos: 0, pedidosSinAuditoria: 0, recibidos: 0, pedidosMas15Dias: 0 }],
     movimientos: [{ movimientoId: 'mov-01', tab: 'PAGOS', fecha: '2026-01-02', concepto: 'Cargo', importeCentimos: -2500, pendienteCentimos: -2500, banco: 'Banco', cuenta: null, tercero: 'Proveedor documental', grupoTercero: 'Proveedor documental', referenciaDocumento: null, motivo: 'Falta el papel', estadoPedido: 'SIN_PEDIR', pedido: null, conciliarPedir: null }],
   };
   const parsed = parseParaPedirRead(base);
