@@ -45,11 +45,14 @@ test('preflight de revisión no bloquea fila ni ejecuta confirmación; el borrad
   assert.doesNotMatch(runner, /runConciliarAction|confirmArea3ReviewTx|fetch\(/)
 })
 
-test('runner G7 no aprueba una cobertura vacía ni familias ausentes', () => {
+test('runner G7 exige población y verde real, pero informa familias ausentes sin fabricar datos', () => {
   const coverage = readFileSync('lib/finanzas/conciliar-g7-coverage.ts', 'utf8')
-  assert.match(coverage, /const allClassesPopulated=classesWithoutPopulation\.length===0/)
-  assert.match(coverage, /ok:totalGreen>0 && noGreensSkipped && allClassesPopulated/)
-  assert.match(runner, /G7_FAMILIAS_AUSENTES/)
+  assert.match(coverage, /const totalPopulation=values\.reduce/)
+  assert.match(coverage, /ok:totalPopulation>0 && totalGreen>0 && noGreensSkipped/)
+  assert.match(coverage, /classesWithoutPopulation/)
+  assert.doesNotMatch(runner, /G7_FAMILIAS_AUSENTES/)
+  assert.match(runner, /let apiGreen = 0/)
+  assert.match(runner, /apiGreen !== universal\.totalGreen/)
   assert.match(runner, /familiasAusentes: output\.universal\.classesWithoutPopulation/)
 })
 

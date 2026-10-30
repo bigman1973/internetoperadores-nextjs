@@ -522,7 +522,17 @@ async function confirmStandard(tx: Tx, actorId: number, command: Extract<Concili
   const outcomes: Array<Record<string, unknown>> = []
   const plan = await readConciliarConfirmBatchForActionTx(tx, command.items, fail)
   const selectedRows = plan.rows
+  const g7PrecheckStartedAt = Date.now()
   for (const row of selectedRows) await assertConciliarGreenPrecheckTx(tx,row)
+  // La puerta G7 se conserva por cada fila antes de cualquier DML. El recibo
+  // mide su coste real para que staging decida si procede una prelectura
+  // set-based compartida con el proveedor homogéneo de comisiones.
+  const g7PrecheckTelemetry = {
+    schema: 'CONCILIAR_G7_PRECHECK_TELEMETRY_V1',
+    selectedRows: selectedRows.length,
+    elapsedMs: Date.now() - g7PrecheckStartedAt,
+    mode: plan.onlyBankFees ? 'COMISIONES_HOMOGENEAS_POR_FILA' : 'MIXTO_POR_FILA',
+  } as const
   const legs: Array<{
     ordinal: number; rowId: string; movimientoId: string | null; operationB4Id?: string; proposalBlockId?: string; result: Record<string, unknown>
   }> = []
@@ -575,6 +585,7 @@ async function confirmStandard(tx: Tx, actorId: number, command: Extract<Concili
   const result = {
     ok: true, outcomes, applied: command.items.length, failed: 0, reversible: true, projectionSynchronized,
     history: { schema: 'CONCILIAR_HISTORIAL_V1', ...actors, ...historyActors },
+    g7PrecheckTelemetry,
     refreshedAt: new Date().toISOString(),
   }
   await complete(tx, receipt.id, 'APLICADA', result)
@@ -713,7 +724,6 @@ async function confirmArea3Review(tx: Tx, actorId: number, command: Extract<Conc
   const row = await readConciliarRowForAction(tx, command.review.id)
   if (row.decisionHash !== command.review.decisionHash) fail(409, 'DECISION_CAMBIADA', 'La propuesta cambió desde que abriste la página. Actualiza y vuelve a revisar.')
   await requireCurrentDocumentLifecycleForConfirmation(tx, row.source)
-  const auditPreflight = await preflightArea3ReviewConfirmTx(tx,row)
   const applied = await confirmArea3ReviewTx(tx, actorId, receipt.id, row, command.review.acknowledgement)
   await tx.$executeRaw(Prisma.sql`
     INSERT INTO eventos_justificacion_b4(operacion_id,movimiento_id,accion,actor_id,detalle,created_at)

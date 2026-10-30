@@ -8,7 +8,10 @@ const source = readFileSync(resolve(root, 'lib/finanzas/conciliar-projection-rea
 const reader = source.slice(source.indexOf('async function readProjectionBundle'), source.indexOf('export async function readConciliarProjection'))
 
 assert.equal((reader.match(/\bclient\.\$queryRaw/g) ?? []).length, 1, 'la portada debe resolver página, total, resumen, cuentas y estado en un solo viaje SQL')
-assert.match(reader, /WITH filtered AS \(/)
+assert.match(reader, /WITH projection_state AS \(/)
+assert.match(reader, /effective_projection AS \(/)
+assert.match(reader, /\), filtered AS \(/)
+assert.match(reader, /FROM effective_projection p WHERE \$\{shared\}/)
 assert.match(reader, /active AS \(/)
 assert.match(reader, /active_emitidas AS \(/)
 assert.match(reader, /scoped AS \(/)

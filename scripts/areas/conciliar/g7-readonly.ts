@@ -230,9 +230,11 @@ async function main(): Promise<void> {
       const rows = projection.rows
       const classes = newConciliarG7Coverage()
       const contextRows = new Map(rows.map(row=>[row.id,row]))
+      let apiGreen = 0
       for (const row of rows) {
         const api = capturedRows.get(row.id)
         if (!api || api.decisionHash !== row.decisionHash || api.color !== row.color || api.seleccionable !== row.seleccionable || api.motivo !== row.motivo) fail('AREA3_G7_API_DECISION_MISMATCH')
+        if (api.color === 'VERDE') apiGreen += 1
         const count = classes[row.source.kind]
         if(!count) fail('AREA3_G7_SOURCE_KIND_UNCOVERED')
         count.population += 1
@@ -246,10 +248,10 @@ async function main(): Promise<void> {
           count.amber += 1
         } else count.red += 1
       }
-      // G7 evidence is only complete when all nine closed source families are
-      // represented. A missing family is reported in `classesWithoutPopulation`
-      // and leaves the runner amber; it can never be mistaken for a green pass.
+      // Familias sin población se cuentan e informan; no se rellenan ni
+      // invalidan una foto real con verdes que sí superaron el mismo precheck.
       const universal=concludeConciliarG7Coverage(classes)
+      if (apiGreen !== universal.totalGreen) fail('AREA3_G7_API_GREEN_MISMATCH')
       const gate = evaluateConciliarStagingApiSnapshot(captured, apiCoverage(rows, projection.updatedAt))
       if (!gate.ok) fail('AREA3_G7_API_PAGINATION_MISMATCH')
       const maps = await readCurrentArea3RemittanceMapPreflightsTx(tx)
@@ -302,8 +304,7 @@ async function main(): Promise<void> {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 10_000, timeout: 120_000 })
     const precheckPassed = output.universal.ok
     if (precheckPassed && output.draft) writeFileSync(cli.draftFile, `${JSON.stringify(output.draft, null, 2)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
-    const gateCode = precheckPassed ? 'G7_PRECHECK_VALIDADO'
-      : output.universal.allClassesPopulated ? 'G7_PRECHECK_NO_VALIDADO' : 'G7_FAMILIAS_AUSENTES'
+    const gateCode = precheckPassed ? 'G7_PRECHECK_VALIDADO' : 'G7_PRECHECK_NO_VALIDADO'
     console.log(JSON.stringify(resultLine(precheckPassed, gateCode, {
       actorWriteAccess: true, universal: output.universal, familiasAusentes: output.universal.classesWithoutPopulation, correctAmberIsSuccess: true, apiGate: output.gate.coverage, remittance: { green: output.remittanceGreen, amber: output.remittanceAmber },
       review: { acknowledgementRequired: output.reviewAck, amberBlocked: output.reviewAmber }, draftPrepared: precheckPassed && output.draft !== null,

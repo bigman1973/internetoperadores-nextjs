@@ -116,6 +116,12 @@ required(workspace, 'espacio de trabajo', [
   'dynamic(loadConciliarConfirmationHistory)',
   'formatConciliarConfirmationNotice',
   'refreshKey={confirmationHistoryRevision}',
+  "const requestAlreadyRegistered = management?.estado === 'PEDIDO' || management?.estado === 'PEDIDO_SIN_AUDITORIA'",
+  'Falta pedirla',
+  'Marcar como pedida',
+  'No envía ningún aviso.',
+  'Ya pedida',
+  'Pedida el ${formatDate(management.pedido.fecha)}',
 ]);
 required(globalSearch, 'búsqueda canónica', [
   'AbortController',
