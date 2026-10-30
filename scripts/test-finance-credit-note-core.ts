@@ -79,6 +79,13 @@ test('dos versiones o copias con la misma identidad canónica de rectificativa n
   assert.ok(row.reviewReasons.includes('RECTIFICATIVA_IDENTIDAD_CANONICA_AMBIGUA'))
 })
 
+test('dos filas del mismo documento rectificativo nunca conservan la primera silenciosamente', () => {
+  const duplicateDocument = credit({ signedTotalCents: -2_001 })
+  const row = settle({ creditNotes: [credit(), duplicateDocument] }).settlements[0]
+  assert.deepEqual([row.state, row.validRectificationCents, row.pendingCents], ['REVISION', null, null])
+  assert.ok(row.reviewReasons.includes('RECTIFICATIVA_DOCUMENTO_DUPLICADO'))
+})
+
 test('signo erróneo de rectificativa se rechaza sin usar abs ni inventar crédito', () => {
   const row = settle({ creditNotes: [credit({ signedTotalCents: 2_000 })] }).settlements[0]
   assert.equal(row.state, 'REVISION')

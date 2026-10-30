@@ -4,7 +4,7 @@ import prisma from '@/lib/prisma'
 import { assertFinanceRuntimeReady } from '@/lib/finanzas/finance-runtime-safety'
 import { requireB4ActorAccess } from '@/lib/finanzas/reconciliation-auth'
 import { trustedImpersonationContextResolutionFromRequest } from '@/lib/impersonation-context'
-import { creditLinkLedgerAction, creditLinkStateForAction, parseCreditLinkDecision, type CreditLinkEffectiveState } from './finance-credit-note-human-core'
+import { creditLinkLedgerAction, creditLinkStateForAction, parseCreditLinkDecision, retryCreditLinkHumanTransaction, type CreditLinkEffectiveState } from './finance-credit-note-human-core'
 
 type Tx = Prisma.TransactionClient & Record<string, any>
 type DecisionDb = Pick<Prisma.TransactionClient, '$queryRaw' | '$executeRaw'> & Record<string, any>
@@ -105,6 +105,15 @@ function auditActors(actorId: number, resolution: Awaited<ReturnType<typeof trus
   return { actorRealId: resolution.status === 'valid' ? resolution.context.actorId : actorId, actorEffectiveId: actorId }
 }
 
+/** Only a transaction the Prisma client has definitely rolled back may repeat. */
+function isRetryableCreditLinkTransactionConflict(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false
+  if (error.code === 'P2034') return true
+  if (error.code !== 'P2010') return false
+  const sqlState = error.meta?.code
+  return sqlState === '40001' || sqlState === '40P01'
+}
+
 const linkForDecisionSql = (creditLinkId: string) => Prisma.sql`
   SELECT cl.id::text AS id,cl.exact_reference AS "exactReference",cl.state::text AS "legacyState",COALESCE(last_decision.effective_state::text,cl.state::text) AS "effectiveState",cl.created_at AS "createdAt",
     original_s.document_number AS "originalDocumentNumber", original_s.document_date AS "originalDocumentDate", original_s.total_cents AS "originalTotalCents",
@@ -122,40 +131,50 @@ export async function decideCreditLinkHuman(actorId: number, raw: unknown, datab
   const parsed = parseCreditLinkDecision(raw)
   if (parsed.ok === false) fail(400, 'VALIDATION_ERROR', parsed.message)
   const input = parsed.value
-  const actors = auditActors(actorId, await trustedImpersonationContextResolutionFromRequest())
   await assertFinanceRuntimeReady(database)
-  return (database as any).$transaction(async (base: Prisma.TransactionClient) => {
-    const tx = base as Tx
-    const access = await requireB4ActorAccess(actorId, 'escritura', tx)
-    if (!access.ok) fail(403, 'PERMISO_REVOCADO', 'Sin permiso de escritura en conciliación.')
-    if (!await tablesReady(tx)) fail(409, 'RECTIFICATIVAS_LEDGER_NO_MIGRADO', 'El registro de decisiones de rectificativas aún no está disponible.')
-    await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`credit-link-decision:${input.creditLinkId}`},0))::text AS locked`)
-    const hash = sha256({ schema: 'CREDIT_LINK_HUMAN_DECISION_V1', input, actors })
-    const replay = await tx.$queryRaw<Array<DecisionRow & { payloadHash: string }>>(Prisma.sql`
-      SELECT id::text AS id,credit_link_id::text AS "creditLinkId",action::text AS action,effective_state::text AS "effectiveState",reason,
-        actor_real_id AS "actorRealId",actor_effective_id AS "actorEffectiveId",created_at AS "createdAt",payload_hash AS "payloadHash"
-      FROM document_version_credit_link_decisions
-      WHERE actor_real_id=${actors.actorRealId} AND idempotency_key=${input.idempotencyKey}
-      LIMIT 2 FOR KEY SHARE
-    `)
-    if (replay.length) {
-      const row = replay[0]
-      if (replay.length !== 1 || row.payloadHash !== hash || row.creditLinkId !== input.creditLinkId || !validState(row.effectiveState) || !(row.createdAt instanceof Date)) fail(409, 'IDEMPOTENCY_PAYLOAD_MISMATCH', 'La clave ya se usó con otra decisión.')
+  return retryCreditLinkHumanTransaction(
+    () => (database as any).$transaction(async (base: Prisma.TransactionClient) => {
+      const tx = base as Tx
+      // This whole callback is recreated after a rollback: live ACL, ledger
+      // readiness, advisory locks, replay and state are all read from a fresh
+      // SERIALIZABLE snapshot for the same immutable human click.
+      const actors = auditActors(actorId, await trustedImpersonationContextResolutionFromRequest())
+      const access = await requireB4ActorAccess(actorId, 'escritura', tx)
+      if (!access.ok) fail(403, 'PERMISO_REVOCADO', 'Sin permiso de escritura en conciliación.')
+      if (!await tablesReady(tx)) fail(409, 'RECTIFICATIVAS_LEDGER_NO_MIGRADO', 'El registro de decisiones de rectificativas aún no está disponible.')
+      // The database uniqueness is actor/key, not link/key. Serialize on that same
+      // domain before the replay lookup so concurrent retries cannot race into a
+      // unique violation when they name distinct links.
+      await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`credit-link-idempotency:${actors.actorRealId}:${input.idempotencyKey}`},0))::text AS locked`)
+      await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`credit-link-decision:${input.creditLinkId}`},0))::text AS locked`)
+      const hash = sha256({ schema: 'CREDIT_LINK_HUMAN_DECISION_V1', input, actors })
+      const replay = await tx.$queryRaw<Array<DecisionRow & { payloadHash: string }>>(Prisma.sql`
+        SELECT id::text AS id,credit_link_id::text AS "creditLinkId",action::text AS action,effective_state::text AS "effectiveState",reason,
+          actor_real_id AS "actorRealId",actor_effective_id AS "actorEffectiveId",created_at AS "createdAt",payload_hash AS "payloadHash"
+        FROM document_version_credit_link_decisions
+        WHERE actor_real_id=${actors.actorRealId} AND idempotency_key=${input.idempotencyKey}
+        LIMIT 2 FOR KEY SHARE
+      `)
+      if (replay.length) {
+        const row = replay[0]
+        if (replay.length !== 1 || row.payloadHash !== hash || row.creditLinkId !== input.creditLinkId || !validState(row.effectiveState) || !(row.createdAt instanceof Date)) fail(409, 'IDEMPOTENCY_PAYLOAD_MISMATCH', 'La clave ya se usó con otra decisión.')
+        const links = await tx.$queryRaw<LinkRow[]>(linkForDecisionSql(input.creditLinkId))
+        if (links.length !== 1) fail(404, 'ENLACE_RECTIFICATIVA_NO_ENCONTRADO', 'El enlace rectificativo no existe.')
+        return decisionResult(links[0], row, true)
+      }
       const links = await tx.$queryRaw<LinkRow[]>(linkForDecisionSql(input.creditLinkId))
-      if (links.length !== 1) fail(404, 'ENLACE_RECTIFICATIVA_NO_ENCONTRADO', 'El enlace rectificativo no existe.')
-      return decisionResult(links[0], row, true)
-    }
-    const links = await tx.$queryRaw<LinkRow[]>(linkForDecisionSql(input.creditLinkId))
-    const link = links[0]
-    if (links.length !== 1 || !link || !validState(link.effectiveState)) fail(404, 'ENLACE_RECTIFICATIVA_NO_ENCONTRADO', 'El enlace rectificativo no existe o no es válido.')
-    if ((input.action === 'confirmar' || input.action === 'rechazar') && link.effectiveState !== 'PROPOSED') fail(409, 'ENLACE_EXIGE_DESHACER', 'El enlace ya tiene una decisión vigente; primero debe deshacerla.')
-    if (input.action === 'deshacer' && link.effectiveState === 'PROPOSED') fail(409, 'ENLACE_YA_PROPUESTO', 'El enlace ya está propuesto y no tiene una decisión vigente que deshacer.')
-    const state = creditLinkStateForAction(input.action)
-    const decision: DecisionRow = { id: randomUUID(), creditLinkId: input.creditLinkId, action: creditLinkLedgerAction(input.action), effectiveState: state, reason: input.reason ?? null, actorRealId: actors.actorRealId, actorEffectiveId: actors.actorEffectiveId, createdAt: new Date() }
-    await tx.$executeRaw(Prisma.sql`
-      INSERT INTO document_version_credit_link_decisions (id,credit_link_id,action,effective_state,reason,actor_real_id,actor_effective_id,idempotency_key,payload_hash,created_at)
-      VALUES (CAST(${decision.id} AS uuid),CAST(${decision.creditLinkId} AS uuid),CAST(${decision.action} AS "DocumentVersionCreditLinkDecisionAction"),CAST(${decision.effectiveState} AS "DocumentVersionCreditLinkEffectiveState"),${decision.reason},${decision.actorRealId},${decision.actorEffectiveId},${input.idempotencyKey},${hash},${decision.createdAt})
-    `)
-    return decisionResult(link, decision, false)
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 30_000 })
+      const link = links[0]
+      if (links.length !== 1 || !link || !validState(link.effectiveState)) fail(404, 'ENLACE_RECTIFICATIVA_NO_ENCONTRADO', 'El enlace rectificativo no existe o no es válido.')
+      if ((input.action === 'confirmar' || input.action === 'rechazar') && link.effectiveState !== 'PROPOSED') fail(409, 'ENLACE_EXIGE_DESHACER', 'El enlace ya tiene una decisión vigente; primero debe deshacerla.')
+      if (input.action === 'deshacer' && link.effectiveState === 'PROPOSED') fail(409, 'ENLACE_YA_PROPUESTO', 'El enlace ya está propuesto y no tiene una decisión vigente que deshacer.')
+      const state = creditLinkStateForAction(input.action)
+      const decision: DecisionRow = { id: randomUUID(), creditLinkId: input.creditLinkId, action: creditLinkLedgerAction(input.action), effectiveState: state, reason: input.reason ?? null, actorRealId: actors.actorRealId, actorEffectiveId: actors.actorEffectiveId, createdAt: new Date() }
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO document_version_credit_link_decisions (id,credit_link_id,action,effective_state,reason,actor_real_id,actor_effective_id,idempotency_key,payload_hash,created_at)
+        VALUES (CAST(${decision.id} AS uuid),CAST(${decision.creditLinkId} AS uuid),CAST(${decision.action} AS "DocumentVersionCreditLinkDecisionAction"),CAST(${decision.effectiveState} AS "DocumentVersionCreditLinkEffectiveState"),${decision.reason},${decision.actorRealId},${decision.actorEffectiveId},${input.idempotencyKey},${hash},${decision.createdAt})
+      `)
+      return decisionResult(link, decision, false)
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 30_000 }),
+    isRetryableCreditLinkTransactionConflict,
+  )
 }

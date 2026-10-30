@@ -4,6 +4,12 @@ export type CreditLinkEffectiveState = 'PROPOSED' | 'CONFIRMED' | 'REJECTED'
 export type CreditLinkLedgerAction = 'CONFIRM' | 'REJECT' | 'UNDO'
 export type CreditLinkDecisionInput = Readonly<{ action: CreditLinkHumanAction; creditLinkId: string; idempotencyKey: string; reason?: string | null }>
 
+/** A human click can open at most this many fresh SERIALIZABLE transactions. */
+export const CREDIT_LINK_HUMAN_TRANSACTION_MAX_ATTEMPTS = 3
+
+export type CreditLinkHumanTransactionAttempt<T> = () => Promise<T>
+export type CreditLinkHumanRetryableTransactionConflict = (error: unknown) => boolean
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const HASH = /^[a-f0-9]{64}$/
 const CONTROL = /[\u0000-\u001F\u007F]/
@@ -19,6 +25,26 @@ export function creditLinkLedgerAction(action: CreditLinkHumanAction): CreditLin
   if (action === 'confirmar') return 'CONFIRM'
   if (action === 'rechazar') return 'REJECT'
   return 'UNDO'
+}
+
+/**
+ * Pure retry boundary for one already-validated human decision.  The caller
+ * injects both the fresh transaction opener and the driver-specific conflict
+ * classifier, so this module neither accesses a database nor broadens retry
+ * policy to domain, permission, validation, or idempotency errors.
+ */
+export async function retryCreditLinkHumanTransaction<T>(
+  transaction: CreditLinkHumanTransactionAttempt<T>,
+  isRetryableTransactionConflict: CreditLinkHumanRetryableTransactionConflict,
+): Promise<T> {
+  for (let attempt = 1; attempt <= CREDIT_LINK_HUMAN_TRANSACTION_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await transaction()
+    } catch (error) {
+      if (attempt === CREDIT_LINK_HUMAN_TRANSACTION_MAX_ATTEMPTS || !isRetryableTransactionConflict(error)) throw error
+    }
+  }
+  throw new Error('CREDIT_LINK_HUMAN_TRANSACTION_RETRY_UNREACHABLE')
 }
 
 export function parseCreditLinkDecision(value: unknown): { ok: true; value: CreditLinkDecisionInput } | { ok: false; message: string } {

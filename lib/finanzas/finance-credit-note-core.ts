@@ -198,6 +198,7 @@ export function calculateCreditNoteSettlements(input: CreditNoteCalculationInput
   const unlinkedReviews: CreditNoteUnlinkedReview[] = []
   const originalsById = new Map<string, CanonicalCreditNoteDocument>()
   const creditsById = new Map<string, CanonicalCreditNoteDocument>()
+  const creditDocumentIdCounts = new Map<string, number>()
   const creditIdsByCanonicalIdentity = new Map<string, string[]>()
 
   for (const original of input.originals) {
@@ -209,6 +210,7 @@ export function calculateCreditNoteSettlements(input: CreditNoteCalculationInput
     for (const reason of sourceDocumentReasons(original, false)) appendReason(reasonsByOriginal, original.documentId, reason)
   }
   for (const credit of input.creditNotes) {
+    creditDocumentIdCounts.set(credit.documentId, (creditDocumentIdCounts.get(credit.documentId) ?? 0) + 1)
     if (creditsById.has(credit.documentId)) continue
     creditsById.set(credit.documentId, credit)
     const identities = creditIdsByCanonicalIdentity.get(credit.canonicalIdentity) ?? []
@@ -289,6 +291,15 @@ export function calculateCreditNoteSettlements(input: CreditNoteCalculationInput
       if (links.length > 1) {
         for (const link of links) appendReason(reasonsByOriginal, link.originalDocumentId, 'RECTIFICATIVA_REPETIDA_O_MULTIENLAZADA')
       }
+    }
+  }
+  // The first row must never win when the same source document ID appears twice
+  // with potentially divergent metadata or cents. Mark every affected original
+  // for review instead of silently using the first row retained in `creditsById`.
+  for (const [creditDocumentId, count] of creditDocumentIdCounts) {
+    if (count < 2) continue
+    for (const link of linksByCreditDocument.get(creditDocumentId) ?? []) {
+      appendReason(reasonsByOriginal, link.originalDocumentId, 'RECTIFICATIVA_DOCUMENTO_DUPLICADO')
     }
   }
   // A second current row for the same canonical rectificativa is an identity
