@@ -1,0 +1,87 @@
+{
+  "schema": "io.areas.v1",
+  "maxActiveTasks": 3,
+  "integrationBranch": "staging",
+  "productionBranch": "main",
+  "timeZone": "Europe/Madrid",
+  "publicationWindows": [
+    "13:00",
+    "19:00"
+  ],
+  "areas": [
+    {
+      "id": "area1",
+      "name": "CRM-ventas-leads",
+      "branch": "area1-crm",
+      "state": "diagnostic"
+    },
+    {
+      "id": "area2",
+      "name": "tarifas-contratos-subidas",
+      "branch": null,
+      "state": "not_started"
+    },
+    {
+      "id": "area3",
+      "name": "finanzas",
+      "branch": "area3-documentos",
+      "state": "active"
+    },
+    {
+      "id": "area4",
+      "name": "usuarios-permisos y marco común del panel",
+      "branch": "area4-usuarios-permisos",
+      "state": "active"
+    },
+    {
+      "id": "area5",
+      "name": "personal-portal-empleado",
+      "branch": null,
+      "state": "not_started"
+    },
+    {
+      "id": "area6",
+      "name": "proyectos-internos",
+      "branch": null,
+      "state": "not_started"
+    },
+    {
+      "id": "area7",
+      "name": "certificaciones",
+      "branch": null,
+      "state": "not_started"
+    },
+    {
+      "id": "area8",
+      "name": "peticiones",
+      "branch": null,
+      "state": "not_started"
+    },
+    {
+      "id": "area9",
+      "name": "historial-configuracion",
+      "branch": null,
+      "state": "not_started"
+    }
+  ],
+  "batteries": [
+    {
+      "id": "area3-conciliar",
+      "enabled": true,
+      "pureSuites": [
+        "scripts/test-conciliar-transfer-classifier.ts",
+        "scripts/test-conciliar-transfers.ts",
+        "scripts/test-conciliar-transfer-request-exclusion.ts",
+        "scripts/test-conciliar-own-issued-references.ts",
+        "scripts/test-conciliar-provider-assignment.ts",
+        "scripts/test-conciliar-remittance-seal-regression.ts",
+        "scripts/test-conciliar-ui-selection-filters-sort-xlsx.ts",
+        "scripts/areas/conciliar/api-core-test.ts"
+      ],
+      "apiRunner": "scripts/areas/conciliar/live-api.ts",
+      "requiresLiveApiSnapshot": true,
+      "minimumCases": 30,
+      "minimumSupplementalCases": 6
+    }
+  ]
+}

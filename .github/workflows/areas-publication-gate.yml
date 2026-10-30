@@ -1,0 +1,98 @@
+name: Areas - puerta de publicacion
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: 'Commit exacto de staging autorizado por Claude'
+        required: true
+        type: string
+      order:
+        description: 'JSON de la orden explicita: issuer, action, commit, date, window, issuedAt, expiresAt, messageReference'
+        required: true
+        type: string
+      battery_receipt:
+        description: 'Recibo JSON agregado de pnpm test:areas, sin filas ni datos financieros'
+        required: true
+        type: string
+      backup_receipt:
+        description: 'Recibo JSON agregado de copia productiva y restauracion verificada'
+        required: true
+        type: string
+      rollback_receipt:
+        description: 'Recibo JSON agregado del plan de vuelta atras ensayado'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: internetoperadores-publicacion-global
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    if: github.ref == 'refs/heads/staging'
+    name: areas/publicacion
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verificar origen autorizado
+        env:
+          REQUESTED_COMMIT: ${{ inputs.commit }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$REQUESTED_COMMIT"
+          git fetch origin staging --depth=1
+          test "$(git rev-parse origin/staging)" = "$REQUESTED_COMMIT"
+          git switch -c staging
+      - name: Preparar solo recibos agregados
+        env:
+          ORDER: ${{ inputs.order }}
+          BATTERY: ${{ inputs.battery_receipt }}
+          BACKUP: ${{ inputs.backup_receipt }}
+          ROLLBACK: ${{ inputs.rollback_receipt }}
+        run: |
+          node --input-type=module <<'JS'
+          import { mkdirSync, writeFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          const dir = join(process.env.RUNNER_TEMP, 'area-release');
+          mkdirSync(dir, { mode: 0o700 });
+          const config = {};
+          for (const [name, env] of [['order','ORDER'],['battery','BATTERY'],['backup','BACKUP'],['rollback','ROLLBACK']]) {
+            const value = JSON.parse(process.env[env]);
+            const path = join(dir, name + '.json');
+            writeFileSync(path, JSON.stringify(value), { mode: 0o600 });
+            config[name + 'File'] = path;
+          }
+          const configPath = join(dir, 'release.json');
+          writeFileSync(configPath, JSON.stringify(config), { mode: 0o600 });
+          writeFileSync(process.env.GITHUB_ENV, `AREAS_RELEASE_CONFIG=${configPath}\n`, { flag: 'a' });
+          JS
+      - name: Guardar el turno con todas las baterias y copia verificadas
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          import { validateRelease, sha256 } from './scripts/areas/release-guard.mjs';
+          const config = JSON.parse(readFileSync(process.env.AREAS_RELEASE_CONFIG));
+          const read = path => JSON.parse(readFileSync(path));
+          const source = readFileSync('config/areas.json');
+          const result = validateRelease({
+            registry: JSON.parse(source), registryHash: sha256(source),
+            order: read(config.orderFile), battery: read(config.batteryFile),
+            backup: read(config.backupFile), rollback: read(config.rollbackFile),
+            branch: 'staging', commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+          });
+          console.log(JSON.stringify(result));
+          if (!result.ok) process.exitCode = 1;
+          JS
+      - name: Resultado - sin despliegue automatico
+        run: echo 'Puerta validada. No se ejecuta publicacion sin orden vigente y lock durante toda la operacion.'
