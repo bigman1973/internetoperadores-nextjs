@@ -131,6 +131,7 @@ export async function readParaPedirProjection(input: ParaPedirInput, client: Pic
       FROM conciliar_proyecciones p
       JOIN movimientos_bancarios m ON m.id=p.movimiento_id
       WHERE p.movimiento_id IS NOT NULL AND p.tab IN ('COBROS','PAGOS')
+        AND UPPER(COALESCE(p.grupo,'')) NOT IN ('TRASPASOS_PROPIOS','TRASPASOS ENTRE CUENTAS PROPIAS')
         AND NOT EXISTS (
           SELECT 1 FROM estado_justificacion_movimientos e
           WHERE e.movimiento_id=p.movimiento_id AND e.estado::text<>'SIN_DOCUMENTO'

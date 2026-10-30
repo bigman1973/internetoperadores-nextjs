@@ -86,7 +86,7 @@ function links(value: unknown): ConciliarRow['linksMovimiento'] {
 function storedSource(value: unknown): ConciliarProjectionSource | null {
   const row = json(value)
   const kind = row.kind
-  if (!['COBRO_PROPUESTA', 'COBRO_CONFIRMING', 'PAGO_FACTURA_RECIBIDA', 'PAGO_TICKET_B5', 'PAGO_NOMINA', 'COMISION_BANCARIA', 'PENDIENTE_FACTURA_EMITIDA', 'TRANSFERENCIA_PROPIA'].includes(String(kind))) return null
+  if (!['COBRO_PROPUESTA', 'COBRO_CONFIRMING', 'PAGO_FACTURA_RECIBIDA', 'PAGO_TICKET_B5', 'PAGO_NOMINA', 'COMISION_BANCARIA', 'PENDIENTE_FACTURA_EMITIDA', 'TRANSFERENCIA_PROPIA', 'TRANSFERENCIA_PROPIA_MANUAL'].includes(String(kind))) return null
   const scalar = (key: string) => typeof row[key] === 'string' && row[key].length > 0 && row[key].length <= 200 ? row[key] : undefined
   const integer = (key: string) => Number.isSafeInteger(row[key]) ? Number(row[key]) : undefined
   if (kind === 'PAGO_TICKET_B5' && (!scalar('movimientoId') || !scalar('adjuntoB5Id') || !scalar('gastoId') || !scalar('documentoConciliableId') || !(integer('versionB4')! > 0))) return null
@@ -109,6 +109,8 @@ function storedSource(value: unknown): ConciliarProjectionSource | null {
     ...(scalar('nominaId') ? { nominaId: scalar('nominaId') } : {}),
     ...(scalar('movimientoParId') ? { movimientoParId: scalar('movimientoParId') } : {}),
     ...(scalar('transferFingerprint') ? { transferFingerprint: scalar('transferFingerprint') } : {}),
+    ...(typeof row.pairId === 'string' && /^[a-f0-9]{64}$/.test(row.pairId) ? { pairId: row.pairId } : {}),
+    ...(row.proofSource === 'DECLARACION_MANUAL_AUDITADA_V1' ? { proofSource: 'DECLARACION_MANUAL_AUDITADA_V1' as const } : {}),
     ...(integer('versionB4') !== undefined ? { versionB4: integer('versionB4') } : {}),
     ...(remesaIds ? { remesaIds } : {}),
   } as ConciliarProjectionSource

@@ -444,6 +444,8 @@ async function applyConfirmRow(tx: Tx, actorId: number, operationId: string, row
     case 'PAGO_TICKET_B5': return confirmB5Ticket(tx, actorId, operationId, row)
     case 'COMISION_BANCARIA': return confirmBankFee(tx, actorId, operationId, row)
     case 'TRANSFERENCIA_PROPIA': return confirmConciliarTransferTx(tx, actorId, operationId, row.source, row.importeCentimos)
+    case 'TRANSFERENCIA_PROPIA_MANUAL':
+      fail(422, 'FILA_NO_CONFIRMABLE', 'Este traspaso está clasificado para revisión; la confirmación conserva su comprobación estricta independiente.')
     default: fail(422, 'FILA_NO_CONFIRMABLE', 'Esta fila es informativa o necesita una revisión humana.')
   }
 }

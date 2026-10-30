@@ -24,6 +24,21 @@ export function conciliarDetailCacheKey(input: ConciliarDetailCacheKeyInput): st
   return JSON.stringify([input.identityScope, input.rowId, input.decisionHash, input.updatedAt]);
 }
 
+/**
+ * Formato puramente de presentación. El timestamp sigue procediendo de la foto
+ * que el servidor ya autorizó; no infiere ni promete ningún recálculo.
+ */
+export function formatConciliarUpdatedAt(value: string, options: Readonly<{ locale?: string; timeZone?: string }> = {}): string {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return 'Cifras sin fecha de actualización verificable.';
+  const time = new Intl.DateTimeFormat(options.locale ?? 'es-ES', {
+    hour: '2-digit',
+    minute: '2-digit',
+    ...(options.timeZone ? { timeZone: options.timeZone } : {}),
+  }).format(date);
+  return `Cifras actualizadas a las ${time}`;
+}
+
 /** Caché LRU acotada y sólo en memoria; clear invalida también cargas antiguas. */
 export class ConciliarDetailMemoryCache<Value> {
   private readonly entries = new Map<string, DetailCacheEntry<Value>>();
