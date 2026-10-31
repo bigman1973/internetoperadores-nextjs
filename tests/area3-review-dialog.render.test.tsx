@@ -21,7 +21,7 @@ test('render G7: la excepción permanece ámbar, no es seleccionable y requiere 
   assert.match(html, /excepción humana: seguirá registrada como revisión ámbar/i)
   assert.match(html, /Comprobación del servidor/)
   assert.match(html, /Resto del movimiento: 0/)
-  assert.match(html, /He revisado la advertencia anterior/)
+  assert.match(html, /He revisado la factura y comprobado que corresponde a este proveedor y a este pago/)
   assert.match(html, /Confirmar esta propuesta/)
   assert.match(html, /disabled=""/, 'el botón no puede confirmar antes de que Lorena marque el ACK')
   assert.doesNotMatch(html, /Confirmar seleccionados/)

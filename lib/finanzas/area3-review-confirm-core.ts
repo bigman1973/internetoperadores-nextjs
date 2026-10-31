@@ -41,8 +41,10 @@ export type Area3ReviewConfirmMaterial = Readonly<{
   textoBanco: string
   referenciaBanco: string | null
   proveedorExacto: boolean
-  /** Sólo EXACT representa la identidad de proveedor que la excepción admite. */
+  /** Clasificación server-only: DOCUMENTARY nunca equivale a identidad exacta. */
   tipoProveedor: 'EXACT' | 'DOCUMENTARY' | 'INCOHERENT' | 'UNKNOWN'
+  /** Alias documental controlado que se mostrará sólo para la advertencia humana. */
+  proveedorDocumental: string | null
   facturaRecibidaId: string
   referenciaDocumento: string | null
   fechaDocumento: string | null
@@ -63,6 +65,7 @@ export type Area3ReviewBlockCode =
   | 'FILA_NO_AMBAR_REVISABLE'
   | 'MOTIVO_REVISION_NO_ADMITIDO'
   | 'PROVEEDOR_NO_EXACTO'
+  | 'PROVEEDOR_DOCUMENTAL_DESCONOCIDO'
   | 'PROVEEDOR_TIPO_INCOHERENTE'
   | 'DOCUMENTO_NO_CANONICO'
   | 'DOCUMENTO_NO_ACCESIBLE'
@@ -140,6 +143,7 @@ export function area3ReviewSourceHash(material: Area3ReviewConfirmMaterial): str
     referenciaBanco: material.referenciaBanco,
     proveedorExacto: material.proveedorExacto,
     tipoProveedor: material.tipoProveedor,
+    proveedorDocumental: material.proveedorDocumental,
     facturaRecibidaId: material.facturaRecibidaId,
     referenciaDocumento: material.referenciaDocumento,
     fechaDocumento: material.fechaDocumento,
@@ -165,7 +169,13 @@ function isCents(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= -2_147_483_648 && value <= 2_147_483_647
 }
 
-function warning(reason: Area3ReviewConfirmReason): string {
+function warning(material: Area3ReviewConfirmMaterial): string {
+  if (material.tipoProveedor === 'DOCUMENTARY') {
+    const provider = material.proveedorDocumental?.trim()
+    const invoice = material.referenciaDocumento?.trim()
+    return `El nombre del proveedor «${provider}» sólo coincide de forma documental en el texto bancario; no es una coincidencia exacta. Revisa la factura ${invoice} y comprueba que corresponde a este proveedor y a este pago; el importe coincide, pero requiere revisión humana.`
+  }
+  const reason = material.motivoProyeccion
   return reason === 'SIN_REFERENCIA_DOCUMENTAL'
     ? 'El proveedor y el importe coinciden, pero el banco no cita una factura; revísala antes de confirmar.'
     : 'El número citado no coincide con el número completo de la factura candidata; el importe coincide, pero requiere revisión.'
@@ -216,10 +226,15 @@ export function evaluateArea3ReviewConfirm(
   if (material.tipoProveedor === 'INCOHERENT' || material.tipoProveedor === 'UNKNOWN') {
     return blocked('PROVEEDOR_TIPO_INCOHERENTE', 'La identidad o el tipo del proveedor no es coherente con el documento.', sourceHash, 'ROJO')
   }
-  if (material.tipoProveedor !== 'EXACT') {
+  if (material.tipoProveedor === 'EXACT' && !material.proveedorExacto) {
     return blocked('PROVEEDOR_NO_EXACTO', 'El proveedor no coincide exactamente con el documento propuesto.', sourceHash)
   }
-  if (!material.proveedorExacto) {
+  if (material.tipoProveedor === 'DOCUMENTARY') {
+    const provider = material.proveedorDocumental?.trim()
+    if (!provider || provider.length < 4 || material.proveedorExacto) {
+      return blocked('PROVEEDOR_DOCUMENTAL_DESCONOCIDO', 'La coincidencia documental del proveedor ya no se puede comprobar con seguridad.', sourceHash)
+    }
+  } else if (material.tipoProveedor !== 'EXACT') {
     return blocked('PROVEEDOR_NO_EXACTO', 'El proveedor no coincide exactamente con el documento propuesto.', sourceHash)
   }
   if (!material.documentoCanonico) {
@@ -269,7 +284,7 @@ export function evaluateArea3ReviewConfirm(
   }
   const netoResultante = material.importeBancoCentimos
   if (!acknowledgement) {
-    return blocked('ACK_REQUERIDO', warning(material.motivoProyeccion), sourceHash)
+    return blocked('ACK_REQUERIDO', warning(material), sourceHash)
   }
   if (acknowledgement.schema !== AREA3_REVIEW_ACK_SCHEMA || acknowledgement.version !== AREA3_REVIEW_ACK_VERSION) {
     return blocked('ACK_VERSION_INVALIDA', 'La revisión debe reconocer la versión vigente de la advertencia.', sourceHash)
@@ -289,7 +304,7 @@ export function evaluateArea3ReviewConfirm(
     puedeConfirmarRevision: true,
     confirmableGreen: false,
     motivo: material.motivoProyeccion,
-    advertencia: warning(material.motivoProyeccion),
+    advertencia: warning(material),
     sourceHash,
     documentEvidenceKind: material.documentEvidenceKind,
     documentVersionHash: material.documentVersionHash,

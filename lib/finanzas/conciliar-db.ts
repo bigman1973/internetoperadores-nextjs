@@ -1748,7 +1748,10 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
       const amountDifference = amount - -total
       const dueHint = typeof invoice.vencimiento === 'string' ? ` Vencimiento: ${invoice.vencimiento}.` : ''
       const motive = green ? evalExact.motivo : providerAssignmentMotive(providerAssignment.reason)
-      const providerReviewReason = !green && exactCounterparty && file
+      // DOCUMENTARY remains a human-only AMBAR: inspect the same bounded bank
+      // literal used by the assignment, never a fuzzy alias or a generated name.
+      const documentaryCounterparty = conciliarAliasesContainDocumentaryAlias([bankDocumentaryText(movement)], [invoice.proveedor])
+      const providerReviewReason = !green && (exactCounterparty || documentaryCounterparty) && file
         && (providerAssignment.reason === 'SIN_REFERENCIA_DOCUMENTAL' || providerAssignment.reason === 'REFERENCIA_NUMERO_INCOMPLETO')
         ? providerAssignment.reason : undefined
       rows.push(projection('PAGOS', baseRow({ id: opaqueId, movimientoId: id, fecha, concepto, banco, cuenta, importeCentimos: amount, pendienteCentimos: amount, color, grupo: 'FACTURA_RECIBIDA', motivo: motive, documento: { referencia: String(invoice.referencia ?? 'Factura recibida'), tercero: nullableText(invoice.proveedor), importeCentimos: -total, fecha: typeof invoice.fecha === 'string' ? invoice.fecha : null, href: candidateFileHref(opaqueId, file) }, propuesta: null, seleccionable: green, diferenciaCentimos: amountDifference, detail: dueHint.trim() || null }), {

@@ -3,7 +3,7 @@ import { archivoRecibidaControlado } from '@/lib/finanzas/archivo-fuente-control
 import { confirmarB4Tx, createDocumentoB4Tx } from '@/lib/finanzas/reconciliation-db'
 import { facturaEconomicaSQL } from '@/lib/finanzas/invoice-economic-filter'
 import { derivedUuidV4 } from '@/lib/finanzas/easy-auto-core'
-import { conciliarAliasesMatch } from './conciliar-core'
+import { conciliarAliasesContainDocumentaryAlias, conciliarAliasesMatch } from './conciliar-core'
 import { movementPartyAliases } from './conciliar-db'
 import { type ConciliarProjectionSource } from './conciliar-contract'
 import { safeInteger } from './conciliar-core'
@@ -162,6 +162,7 @@ async function currentMaterialTx(tx: Tx, row: SealedReviewRow, lock: boolean): P
     importeCentimos: movementAmount,
   })
   const exactProvider = conciliarAliasesMatch(aliases, [source.proveedor])
+  const documentaryProvider = !exactProvider && conciliarAliasesContainDocumentaryAlias(aliases, [source.proveedor])
   const controlled = archivoRecibidaControlado({ oneDriveDriveId: source.driveId, oneDriveItemId: source.itemId, archivoOneDrive: source.archivo }) !== null
   const wrapperSound = wrappers.length <= 1 && (!wrapper || (wrapper.activo === true && cents(wrapper.objetivo) === target))
   return {
@@ -178,7 +179,8 @@ async function currentMaterialTx(tx: Tx, row: SealedReviewRow, lock: boolean): P
     textoBanco: typeof source.textoBanco === 'string' ? source.textoBanco : '',
     referenciaBanco: typeof source.referenciaBanco === 'string' ? source.referenciaBanco : null,
     proveedorExacto: exactProvider,
-    tipoProveedor: exactProvider ? 'EXACT' : 'INCOHERENT',
+    tipoProveedor: exactProvider ? 'EXACT' : documentaryProvider ? 'DOCUMENTARY' : 'INCOHERENT',
+    proveedorDocumental: typeof source.proveedor === 'string' ? source.proveedor : null,
     facturaRecibidaId: sealed.invoiceId,
     referenciaDocumento: typeof source.referenciaDocumento === 'string' ? source.referenciaDocumento : null,
     fechaDocumento: day(source.fechaDocumento),

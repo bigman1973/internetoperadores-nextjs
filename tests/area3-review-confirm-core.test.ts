@@ -22,6 +22,7 @@ function material(overrides: Partial<Area3ReviewConfirmMaterial> = {}): Area3Rev
     referenciaBanco: null,
     proveedorExacto: true,
     tipoProveedor: 'EXACT',
+    proveedorDocumental: 'Proveedor sintético, S.L.',
     facturaRecibidaId: 'factura-1',
     referenciaDocumento: 'FAC-2026-42',
     fechaDocumento: '2026-10-29',
@@ -85,6 +86,52 @@ test('un número incompleto sigue siendo revisable, pero una referencia alfanum�
   assert.equal(contradictory.ok, false)
   assert.equal(contradictory.codigo, 'REFERENCIA_EXPLICITA_CONTRADICTORIA')
   assert.equal(contradictory.color, 'ROJO')
+})
+
+test('DOCUMENTARY exige ACK humano sellado, conserva ámbar y nombra el proveedor que debe comprobarse', () => {
+  const source = material({
+    motivoProyeccion: 'REFERENCIA_NUMERO_INCOMPLETO',
+    proveedorExacto: false,
+    tipoProveedor: 'DOCUMENTARY',
+    proveedorDocumental: 'BUTPO',
+    referenciaDocumento: 'F260008',
+    textoBanco: 'PAGO FACTURA 260007 BUTPO',
+    referenciaBanco: '260007',
+  })
+  const preview = evaluateArea3ReviewConfirm(source)
+  assert.equal(preview.ok, false)
+  assert.equal(preview.codigo, 'ACK_REQUERIDO')
+  assert.equal(preview.color, 'AMBAR')
+  assert.match(preview.mensaje, /BUTPO/)
+  assert.match(preview.mensaje, /F260008/)
+
+  const acknowledgement = {
+    schema: 'AREA3_REVIEW_ACK_V1' as const,
+    version: '2026-10-30' as const,
+    motivo: 'REFERENCIA_NUMERO_INCOMPLETO' as const,
+    sourceHash: area3ReviewSourceHash(source),
+    advertenciaReconocida: true as const,
+  }
+  const approved = evaluateArea3ReviewConfirm(source, acknowledgement)
+  assert.equal(approved.ok, true)
+  if (!approved.ok) return
+  assert.equal(approved.color, 'AMBAR')
+  assert.equal(approved.confirmableGreen, false)
+})
+
+test('DOCUMENTARY no equivale a EXACT, se sella con su proveedor y estados ajenos siguen bloqueados', () => {
+  const documentary = material({ proveedorExacto: false, tipoProveedor: 'DOCUMENTARY', proveedorDocumental: 'HubSpot' })
+  const alteredProvider = { ...documentary, proveedorDocumental: 'Otro proveedor' }
+  assert.notEqual(area3ReviewSourceHash(documentary), area3ReviewSourceHash(alteredProvider), 'el ACK no sobrevive a otro proveedor documental')
+
+  const malformed = evaluateArea3ReviewConfirm(material({ proveedorExacto: true, tipoProveedor: 'DOCUMENTARY', proveedorDocumental: 'HubSpot' }))
+  assert.equal(malformed.ok, false)
+  assert.equal(malformed.codigo, 'PROVEEDOR_DOCUMENTAL_DESCONOCIDO')
+
+  const incoherent = evaluateArea3ReviewConfirm(material({ proveedorExacto: false, tipoProveedor: 'INCOHERENT' }))
+  assert.equal(incoherent.ok, false)
+  assert.equal(incoherent.codigo, 'PROVEEDOR_TIPO_INCOHERENTE')
+  assert.equal(incoherent.color, 'ROJO')
 })
 
 test('la procedencia legacy queda sellada en el ACK y una procedencia ausente bloquea aunque haya hash', () => {
