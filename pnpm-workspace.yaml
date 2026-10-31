@@ -14,3 +14,7 @@ ignoredBuiltDependencies:
 onlyBuiltDependencies:
   - '@prisma/engines'
   - prisma
+
+# This detached checkout intentionally reuses an owner-provided node_modules
+# symlink. Running a test must not cause pnpm to replace it with an install.
+verifyDepsBeforeRun: false

@@ -35,6 +35,17 @@ function run(argv, output, name) {
   writeFileSync(log, (result.stdout ?? '') + (result.stderr ?? ''), { mode: 0o600 });
   return { ok: result.status === 0 && !result.error, log, stdout: result.stdout ?? '' };
 }
+function productionRestoreGate(config, output) {
+  const entry = config?.productionRestore;
+  if (!entry?.inputFile || !entry?.clientFile || !entry?.restoreReceipt || !entry?.cloneReceipt || !entry?.candidateRebuildReceipt) return { pass: false, reason: 'NEW_PROD_RESTORE_INPUTS_REQUIRED' };
+  const result = run([
+    join(ROOT, 'node_modules/.bin/tsx'), 'scripts/test-conciliar-production-restore-regression.ts',
+    '--profile', 'PROD_NEW_RESTORE', '--input-file', entry.inputFile, '--client-file', entry.clientFile,
+    '--restore-receipt', entry.restoreReceipt, '--clone-receipt', entry.cloneReceipt, '--candidate-rebuild-receipt', entry.candidateRebuildReceipt,
+  ], output, 'production-restore-golden');
+  let evidence; try { evidence = JSON.parse(result.stdout); } catch { return { pass: false, reason: 'NEW_PROD_RESTORE_RESULT_INVALID' }; }
+  return { pass: Boolean(result.ok && evidence?.ok && evidence?.profile === 'PROD_NEW_RESTORE' && evidence?.writeOperations === false && evidence?.g7Rebuilt === false), evidence };
+}
 export function main(argv = process.argv.slice(2)) {
   const args = parseArguments(argv), registry = validateRegistry(JSON.parse(readFileSync(join(ROOT, 'config/areas.json'), 'utf8')));
   const output = mkdtempSync(join(tmpdir(), 'io-area-batteries-')); chmodSync(output, 0o700);
@@ -42,16 +53,18 @@ export function main(argv = process.argv.slice(2)) {
   const migrations = run([process.execPath, 'scripts/areas/check-migrations.mjs'], output, 'migration-convention');
   const enabled = registry.batteries.filter(x => x.enabled), results = [];
   const sha = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).stdout?.trim();
+  const prodGate = args.localOnly ? { pass: false, reason: 'LOCAL_ONLY_NOT_RELEASE_EVIDENCE' } : productionRestoreGate(config, output);
   for (const battery of enabled) {
     const pure = battery.pureSuites.map((path, i) => ({ suite: path, ...run([join(ROOT, 'node_modules/.bin/tsx'), path], output, `${battery.id}-pure-${i}`) }));
     const result = { id: battery.id, purePassing: pure.filter(x => x.ok).length, pureTotal: pure.length, pureFailures: pure.filter(x => !x.ok).map(x => x.suite), apiPass: false, reasons: [] };
     if (result.pureFailures.length) result.reasons.push('PURE_BATTERY_FAILED');
     if (args.localOnly) result.reasons.push('LOCAL_ONLY_NOT_RELEASE_EVIDENCE');
+    else if (!prodGate.pass) result.reasons.push('NEW_PROD_RESTORE_GOLDEN_REQUIRED');
     else {
       const entry = config?.batteries?.[battery.id];
-      if (!entry?.snapshotFile || !entry?.caseFile || !entry?.envFile) result.reasons.push('LIVE_API_INPUTS_REQUIRED');
+      if (!entry?.snapshotFile || !entry?.caseFile || !entry?.manifestFile || !entry?.envFile) result.reasons.push('LIVE_API_INPUTS_REQUIRED');
       else {
-        const api = run([join(ROOT, 'node_modules/.bin/tsx'), battery.apiRunner, '--snapshot-file', entry.snapshotFile, '--input-file', entry.caseFile, '--env-file', entry.envFile], output, `${battery.id}-live-api`);
+        const api = run([join(ROOT, 'node_modules/.bin/tsx'), battery.apiRunner, '--profile', 'STAGE', '--snapshot-file', entry.snapshotFile, '--input-file', entry.caseFile, '--manifest-file', entry.manifestFile, '--env-file', entry.envFile], output, `${battery.id}-live-api`);
         let evidence; try { evidence = JSON.parse(api.stdout); } catch { result.reasons.push('LIVE_API_RESULT_INVALID'); }
         result.apiPass = Boolean(api.ok && evidence?.ok && evidence.apiGate?.pass && evidence.total === battery.minimumCases && evidence.passing === battery.minimumCases && evidence.supplemental?.length === battery.minimumSupplementalCases && evidence.supplemental.every(x => x.pass));
         if (!result.apiPass) result.reasons.push('LIVE_API_BATTERY_FAILED');
@@ -61,7 +74,7 @@ export function main(argv = process.argv.slice(2)) {
     result.ok = !result.pureFailures.length && result.apiPass;
     delete result.stdout; results.push(result);
   }
-  const report = { schema: 'io.areas.battery-report.v1', commit: sha, capturedAt: new Date().toISOString(), ok: migrations.ok && results.every(x => x.ok), publishAllowed: !args.localOnly && migrations.ok && results.every(x => x.ok), migrationGate: migrations.ok, localOnly: args.localOnly, registryHash: createHash('sha256').update(readFileSync(join(ROOT, 'config/areas.json'))).digest('hex'), results };
+  const report = { schema: 'io.areas.battery-report.v1', commit: sha, capturedAt: new Date().toISOString(), ok: migrations.ok && prodGate.pass && results.every(x => x.ok), publishAllowed: !args.localOnly && migrations.ok && prodGate.pass && results.every(x => x.ok), migrationGate: migrations.ok, productionRestoreGate: prodGate, localOnly: args.localOnly, registryHash: createHash('sha256').update(readFileSync(join(ROOT, 'config/areas.json'))).digest('hex'), results };
   writeFileSync(join(output, 'report.json'), JSON.stringify(report, null, 2) + '\n', { mode: 0o600 });
   console.log(JSON.stringify({ ...report, reportFile: join(output, 'report.json') }));
   return report.ok ? 0 : 1;

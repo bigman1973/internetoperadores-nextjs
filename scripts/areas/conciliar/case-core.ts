@@ -16,6 +16,7 @@ export const SAFE_STATIC_CODES = [
   'PROJECTION_AMBIGUOUS',
   'PROJECTION_PRESENT_WHEN_ABSENT',
   'B4_NOT_CONFIRMED',
+  'B4_NOT_PENDING',
   'TAB_MISMATCH',
   'COLOR_MISMATCH',
   'GROUP_MISMATCH',
@@ -39,7 +40,7 @@ export type SafeStaticCode = typeof SAFE_STATIC_CODES[number]
 /** Alias intentionally kept singular for the release runner public contract. */
 export type SAFE_STATIC_CODES = SafeStaticCode
 
-export type RegressionCaseMode = 'EXACT' | 'PARAMETRIC' | 'ABSENT_CONFIRMED'
+export type RegressionCaseMode = 'EXACT' | 'PARAMETRIC' | 'ABSENT_CONFIRMED' | 'PENDING_VISIBLE'
 export type SignedDirection = 'POSITIVE' | 'NEGATIVE'
 
 export type RegressionSelector = Readonly<{
@@ -91,6 +92,8 @@ export type RegressionExpectation = Readonly<{
   noParaPedir?: boolean
   absentAllTabs?: boolean
   b4Confirmed?: boolean
+  /** PENDING_VISIBLE explicitly checks rendered projection visibility, never colour. */
+  visible?: boolean
   requiresOppositeOwnAccountPair?: boolean
   requiresMissingPair?: boolean
   colorByOppositeOwnAccountPair?: boolean
@@ -202,7 +205,7 @@ function validTextArray(value: readonly string[] | undefined): boolean {
 }
 function validCase(input: ConciliarReleaseRegressionCase): boolean {
   if (!input || typeof input.caseId !== 'string' || !/^[CP]\d+$/.test(input.caseId)) return false
-  if (!['EXACT', 'PARAMETRIC', 'ABSENT_CONFIRMED'].includes(input.mode)) return false
+  if (!['EXACT', 'PARAMETRIC', 'ABSENT_CONFIRMED', 'PENDING_VISIBLE'].includes(input.mode)) return false
   if (!input.selector || !input.expect) return false
   const selector = input.selector
   if (selector.signedCents !== undefined && !Number.isSafeInteger(selector.signedCents)) return false
@@ -212,6 +215,7 @@ function validCase(input: ConciliarReleaseRegressionCase): boolean {
     || (selector.alternatives !== undefined && (!selector.alternatives.length || selector.alternatives.some(branch => !validTextArray(branch.searchTerms) || !validTextArray(branch.searchAnyTerms) || !validTextArray(branch.counterpartyTerms))))) return false
   const expectation = input.expect
   if (expectation.colorByOppositeOwnAccountPair !== undefined && typeof expectation.colorByOppositeOwnAccountPair !== 'boolean') return false
+  if (expectation.visible !== undefined && typeof expectation.visible !== 'boolean') return false
   if (!validTextArray(expectation.documentReferences) || !validTextArray(expectation.forbiddenDocumentReferences) || !validTextArray(expectation.reasonTerms) || !validTextArray(expectation.allowedColors)) return false
   if (expectation.differenceCents !== undefined && !Number.isSafeInteger(expectation.differenceCents)) return false
   if (expectation.maxPairDays !== undefined && (!Number.isSafeInteger(expectation.maxPairDays) || expectation.maxPairDays < 0)) return false
@@ -219,6 +223,12 @@ function validCase(input: ConciliarReleaseRegressionCase): boolean {
   if (equation && (!Number.isSafeInteger(equation.nominalCents) || !Number.isSafeInteger(equation.netCents) || !equation.deductionsCents.every(Number.isSafeInteger))) return false
   const remittance = expectation.remittanceComposition
   if (remittance && (!Number.isSafeInteger(remittance.lineCount) || remittance.lineCount < 1 || !Number.isSafeInteger(remittance.sumCents))) return false
+  // This is an operational-state amendment, not a new classification. The
+  // case must prove a pending B4 source and a rendered row, while deliberately
+  // refusing every colour assertion (including a hidden green assertion).
+  if (input.mode === 'PENDING_VISIBLE' && (expectation.b4Confirmed !== false || expectation.visible !== true
+    || expectation.absentAllTabs !== undefined || expectation.color !== undefined || expectation.neverColor !== undefined
+    || expectation.allowedColors !== undefined || expectation.colorByOppositeOwnAccountPair !== undefined)) return false
   return true
 }
 function textCriteriaMatch(criteria: Pick<RegressionSelector, 'searchTerms' | 'searchAnyTerms' | 'counterpartyTerms'>, row: RegressionBankRow): boolean {
@@ -324,6 +334,17 @@ export function evaluateCase(input: ConciliarReleaseRegressionCase, dataset: Con
     const source = sources[0]!
     if (input.expect.b4Confirmed === true && source.b4Confirmed !== true) add(reasons, 'B4_NOT_CONFIRMED')
     if (input.expect.absentAllTabs === true && dataset.projectionRows.some(row => row.movementKey === source.movementKey)) add(reasons, 'PROJECTION_PRESENT_WHEN_ABSENT')
+    return result(input.caseId, reasons)
+  }
+
+  if (input.mode === 'PENDING_VISIBLE') {
+    const source = sources[0]!
+    if (source.b4Confirmed !== false) add(reasons, 'B4_NOT_PENDING')
+    // Visibility is evaluated across all persisted tabs. A duplicate is not
+    // evidence of a pending row and a hidden materialized row is not visible.
+    const rows = dataset.projectionRows.filter(row => row.movementKey === source.movementKey && row.visible)
+    if (rows.length === 0) add(reasons, 'PROJECTION_MISSING')
+    else if (rows.length !== 1) add(reasons, 'PROJECTION_AMBIGUOUS')
     return result(input.caseId, reasons)
   }
 

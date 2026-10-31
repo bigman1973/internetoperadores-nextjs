@@ -75,6 +75,8 @@
         "scripts/test-conciliar-own-issued-references.ts",
         "scripts/test-conciliar-provider-assignment.ts",
         "scripts/test-conciliar-remittance-seal-regression.ts",
+        "scripts/test-conciliar-release-regression-core.ts",
+        "scripts/test-conciliar-staging-profile-contract.ts",
         "scripts/test-conciliar-ui-selection-filters-sort-xlsx.ts",
         "scripts/areas/conciliar/api-core-test.ts"
       ],

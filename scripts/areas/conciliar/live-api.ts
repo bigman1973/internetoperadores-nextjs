@@ -8,17 +8,20 @@
  *
  * Usage:
  * FINANCE_STAGING_SANDBOX=1 npx tsx scripts/test-conciliar-staging-api-regression.ts \
+ *   --profile STAGE \
  *   --snapshot-file /private/api-snapshot.json --input-file /private/cases.json \
- *   --env-file /private/staging.env
+ *   --env-file /private/staging-readonly.env
  */
 import { Client } from 'pg'
 import { parse as parseDotenv } from 'dotenv'
 import { lstatSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { createHash } from 'node:crypto'
 import { evaluateCase, type ConciliarReleaseRegressionCase } from './case-core'
 import { evaluateGlobalRegression } from './global-core'
 import { readReleaseRegressionAdapter } from './adapter'
 import { evaluateConciliarStagingApiSnapshot, type ApiGateStaticCode } from './api-core'
+import { stageProfileIsExactDerivative } from './stage-profile-core'
 
 const ROOT = resolve(process.cwd())
 const EXPECTED_CASE_IDS = [
@@ -32,9 +35,12 @@ const SUPPLEMENTAL_IDS = new Set(['C30', 'P31', 'P32', 'P33', 'P34', 'P35'])
 const MAX_SNAPSHOT_BYTES = 64 * 1024 * 1024
 const MAX_CASE_SPEC_BYTES = 256 * 1024
 const MAX_ENV_BYTES = 32 * 1024
+const PROFILE = 'STAGE'
+const STAGE_GOLDEN_SHA256 = '14045a576f46af17c58c800f2573022e7f7b6ff79cfd8941e93c38d6ae3b1905'
 
-type Cli = Readonly<{ snapshotFile: string; inputFile: string; envFile: string }>
+type Cli = Readonly<{ profile: typeof PROFILE; snapshotFile: string; inputFile: string; manifestFile: string; envFile: string }>
 type PrivateCaseSpec = Readonly<{ schema: string; cases: readonly Record<string, unknown>[]; supplementalCases?: readonly ConciliarReleaseRegressionCase[] }>
+type StageProfileManifest = Readonly<{ schema?: unknown; profile?: unknown; source?: unknown; derivative?: unknown; authorization?: unknown; exactCaseDiff?: unknown }>
 type SafeOutcome = Readonly<{ caseId: string; pass: boolean; reasons: readonly string[] }>
 type RunOutput = Readonly<{
   ok: boolean
@@ -64,23 +70,20 @@ function parseCli(argv: readonly string[]): Cli {
   const values = new Map<string, string>()
   for (let index = 0; index < argv.length; index += 2) {
     const key = argv[index], value = argv[index + 1]
-    if (!['--snapshot-file', '--input-file', '--env-file'].includes(String(key)) || typeof value !== 'string' || values.has(key!)) fail('API_GATE_ARGUMENTS_INVALID')
+    if (!['--profile', '--snapshot-file', '--input-file', '--manifest-file', '--env-file'].includes(String(key)) || typeof value !== 'string' || values.has(key!)) fail('API_GATE_ARGUMENTS_INVALID')
     values.set(key!, value)
   }
-  if (argv.length !== 6 || !values.get('--snapshot-file') || !values.get('--input-file') || !values.get('--env-file')) fail('API_GATE_ARGUMENTS_REQUIRED')
+  if (argv.length !== 10 || values.get('--profile') !== PROFILE || !values.get('--snapshot-file') || !values.get('--input-file') || !values.get('--manifest-file') || !values.get('--env-file')) fail('API_GATE_STAGE_PROFILE_REQUIRED')
   return {
+    profile: PROFILE,
     snapshotFile: privateFile(values.get('--snapshot-file')!, MAX_SNAPSHOT_BYTES), inputFile: privateFile(values.get('--input-file')!, MAX_CASE_SPEC_BYTES),
+    manifestFile: privateFile(values.get('--manifest-file')!, MAX_CASE_SPEC_BYTES),
     envFile: privateFile(values.get('--env-file')!, MAX_ENV_BYTES),
   }
 }
 function privateEnv(file: string): Record<string, string> {
-  let local: Record<string, string>, external: Record<string, string>
-  try {
-    local = {}
-    external = parseDotenv(readFileSync(file, 'utf8'))
-  } catch { fail('PRIVATE_ENV_UNREADABLE') }
-  if (!external.DATABASE_URL) fail('PRIVATE_ENV_TARGET_MISMATCH')
-  const values = { ...local, ...external }
+  let values: Record<string, string>
+  try { values = parseDotenv(readFileSync(file, 'utf8')) } catch { fail('PRIVATE_ENV_UNREADABLE') }
   const databaseUrl = values.DATABASE_URL
   if (!databaseUrl) fail('PRIVATE_ENV_DATABASE_URL_REQUIRED')
   let target: URL
@@ -89,7 +92,8 @@ function privateEnv(file: string): Record<string, string> {
     || decodeURIComponent(target.username) !== 'io_staging_finanzas' || values.FINANCE_STAGING_SANDBOX !== '1'
     || values.VERCEL_ENV === 'production' || values.IO_PRODUCTION_READ_ONLY === '1'
     || ![undefined, '0'].includes(values.FINANCE_EASY_PRODUCTION_ENABLED)
-    || ![undefined, '0'].includes(values.FINANCE_MODEL_PRODUCTION_ENABLED)) fail('PRIVATE_ENV_ISOLATION_REQUIRED')
+    || ![undefined, '0'].includes(values.FINANCE_MODEL_PRODUCTION_ENABLED)
+    || values.CONCILIAR_RELEASE_PROFILE !== PROFILE) fail('PRIVATE_ENV_ISOLATION_REQUIRED')
   // Never install or compare secret values beyond the connection used by this
   // process. The explicit process flag makes accidental direct invocation fail.
   if (process.env.FINANCE_STAGING_SANDBOX !== '1') fail('FINANCE_STAGING_SANDBOX_REQUIRED')
@@ -98,8 +102,39 @@ function privateEnv(file: string): Record<string, string> {
 function readJson(file: string, code: string): unknown {
   try { return JSON.parse(readFileSync(file, 'utf8')) } catch { fail(code) }
 }
-function readCaseSpec(file: string): PrivateCaseSpec {
-  const parsed = readJson(file, 'CASE_SPEC_UNREADABLE')
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
+  if (value && typeof value === 'object') return `{${Object.keys(value as Record<string, unknown>).sort().map(key => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`).join(',')}}`
+  return JSON.stringify(value)
+}
+function sha256(value: Buffer): string { return createHash('sha256').update(value).digest('hex') }
+function readCaseSpec(file: string, manifestFile: string): PrivateCaseSpec {
+  const source = readFileSync(file)
+  let parsed: unknown
+  try { parsed = JSON.parse(source.toString('utf8')) } catch { fail('CASE_SPEC_UNREADABLE') }
+  const manifest = readJson(manifestFile, 'STAGE_PROFILE_MANIFEST_UNREADABLE') as StageProfileManifest
+  const expectedDiff = [
+    { caseId: 'C2', collection: 'cases', before: { mode: 'EXACT', expect: { tab: 'COBROS', color: 'VERDE', documentReference: 'INST26/78' } }, after: { mode: 'ABSENT_CONFIRMED', expect: { b4Confirmed: true, absentAllTabs: true } } },
+    { caseId: 'C3', collection: 'cases', before: { mode: 'ABSENT_CONFIRMED', expect: { b4Confirmed: true, absentAllTabs: true } }, after: { mode: 'PENDING_VISIBLE', expect: { b4Confirmed: false, visible: true } } },
+    { caseId: 'C7', collection: 'cases', before: { mode: 'ABSENT_CONFIRMED', expect: { absentAllTabs: true, b4Confirmed: true } }, after: { mode: 'PENDING_VISIBLE', expect: { b4Confirmed: false, visible: true } } },
+    { caseId: 'C8', collection: 'cases', before: { mode: 'ABSENT_CONFIRMED', expect: { absentAllTabs: true, b4Confirmed: true } }, after: { mode: 'PENDING_VISIBLE', expect: { b4Confirmed: false, visible: true } } },
+    { caseId: 'P7', collection: 'cases', before: { mode: 'ABSENT_CONFIRMED', expect: { b4Confirmed: true, absentAllTabs: true } }, after: { mode: 'PENDING_VISIBLE', expect: { b4Confirmed: false, visible: true } } },
+    { caseId: 'P31', collection: 'supplementalCases', before: { mode: 'EXACT', expect: { tab: 'PAGOS', group: 'TARJETA', allowedColors: ['VERDE', 'AMBAR', 'ROJO'] } }, after: { mode: 'ABSENT_CONFIRMED', expect: { b4Confirmed: true, absentAllTabs: true } } },
+  ]
+  const sourceMeta = manifest?.source as Record<string, unknown> | undefined
+  const derivative = manifest?.derivative as Record<string, unknown> | undefined
+  const authorization = manifest?.authorization as Record<string, unknown> | undefined
+  if (manifest?.schema !== 'CONCILIAR_RELEASE_REGRESSION_STAGING_PROFILE_MANIFEST_V1' || manifest?.profile !== PROFILE
+    || sourceMeta?.sha256 !== STAGE_GOLDEN_SHA256 || sourceMeta?.unchanged !== true || derivative?.sha256 !== sha256(source)
+    || derivative?.caseChanges !== 6 || authorization?.issuer !== 'Claude' || typeof authorization?.receivedAt !== 'string'
+    || canonical(manifest?.exactCaseDiff) !== canonical(expectedDiff)) fail('STAGE_PROFILE_MANIFEST_INVALID')
+  if (typeof sourceMeta?.path !== 'string') fail('STAGE_PROFILE_GOLDEN_SOURCE_REQUIRED')
+  const goldenFile = privateFile(sourceMeta.path, MAX_CASE_SPEC_BYTES)
+  const goldenBytes = readFileSync(goldenFile)
+  if (sha256(goldenBytes) !== STAGE_GOLDEN_SHA256) fail('GOLDEN_HASH_MISMATCH')
+  let golden: unknown
+  try { golden = JSON.parse(goldenBytes.toString('utf8')) } catch { fail('CASE_SPEC_UNREADABLE') }
+  if (!stageProfileIsExactDerivative(golden, parsed, expectedDiff)) fail('STAGE_PROFILE_NOT_EXACT_DERIVATIVE')
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) fail('CASE_SPEC_INVALID')
   const spec = parsed as PrivateCaseSpec
   if (spec.schema !== 'CONCILIAR_RELEASE_REGRESSION_V1' || !Array.isArray(spec.cases)) fail('CASE_SPEC_INVALID')
@@ -109,11 +144,22 @@ function readCaseSpec(file: string): PrivateCaseSpec {
   if (!Array.isArray(supplemental) || supplemental.length !== SUPPLEMENTAL_IDS.size
     || new Set(supplemental.map(item => item.caseId)).size !== SUPPLEMENTAL_IDS.size
     || supplemental.some(item => !item || typeof item !== 'object' || !SUPPLEMENTAL_IDS.has(item.caseId))) fail('SUPPLEMENTAL_CASE_COVERAGE_INVALID')
-  const historicalC3 = spec.cases.find(row => row.caseId === 'C3' && row.mode === 'ABSENT_CONFIRMED')
+  const expectedModes: Readonly<Record<string, string>> = {
+    C2: 'ABSENT_CONFIRMED', C3: 'PENDING_VISIBLE', C7: 'PENDING_VISIBLE', C8: 'PENDING_VISIBLE', P7: 'PENDING_VISIBLE',
+  }
+  for (const [caseId, mode] of Object.entries(expectedModes)) {
+    const item = spec.cases.find(row => row.caseId === caseId)
+    if (!item || item.mode !== mode || !item.expect || typeof item.expect !== 'object') fail('STAGE_PROFILE_CASES_REQUIRED')
+    const expect = item.expect as Record<string, unknown>
+    if (mode === 'ABSENT_CONFIRMED' && (expect.b4Confirmed !== true || expect.absentAllTabs !== true)) fail('STAGE_PROFILE_CASES_REQUIRED')
+    if (mode === 'PENDING_VISIBLE' && (expect.b4Confirmed !== false || expect.visible !== true || Object.hasOwn(expect, 'color') || Object.hasOwn(expect, 'allowedColors'))) fail('STAGE_PROFILE_CASES_REQUIRED')
+  }
   const bbva = supplemental.find(item => item.caseId === 'C30')
-  if (historicalC3 && (!bbva || bbva.mode !== 'EXACT' || bbva.expect.color !== 'VERDE' || !bbva.expect.confirmingEquation)) fail('PENDING_BBVA_DETAIL_SAMPLE_REQUIRED')
-  const cards = supplemental.filter(item => item.caseId !== 'C30')
-  if (cards.length !== 5 || cards.some(item => item.expect.group !== 'TARJETA')) fail('SUPPLEMENTAL_CARD_COVERAGE_INVALID')
+  if (!bbva || bbva.mode !== 'EXACT' || bbva.expect.color !== 'VERDE' || !bbva.expect.confirmingEquation) fail('PENDING_BBVA_DETAIL_SAMPLE_REQUIRED')
+  const p31 = supplemental.find(item => item.caseId === 'P31')
+  if (!p31 || p31.mode !== 'ABSENT_CONFIRMED' || p31.expect.b4Confirmed !== true || p31.expect.absentAllTabs !== true) fail('STAGE_PROFILE_CASES_REQUIRED')
+  const cards = supplemental.filter(item => !['C30', 'P31'].includes(item.caseId))
+  if (cards.length !== 4 || cards.some(item => item.expect.group !== 'TARJETA')) fail('SUPPLEMENTAL_CARD_COVERAGE_INVALID')
   return spec
 }
 function cpCases(spec: PrivateCaseSpec): readonly ConciliarReleaseRegressionCase[] {
@@ -180,7 +226,7 @@ async function main(): Promise<void> {
   const cli = parseCli(process.argv.slice(2))
   const env = privateEnv(cli.envFile)
   const snapshot = readJson(cli.snapshotFile, 'API_SNAPSHOT_UNREADABLE')
-  const spec = readCaseSpec(cli.inputFile)
+  const spec = readCaseSpec(cli.inputFile, cli.manifestFile)
   const result = await readAndEvaluate(env.DATABASE_URL!, snapshot, spec)
   emit(result)
   if (!result.ok) process.exitCode = 1

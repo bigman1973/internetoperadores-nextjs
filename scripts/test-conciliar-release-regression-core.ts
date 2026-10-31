@@ -97,6 +97,19 @@ test('C7/C8 absence is accepted only with actual B4 confirmation and no row in a
   assert(evaluateCase(absent, { bankRows: [source({ b4Confirmed: true })], projectionRows: [projection({ tab: 'PAGOS' })] }).reasons.includes('PROJECTION_PRESENT_WHEN_ABSENT'))
 })
 
+test('PENDING_VISIBLE requires a pending B4 source and exactly one visible row without asserting any colour', () => {
+  const pending: ConciliarReleaseRegressionCase = {
+    caseId: 'C3', mode: 'PENDING_VISIBLE', selector: { bank: 'Synthetic Bank', date: '2026-09-01', signedCents: 123_45, searchTerms: ['synthetic'] },
+    expect: { b4Confirmed: false, visible: true },
+  }
+  assert.equal(evaluateCase(pending, dataset({}, { color: 'ROJO' })).pass, true)
+  assert.equal(evaluateCase(pending, dataset({}, { color: 'AMBAR' })).pass, true)
+  assert.equal(evaluateCase(pending, dataset({ b4Confirmed: true })).reasons.includes('B4_NOT_PENDING'), true)
+  assert.equal(evaluateCase(pending, { bankRows: [source()], projectionRows: [projection({ visible: false })] }).reasons.includes('PROJECTION_MISSING'), true)
+  assert.equal(evaluateCase(pending, { bankRows: [source()], projectionRows: [projection(), projection({ tab: 'PAGOS' })] }).reasons.includes('PROJECTION_AMBIGUOUS'), true)
+  assert.deepEqual(evaluateCase({ ...pending, expect: { ...pending.expect, color: 'VERDE' } }, dataset()).reasons, ['CASE_SPEC_INVALID'])
+})
+
 test('parametric C9/P8/P12/P15 coverage can never pass vacuously', () => {
   for (const caseId of ['C9', 'P8', 'P12', 'P15']) {
     const parametric: ConciliarReleaseRegressionCase = {

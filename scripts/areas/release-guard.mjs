@@ -85,6 +85,8 @@ function hasSecretTelemetry(value) {
 function expectedBatteryEvidence(registry, battery, commit, registryHash, now) {
   if (!isPlainObject(battery) || battery.schema !== 'io.areas.battery-report.v1') return false;
   if (!battery.ok || !battery.publishAllowed || battery.localOnly || battery.commit !== commit) return false;
+  if (battery.productionRestoreGate?.pass !== true || battery.productionRestoreGate?.evidence?.profile !== 'PROD_NEW_RESTORE'
+    || battery.productionRestoreGate?.evidence?.writeOperations !== false || battery.productionRestoreGate?.evidence?.g7Rebuilt !== false) return false;
   if (!ageIsValid(battery.capturedAt, now, MAX_BATTERY_AGE_MS)) return false;
   if (!hasSha256(battery.registryHash) || battery.registryHash !== registryHash) return false;
 

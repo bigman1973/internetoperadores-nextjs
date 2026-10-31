@@ -54,6 +54,14 @@ Una comisión exacta se confirmó por API como administrador en 6,36 s y se desh
 
 ## Puerta de producción
 
+## Perfiles de batería y evidencia privada
+
+La batería de releases usa dos perfiles estrictamente separados. `PROD_NEW_RESTORE` ejecuta el Golden íntegro contra una copia local nueva y fiel de producción, expuesta de forma aislada con la identidad de staging sólo para el lector. Exige el recibo privado de restauración completa **y** el recibo del clon local que acredita hashes de origen, lectura verificada y cero escrituras remotas/financieras, además de un recibo de reconstrucción de la proyección por el commit candidato y una transacción `REPEATABLE READ`/`READ ONLY`. El recibo de reconstrucción usa `CONCILIAR_CANDIDATE_REBUILD_LOCAL_V1` y declara `candidateCommit`, `projectionRebuilt: true`, `localOnly: true`, `productionWrites: 0` y el `projectionRebuiltAt` ISO exacto de `estado_proyeccion_conciliar`; el lector rechaza una proyección con otro timestamp. No abre API, navegador ni una conexión a producción. Si C4, que permanece **EXACT/VERDE** con sus 167 líneas, aparece ámbar tras G7, el resultado conserva `COLOR_MISMATCH` y bloquea la publicación; no se cambia el Golden ni se fuerza verde.
+
+`STAGE` consume exclusivamente un derivado privado del Golden. Sus seis cambios autorizados son: C2 y P31 pasan a ausencia confirmada; C3, C7, C8 y P7 pasan a `PENDING_VISIBLE`, que exige B4 pendiente y exactamente una fila visible, sin afirmar ningún color. Antes de abrir la API o la BD real de staging, el runner valida el manifiesto privado: hash del Golden de origen, hash del derivado, autorización, y el diff estructural exacto de esas seis modificaciones. No hay sexto/séptimo cambio implícito, y el perfil STAGE nunca sustituye el Golden de producción.
+
+`pnpm test:areas` no ejecuta la batería API de STAGE hasta que `PROD_NEW_RESTORE` ha pasado. Ambos perfiles se aportan mediante fichero privado de modo 0600. `PROD_NEW_RESTORE` usa exclusivamente un descriptor PostgreSQL local privado, restringido al puerto de la copia nueva; `STAGE` conserva su `envFile` privado y el gate real de API↔BD de staging, con su foto de API, `updatedAt` y proyección del mismo entorno. No existe valor local por defecto ni bypass de API. El verificador G7 conserva su runner y contrato propio de sólo lectura: esta batería no cambia su clasificación, su precheck ni su requerimiento documental.
+
 - [ ] Revisión de Claude y aceptación de Lorena.
 - [ ] OK explícito de Víctor para esta pantalla.
 - [ ] Nueva copia completa de producción y restauración verificada.
