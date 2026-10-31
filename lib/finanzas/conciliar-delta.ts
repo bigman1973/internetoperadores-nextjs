@@ -10,6 +10,7 @@ import {
   currentRemittanceInvoices,
   emittedProjection,
   insertProjectionBatches,
+  sealConciliarProjectionRowsTx,
   proposalCompositionInvoiceIds,
   readLiveCollectionDocumentReservations,
   readCollectionClientIdentityProfiles,
@@ -540,6 +541,8 @@ export async function applyConciliarProjectionDeltaTx(base: Prisma.TransactionCl
   // and returns rebuilt source fingerprints, so decision hashes remain derived
   // from the sealed server lifecycle state rather than from C11 sourceHash.
   const guardedProjectionRows = await applyConciliarDocumentLifecycleGuardToRebuildRowsTx(tx, [...emitted, ...cobros!.rows])
+  // Finish G7 reads over the same transactional picture before projection DML.
+  const sealedProjectionRows = await sealConciliarProjectionRowsTx(tx, guardedProjectionRows)
   const dirty = await tx.$queryRaw<Array<{ dirty: boolean }>>(Prisma.sql`
     SELECT dirty_at IS NOT NULL AS dirty FROM estado_proyeccion_conciliar WHERE singleton=true LIMIT 1 FOR UPDATE
   `)
@@ -556,7 +559,7 @@ export async function applyConciliarProjectionDeltaTx(base: Prisma.TransactionCl
   await tx.$executeRaw(Prisma.sql`
     DELETE FROM conciliar_proyecciones WHERE tab='COBROS' AND movimiento_id IN (${Prisma.join(cobroMovementIds.map(id => Prisma.sql`${id}`))})
   `)
-  await insertProjectionBatches(tx, guardedProjectionRows)
+  await insertProjectionBatches(tx, sealedProjectionRows)
   const state = await tx.$queryRaw<Array<{ projectionVersion: bigint | number }>>(Prisma.sql`
     UPDATE estado_proyeccion_conciliar
     SET dirty_at=NULL,dirty_reason=NULL,rebuilt_at=CURRENT_TIMESTAMP,projection_version=projection_version+1

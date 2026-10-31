@@ -1,5 +1,5 @@
 import { CONCILIAR_GREEN_PRECHECK_STAMP } from './conciliar-precheck-visual'
-import { guardConciliarGreenRowTx } from './conciliar-precheck'
+import { guardConciliarGreenRowTx, type ConciliarPrecheck } from './conciliar-precheck'
 import { Prisma, type PrismaClient } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { readBankInvoicingPopulation, type B7CalculatedPopulation, type B7ReadDatabase } from '@/lib/finanzas/bank-invoicing-db'
@@ -1209,14 +1209,25 @@ function projectionInsertValue(item: RebuildRow) {
   }
 }
 
-export async function insertProjectionBatches(tx: Tx, rows: readonly RebuildRow[]): Promise<void> {
+/** Seals all G7 decisions against one repeatable-read source picture. It must
+ * complete before a caller deletes or inserts projection rows. */
+export async function sealConciliarProjectionRowsTx(tx: Tx, rows: readonly RebuildRow[]): Promise<RebuildRow[]> {
   const contextRows = new Map(rows.map(item=>[item.row.id,{...item.row,source:item.source,sourceFingerprint:item.sourceFingerprint}]))
+  // The G7 decisions below share one caller-owned repeatable-read picture. The
+  // memo is born and discarded in this invocation, before the first projection
+  // DML, so a cached badge can never become authority for a later action.
+  const precheckMemo = new Map<string,ConciliarPrecheck>()
   const checked: RebuildRow[] = []
   for(const item of rows) {
-    const row=await guardConciliarGreenRowTx(tx,{...item.row,source:item.source,sourceFingerprint:item.sourceFingerprint},{rows:contextRows})
+    const row=await guardConciliarGreenRowTx(tx,{...item.row,source:item.source,sourceFingerprint:item.sourceFingerprint},{rows:contextRows,memo:precheckMemo})
     checked.push({...item,row,source:row.color==='VERDE' ? {...item.source,g7Precheck:CONCILIAR_GREEN_PRECHECK_STAMP} : item.source})
   }
-  rows=checked
+  return checked
+}
+
+/** Caller must have sealed rows with sealConciliarProjectionRowsTx before any
+ * projection DML. This function deliberately does no precheck I/O. */
+export async function insertProjectionBatches(tx: Tx, rows: readonly RebuildRow[]): Promise<void> {
   for (let start = 0; start < rows.length; start += PROJECTION_INSERT_BATCH) {
     const batch = rows.slice(start, start + PROJECTION_INSERT_BATCH).map(projectionInsertValue)
     await tx.$executeRaw(Prisma.sql`
@@ -1285,8 +1296,9 @@ export async function restoreLiveBankFeeProjectionBatchTx(base: Prisma.Transacti
     if (!rebuilt) return false
     rows.push(projection(rebuilt.tab, rebuilt.row, rebuilt.source, rebuilt.cuentaId))
   }
-  await insertProjectionBatches(tx, rows)
-  await materializeConciliarReadMetadataTx(tx, rows.map(row => row.row.id))
+  const sealedRows = await sealConciliarProjectionRowsTx(tx, rows)
+  await insertProjectionBatches(tx, sealedRows)
+  await materializeConciliarReadMetadataTx(tx, sealedRows.map(row => row.row.id))
   return true
 }
 
@@ -1797,6 +1809,10 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
   // bounded set preload, not a per-row lifecycle query, and occurs before the
   // first projection write below.
   const guardedRows = await applyConciliarDocumentLifecycleGuardToRebuildRowsTx(tx, rows)
+  // G7 prechecks share this same repeatable-read source picture and complete
+  // before any projection DELETE/INSERT. The result is only a display seal;
+  // confirmation repeats the live predicates in its own locked transaction.
+  const sealedRows = await sealConciliarProjectionRowsTx(tx, guardedRows)
   if (affected) {
     const ids = [...selectedMovementIds!]
     const mirrorIds = [
@@ -1808,8 +1824,8 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
   } else {
     await tx.$executeRaw(Prisma.sql`DELETE FROM conciliar_proyecciones`)
   }
-  await insertProjectionBatches(tx, guardedRows)
-  await materializeConciliarReadMetadataTx(tx, guardedRows.map(item => item.row.id))
+  await insertProjectionBatches(tx, sealedRows)
+  await materializeConciliarReadMetadataTx(tx, sealedRows.map(item => item.row.id))
   const accounts = await tx.$queryRaw<Array<{ id: string; banco: string; alias: string | null }>>(Prisma.sql`SELECT id,banco,alias FROM cuentas_bancarias WHERE activa=true ORDER BY banco,alias NULLS LAST,id LIMIT 100`)
   await tx.$executeRaw(Prisma.sql`UPDATE estado_proyeccion_conciliar SET read_accounts=CAST(${JSON.stringify(accounts)} AS jsonb) WHERE singleton=true`)
   if (affected?.consumedChanges?.length) {
@@ -1835,7 +1851,7 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
            rebuilt_at=CURRENT_TIMESTAMP,rebuilt_by_id=${rebuiltById},projection_version=projection_version+1
      WHERE singleton=true
   `)
-  return { rows: guardedRows.length, emitted: bank.invoices.length, rebuiltAt: new Date().toISOString() }
+  return { rows: sealedRows.length, emitted: bank.invoices.length, rebuiltAt: new Date().toISOString() }
 }
 
 export async function rebuildConciliarProjection(rebuiltById: number | null) {

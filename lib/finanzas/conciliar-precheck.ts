@@ -22,7 +22,10 @@ export { CONCILIAR_PRECHECK_KINDS } from './conciliar-precheck-kinds'
 export type ConciliarPrecheckRow = Omit<ConciliarRow,'decisionHash'> & {source:ConciliarProjectionSource; decisionHash?:string; sourceFingerprint?:string}
 export type ConciliarPrecheck = Readonly<{schema:'CONCILIAR_PRECHECK_V1'; confirmable:boolean; mode:'ESTANDAR'|'PAREJA_HUMANA'|'ENLACE'|'BLOQUEADA'; code:string; motivo:string}>
 type Tx = Prisma.TransactionClient & Record<string, any>
-export type ConciliarPrecheckContext = Readonly<{ rows?:ReadonlyMap<string,ConciliarPrecheckRow>; visited?:ReadonlySet<string> }>
+/** A memo is confined to one caller-owned transactional read photo. It never
+ * crosses invocations, and actions intentionally do not receive one. */
+export type ConciliarPrecheckMemo = Map<string,ConciliarPrecheck>
+export type ConciliarPrecheckContext = Readonly<{ rows?:ReadonlyMap<string,ConciliarPrecheckRow>; visited?:ReadonlySet<string>; memo?:ConciliarPrecheckMemo }>
 const pass = (mode:ConciliarPrecheck['mode']):ConciliarPrecheck => ({schema:'CONCILIAR_PRECHECK_V1',confirmable:true,mode,code:'CONFIRMABLE',motivo:'Comprobado con las fuentes actuales del servidor.'})
 const blocked = (code:string,motivo:string):ConciliarPrecheck => ({schema:'CONCILIAR_PRECHECK_V1',confirmable:false,mode:'BLOQUEADA',code,motivo})
 const movementRequired = (row:ConciliarPrecheckRow):string => {
@@ -53,12 +56,38 @@ export function conciliarPrecheckFailureReason(error:unknown):string {
   const fromMessage=missingRemittanceReceiptCount(match?.[1]===undefined ? null : Number(match[1]))
   return fromMessage===null ? PRECHECK_ADMINISTRATIVE_REASON : `Falta enlazar ${fromMessage} recibos.`
 }
+/** A memo key covers the whole sealed row picture, not an ID or a visual badge.
+ * A changed source hash, lifecycle state, link, amount or selection state is a
+ * new key. This preserves both positive and negative decisions per photo. */
+export function conciliarPrecheckMemoKey(row:ConciliarPrecheckRow):string {
+  const {source:_source,sourceFingerprint,decisionHash:_decisionHash,...sealedRow}=row
+  return conciliarDecisionHash({row:sealedRow,source:row.source,sourceFingerprint:sourceFingerprint ?? ''})
+}
+/** Memoize one complete result, including a negative result, for the caller's
+ * current immutable read photo. This helper cannot outlive its supplied map. */
+export async function memoizedConciliarPrecheckDecision(
+  row:ConciliarPrecheckRow,
+  memo:ConciliarPrecheckMemo | undefined,
+  read:()=>Promise<ConciliarPrecheck>,
+):Promise<ConciliarPrecheck> {
+  if(!memo) return read()
+  const key=conciliarPrecheckMemoKey(row),cached=memo.get(key)
+  if(cached) return cached
+  const result=await read()
+  memo.set(key,result)
+  return result
+}
 /** Unknown errors propagate: an unavailable server is never converted to green. */
 export async function precheckConciliarRowTx(base:Prisma.TransactionClient,row:ConciliarPrecheckRow,context:ConciliarPrecheckContext={}):Promise<ConciliarPrecheck> {
-  const tx=base as Tx
   if(!(CONCILIAR_PRECHECK_KINDS as readonly string[]).includes(row.source.kind)) return blocked('TIPO_NO_ADMITIDO','Esta fila no tiene una confirmación disponible.')
   if(row.color!=='VERDE') return blocked('REVISION_REQUERIDA',row.motivo || 'Esta fila necesita revisión antes de confirmar.')
+  // Visit guard precedes memo lookup so a recursive link never consumes an old
+  // result or forms a circular memo-promise dependency.
   if(context.visited?.has(row.id)) return blocked('ENLACE_CIRCULAR','No se puede comprobar el movimiento propuesto para este documento.')
+  return memoizedConciliarPrecheckDecision(row,context.memo,()=>precheckConciliarRowUncachedTx(base,row,context))
+}
+async function precheckConciliarRowUncachedTx(base:Prisma.TransactionClient,row:ConciliarPrecheckRow,context:ConciliarPrecheckContext):Promise<ConciliarPrecheck> {
+  const tx=base as Tx
   try {
     // Documentary mirrors remain non-selectable. Their exact linked bank row
     // must pass the SAME financial check, not merely carry another green badge.
@@ -148,6 +177,7 @@ export async function guardConciliarGreenRowTx<T extends ConciliarPrecheckRow>(t
   return next as T
 }
 export async function assertConciliarGreenPrecheckTx(tx:Prisma.TransactionClient,row:ConciliarPrecheckRow) {
+  // Action revalidation deliberately has no memo and runs in the live DML tx.
   const result=await precheckConciliarRowTx(tx,row)
   if(!result.confirmable) throw new ConciliarDbError(422,result.code,result.motivo)
   return result
