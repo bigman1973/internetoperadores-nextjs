@@ -27,6 +27,8 @@ async function errorResponse(error: unknown) {
           : { error: 'El cuerpo JSON es obligatorio.', codigo: error.code }
     return privateJson(body, error.status)
   }
+  const { ConciliarRecoveryError } = await import('@/lib/finanzas/conciliar-recovery')
+  if (error instanceof ConciliarRecoveryError) return privateJson({ error: error.message, codigo: error.code }, error.status)
   const { conciliarActionErrorResponse } = await import('@/lib/finanzas/conciliar-actions')
   const action = conciliarActionErrorResponse(error)
   if (action.status !== 500 || action.body.codigo !== 'CONCILIAR_ACCION_FALLIDA') return privateJson(action.body, action.status)
@@ -116,6 +118,21 @@ export async function GET(request: NextRequest) {
     const access = await requireB4FinanceAccess('lectura', await getServerSession(authOptions))
     if ('response' in access) return access.response
     const query = queryRecord(request)
+    if (query.recover !== undefined) {
+      // Exact private capability on the already-authorized Conciliar GET route.
+      // It neither accepts an actor/session selector nor falls through to the
+      // paginated projection reader.
+      const { parseConciliarRecoveryLookup } = await import('@/lib/finanzas/conciliar-recovery-core')
+      const { readConciliarRecoveryIntent } = await import('@/lib/finanzas/conciliar-recovery')
+      const lookup = (() => {
+        try {
+          return parseConciliarRecoveryLookup(query)
+        } catch {
+          throw new ConciliarValidationError(400, 'VALIDATION_ERROR', 'La consulta de recuperación no es válida.')
+        }
+      })()
+      return privateJson(await readConciliarRecoveryIntent(access.actor.id, lookup))
+    }
     const rowId = query.rowId
     if (rowId !== undefined) {
       if (Object.keys(query).length !== 1 || !rowId) throw new ConciliarValidationError(400, 'VALIDATION_ERROR', 'rowId debe ser la única consulta de detalle.')
