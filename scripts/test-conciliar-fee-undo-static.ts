@@ -27,7 +27,7 @@ assert.match(restore, /WHERE m\.id IN \(\$\{ids\}\)[\s\S]*FOR UPDATE OF m,c/, 't
 assert.match(restore, /movements\.length !== movimientoIds\.length[\s\S]*currentByMovementId\.size !== movimientoIds\.length/, 'toda fuente debe estar presente y ser única antes de insertar')
 assert.match(restore, /decisiones_tercero_modo_facil[\s\S]*d\.movimiento_id IN \(\$\{ids\}\)[\s\S]*FOR UPDATE OF d/, 'P1 vigente es una incompatibilidad bloqueada para todo el lote')
 assert.match(restore, /conciliar_proyecciones[\s\S]*movimiento_id IN \(\$\{ids\}\)[\s\S]*FOR UPDATE/, 'una fila existente para cualquier movimiento es incompatibilidad')
-assert.match(restore, /for \(const movimientoId of movimientoIds\)[\s\S]*buildBankFeeProjectionSeed[\s\S]*rows\.push[\s\S]*insertProjectionBatches\(tx, rows\)/, 'todas las fuentes se reclasifican antes de una sola inserción canónica')
+assert.match(restore, /for \(const movimientoId of movimientoIds\)[\s\S]*buildBankFeeProjectionSeed[\s\S]*rows\.push[\s\S]*const sealedRows = await sealConciliarProjectionRowsTx\(tx, rows\)[\s\S]*insertProjectionBatches\(tx, sealedRows\)/, 'todas las fuentes se reclasifican y pasan G7 antes de una sola inserción canónica')
 assert.match(restore, /restoreLiveBankFeeProjectionBatchTx\(base, \[movimientoId\]\)/, 'el caso single usa exactamente la vía batch')
 assert.doesNotMatch(restore, /decisionHash|sourceFingerprint\s*:\s*.*old|cached/i, 'la restauración no reutiliza hash ni fingerprint histórico')
 assert.match(helper, /input\.wasDirty \|\| input\.legs\.length < 1 \|\| input\.legs\.length > MAX_BANK_FEE_UNDO_LEGS/, 'dirty previo, vacío o más de 100 patas deben caer al rebuild')
