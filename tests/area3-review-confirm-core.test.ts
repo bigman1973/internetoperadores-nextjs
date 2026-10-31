@@ -88,6 +88,32 @@ test('un número incompleto sigue siendo revisable, pero una referencia alfanum�
   assert.equal(contradictory.color, 'ROJO')
 })
 
+test('el año en el nombre del proveedor no es otra factura; una cita explícita o referencia separada sí bloquean', () => {
+  const source = material({
+    motivoProyeccion: 'REFERENCIA_NUMERO_INCOMPLETO',
+    proveedorExacto: false,
+    tipoProveedor: 'DOCUMENTARY',
+    proveedorDocumental: 'ACME 2042, S.L.',
+    textoBanco: 'ACME 2042, S.L. PAGO FACTURA 100042',
+    referenciaDocumento: 'Z100042',
+  })
+  const preview = evaluateArea3ReviewConfirm(source)
+  assert.equal(preview.ok, false)
+  assert.equal(preview.codigo, 'ACK_REQUERIDO')
+  assert.equal(preview.confirmableGreen, false)
+  for (const changed of [
+    { textoBanco: 'PAGO FACTURA ACME2042' },
+    { textoBanco: `${'Texto previo '.repeat(20)} FACTURA ACME2042` },
+    { referenciaBanco: 'ACME2042' },
+    { textoBanco: 'ACME 2042, S.L. PAGO FACTURA CC260000009999' },
+  ]) {
+    const rejected = evaluateArea3ReviewConfirm({ ...source, ...changed })
+    assert.equal(rejected.ok, false)
+    assert.equal(rejected.codigo, 'REFERENCIA_EXPLICITA_CONTRADICTORIA', JSON.stringify(changed))
+    assert.equal(rejected.confirmableGreen, false)
+  }
+})
+
 test('DOCUMENTARY exige ACK humano sellado, conserva ámbar y nombra el proveedor que debe comprobarse', () => {
   const source = material({
     motivoProyeccion: 'REFERENCIA_NUMERO_INCOMPLETO',
@@ -142,4 +168,23 @@ test('la procedencia legacy queda sellada en el ACK y una procedencia ausente bl
   const missing = evaluateArea3ReviewConfirm(material({ documentEvidenceKind: null }))
   assert.equal(missing.ok, false)
   assert.equal(missing.codigo, 'DOCUMENT_EVIDENCE_KIND_REQUIRED')
+})
+
+test('una tarjeta etiquetada no es una factura, pero una factura explícita y una referencia separada siguen bloqueadas', () => {
+  // Synthetic digits; no real card or financial source is used here.
+  const card = `TARJETA${'1'.repeat(16)}`
+  const source = material({ textoBanco: `COMPRA ${card} PROVEEDOR`, referenciaDocumento: '100000042' })
+  const preview = evaluateArea3ReviewConfirm(source)
+  assert.equal(preview.ok, false)
+  assert.equal(preview.codigo, 'ACK_REQUERIDO')
+  assert.equal(preview.confirmableGreen, false)
+  for (const changed of [
+    { textoBanco: `PAGO FACTURA ${card}` },
+    { referenciaBanco: card },
+    { textoBanco: `COMPRA ${card} FACTURA CC260000009999` },
+  ]) {
+    const rejected = evaluateArea3ReviewConfirm({ ...source, ...changed })
+    assert.equal(rejected.ok, false)
+    assert.equal(rejected.codigo, 'REFERENCIA_EXPLICITA_CONTRADICTORIA')
+  }
 })

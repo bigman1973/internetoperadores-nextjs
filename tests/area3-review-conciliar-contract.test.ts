@@ -48,3 +48,14 @@ test('REVIEW_CONFIRM exige ACK versionado y no acepta importe, documento ni moti
     },
   }), (error: unknown) => error instanceof ConciliarValidationError && error.status === 400)
 })
+
+test('la auditoría humana asigna ID explícito y el deshacer enlaza el recibo original, no el de reversión', async () => {
+  const { readFileSync } = await import('node:fs')
+  const source = readFileSync(new URL('../lib/finanzas/conciliar-actions.ts', import.meta.url), 'utf8')
+  assert.match(source, /INSERT INTO eventos_justificacion_b4\(id,operacion_id,movimiento_id,accion,actor_id,detalle,created_at\)/)
+  assert.match(source, /uuidKey\('AREA3_REVIEW_CONFIRM_EVENT', receipt\.id, row\.id\)/)
+  assert.match(source, /uuidKey\('AREA3_REVIEW_UNDO_EVENT', operationId, leg\.rowId\)/)
+  assert.match(source, /undoB4Leg\(tx, actorId, receipt\.id, leg\.ordinal, leg, source\.id\)/)
+  assert.match(source, /originalConciliarOperationId,\s*reversalConciliarOperationId: operationId/)
+  assert.doesNotMatch(source, /originalConciliarOperationId: operationId,\s*motivo: review\.motivo/)
+})

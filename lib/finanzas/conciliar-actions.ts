@@ -439,7 +439,7 @@ async function askRow(tx: Tx, actorId: number, operationId: string, row: Awaited
   return { state: 'pedido', movementId, gestionId }
 }
 
-async function undoB4Leg(tx: Tx, actorId: number, operationId: string, ordinal: number, leg: any) {
+async function undoB4Leg(tx: Tx, actorId: number, operationId: string, ordinal: number, leg: any, originalConciliarOperationId: string) {
   const receiptResult = json(leg.result)
   if (receiptResult.sourceKind === 'TRANSFERENCIA_PROPIA_MANUAL') {
     await lockConciliarHumanOwnTransferUndoTx(tx, receiptResult)
@@ -478,12 +478,13 @@ async function undoB4Leg(tx: Tx, actorId: number, operationId: string, ordinal: 
     // El recibo de revisión no se modifica: su reversión queda como evento B4
     // separado, ligado a la operación de reversión completa e irreversible.
     await tx.$executeRaw(Prisma.sql`
-      INSERT INTO eventos_justificacion_b4(operacion_id,movimiento_id,accion,actor_id,detalle,created_at)
-      VALUES(CAST(${String(reversal.operacion.id)} AS uuid),${original.movementId},'REVERSION'::"AccionEventoJustificacionB4",${actorId},
+      INSERT INTO eventos_justificacion_b4(id,operacion_id,movimiento_id,accion,actor_id,detalle,created_at)
+      VALUES(CAST(${uuidKey('AREA3_REVIEW_UNDO_EVENT', operationId, leg.rowId)} AS uuid),CAST(${String(reversal.operacion.id)} AS uuid),${original.movementId},'REVERSION'::"AccionEventoJustificacionB4",${actorId},
         CAST(${JSON.stringify({
           schema: 'AREA3_REVIEW_UNDO_V1',
           originalOperationB4Id: operationIdB4,
-          originalConciliarOperationId: operationId,
+          originalConciliarOperationId,
+          reversalConciliarOperationId: operationId,
           motivo: review.motivo,
           sourceHash: review.sourceHash,
           decisionHash: review.decisionHash,
@@ -726,8 +727,8 @@ async function confirmArea3Review(tx: Tx, actorId: number, command: Extract<Conc
   await requireCurrentDocumentLifecycleForConfirmation(tx, row.source)
   const applied = await confirmArea3ReviewTx(tx, actorId, receipt.id, row, command.review.acknowledgement)
   await tx.$executeRaw(Prisma.sql`
-    INSERT INTO eventos_justificacion_b4(operacion_id,movimiento_id,accion,actor_id,detalle,created_at)
-    VALUES(CAST(${applied.operationB4Id} AS uuid),${applied.result.movimientoId},'APROBACION'::"AccionEventoJustificacionB4",${actorId},
+    INSERT INTO eventos_justificacion_b4(id,operacion_id,movimiento_id,accion,actor_id,detalle,created_at)
+    VALUES(CAST(${uuidKey('AREA3_REVIEW_CONFIRM_EVENT', receipt.id, row.id)} AS uuid),CAST(${applied.operationB4Id} AS uuid),${applied.result.movimientoId},'APROBACION'::"AccionEventoJustificacionB4",${actorId},
       CAST(${JSON.stringify({
         schema: 'AREA3_REVIEW_CONFIRM_AUDIT_V1',
         conciliarOperationId: receipt.id,
@@ -827,7 +828,7 @@ async function undo(tx: Tx, actorId: number, command: Extract<ConciliarCommand, 
   for (const leg of legs) {
     await undoConciliarDocumentaryCounterpartyTx(tx, actorId, json(leg.result).counterpartyReceipt)
     if (leg.proposalBlockId) await undoCollectionLeg(tx, actorId, receipt.id, leg.ordinal, leg)
-    else await undoB4Leg(tx, actorId, receipt.id, leg.ordinal, leg)
+    else await undoB4Leg(tx, actorId, receipt.id, leg.ordinal, leg, source.id)
   }
   await tx.$executeRaw(Prisma.sql`UPDATE operaciones_conciliar SET estado='REVERTIDA'::"EstadoOperacionConciliar",revertida_at=CURRENT_TIMESTAMP WHERE id=CAST(${source.id} AS uuid) AND estado='APLICADA'::"EstadoOperacionConciliar"`)
   const projectionSynchronized = await restoreKnownFeeOnlyProjection(tx, stateAtStart, legs)

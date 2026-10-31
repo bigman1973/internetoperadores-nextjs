@@ -186,10 +186,22 @@ function warning(material: Area3ReviewConfirmMaterial): string {
  * Cualquier referencia bancaria alfanumérica completa distinta del documento
  * bloquea la excepción: no se sustituye por proveedor+importe.
  */
-export function area3HasExplicitContradictoryReference(textoBanco: string, referenciaBanco: string | null, referenciaDocumento: string | null): boolean {
+export function area3HasExplicitContradictoryReference(textoBanco: string, referenciaBanco: string | null, referenciaDocumento: string | null, proveedorDocumental?: string | null): boolean {
   const documentReference = normalizarReferenciaFactura(referenciaDocumento)
   if (!documentReference) return true
   const cited = new Set<string>(referenciasFacturaCitadas(textoBanco))
+  // A provider such as «ACME 2042» is not itself an invoice reference. Only
+  // disregard its exact parsed tokens when no invoice label precedes them;
+  // a separately stored bank reference is never removed this way.
+  const providerTokens = new Set(referenciasFacturaCitadas(proveedorDocumental ?? ''))
+  const normalizedBankText = textoBanco.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+  const separateBankReference = normalizarReferenciaFactura(referenciaBanco)
+  for (const token of cited) {
+    const labelledCard = /^(?:TARJETA|TARJ|CARD|VISA|MASTERCARD)(?:\d{4}|\d{12,19})$/.test(token)
+    if (!providerTokens.has(token) && !labelledCard) continue
+    const explicitlyCited = new RegExp(`(?:FACTURA|INVOICE|FACT|FRA)(?:NUMERO|NRO|NUM|NO|N)?${token}`).test(normalizedBankText)
+    if (token !== separateBankReference && !explicitlyCited) cited.delete(token)
+  }
   if (referenciaBanco) {
     const isolated = normalizarReferenciaFactura(referenciaBanco)
     if (isolated) cited.add(isolated)
@@ -276,7 +288,7 @@ export function evaluateArea3ReviewConfirm(
   if (material.fechaDocumento > material.fechaBanco) {
     return blocked('FECHA_DOCUMENTO_POSTERIOR', 'La fecha del documento es posterior al movimiento bancario.', sourceHash)
   }
-  if (area3HasExplicitContradictoryReference(material.textoBanco, material.referenciaBanco, material.referenciaDocumento)) {
+  if (area3HasExplicitContradictoryReference(material.textoBanco, material.referenciaBanco, material.referenciaDocumento, material.proveedorDocumental)) {
     return blocked('REFERENCIA_EXPLICITA_CONTRADICTORIA', 'El número de factura citado por el banco no coincide con el documento propuesto.', sourceHash, 'ROJO')
   }
   if (material.importeObjetivoDocumentoCentimos !== material.importeBancoCentimos) {
