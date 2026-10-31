@@ -10,6 +10,7 @@
     "postinstall": "prisma generate",
     "test:areas": "node scripts/areas/run-batteries.mjs",
     "test:areas:infra": "node --test scripts/areas/infrastructure.test.mjs",
+    "test:security:high-risk": "tsx scripts/test-high-risk-api-middleware.ts",
     "release:guard": "node scripts/areas/release-guard.mjs"
   },
   "dependencies": {

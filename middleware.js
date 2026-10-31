@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { ADMIN_RENDER_SURFACE_HEADER, adminRenderSurface } from './lib/admin-render-surface';
 import { conciliarRuntimeConfigured } from './lib/finanzas/conciliar-runtime';
+import { highRiskApiRequirement } from './lib/high-risk-api-policy';
 
 const SAFE_API_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const IMPERSONATION_HEADER = 'x-io-impersonation-context';
@@ -368,6 +369,48 @@ function financeAreas(pathname) {
   return aliases[section] || [];
 }
 
+/**
+ * Cierre común de las APIs internas de mayor riesgo fuera del módulo financiero.
+ * La identidad se extrae de la sesión efectiva (también durante «Actuar como»),
+ * pero tanto su actividad como su rol y su ACL se vuelven a leer de la BD antes
+ * de permitir que el manejador consulte datos, lea documentos o llame a terceros.
+ */
+async function highRiskApiBoundary(request) {
+  const requirement = highRiskApiRequirement(request.nextUrl.pathname, request.method);
+  if (!requirement) return null;
+  try {
+    const [{ getToken }, { default: prisma }, { verificarPermisoServer }] = await Promise.all([
+      import('next-auth/jwt'), import('@/lib/prisma'), import('@/lib/permisos'),
+    ]);
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET, cookieName: configuredSessionCookieName() });
+    if (token?.userType !== 'admin') return privateBoundary({ error: 'No autorizado' }, 401);
+    const userId = Number(token.id);
+    if (!Number.isSafeInteger(userId) || userId <= 0) return privateBoundary({ error: 'No autorizado' }, 401);
+
+    const admin = await prisma.usuarioAdmin.findUnique({
+      where: { id: userId },
+      select: { id: true, activo: true, rol: true, roles: true },
+    });
+    if (!admin?.activo) return privateBoundary({ error: 'No autorizado' }, 401);
+
+    const permission = await verificarPermisoServer(admin.id, requirement.area, admin.rol);
+    if (permission[requirement.action]) return null;
+
+    // La compatibilidad temporal conserva el alcance legacy sólo para personas
+    // sin ACL granular. La decisión usa la fila persistida, nunca el JWT.
+    const granularPermissions = await prisma.permisoUsuario.count({
+      where: { usuarioId: admin.id, OR: [{ lectura: true }, { escritura: true }] },
+    });
+    const persistedRoles = [admin.rol, ...(admin.roles || [])];
+    if (granularPermissions === 0 && persistedRoles.some(role => requirement.legacyRoles.includes(role))) return null;
+
+    return privateBoundary({ error: `Sin permiso de ${requirement.action}` }, 403);
+  } catch (error) {
+    console.error('Error verificando acceso a API de alto riesgo:', error);
+    return privateBoundary({ error: 'No se pudo verificar el acceso' }, 503);
+  }
+}
+
 export async function middleware(request) {
   const timingStart = performance.now();
   const traceTiming = phase => {
@@ -521,6 +564,12 @@ export async function middleware(request) {
       );
     }
   }
+
+  // Rutas internas de alto riesgo fuera de Finanzas: una única verificación
+  // viva antes de cualquier Route Handler. OPTIONS queda fuera como preflight
+  // sin cuerpo ni datos; GET/HEAD y todas las escrituras se comprueban.
+  const highRiskDenied = await highRiskApiBoundary(request);
+  if (highRiskDenied) return highRiskDenied;
 
   // Las APIs financieras heredadas se comprueban aquí mientras se llevan
   // progresivamente las autorizaciones al interior de cada handler.
