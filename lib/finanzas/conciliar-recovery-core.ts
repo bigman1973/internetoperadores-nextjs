@@ -53,7 +53,7 @@ export type ConciliarRecoveryRecord = Readonly<{
   legCount: number | null
 }>
 
-type RecoverableConfirm = Extract<ConciliarCommand, { action: 'confirmar' }>
+type RecoverableConfirm = Extract<ConciliarCommand, { action: 'confirmar'; idempotencyKey: string }>
 type RecoverableUndo = Extract<ConciliarCommand, { action: 'deshacer' }>
 type RecoverableManualPair = Extract<ConciliarCommand, { action: 'confirmar_traspasos_propios_manual' }>
 export type RecoverableConciliarCommand = RecoverableConfirm | RecoverableUndo | RecoverableManualPair
