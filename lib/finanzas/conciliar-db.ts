@@ -45,7 +45,7 @@ import {
 } from './conciliar-collection-reservation'
 import { conciliarOwnTransferReviewMotive, normalizedRegisteredOwnIban } from './conciliar-transfer-classifier'
 import { readManualOwnAccountProofTx } from './conciliar-own-account-proof-db'
-import { classifyConciliarHumanOwnTransferRows } from './conciliar-human-own-transfer'
+import { classifyConciliarHumanOwnTransferRows, withConciliarHumanOwnTransferSealSnapshotTx } from './conciliar-human-own-transfer'
 import { remittanceSealForProposal } from './remittance-payment-receipts-db'
 import { area3RemittanceMapAmberReason, type Area3RemittanceMapPreflight } from './area3-remittance-map-core'
 import { lockArea3RemittanceMapPreflightsTx, readArea3RemittanceMapPreflightsTx } from './area3-remittance-map-db'
@@ -1218,9 +1218,19 @@ export async function sealConciliarProjectionRowsTx(tx: Tx, rows: readonly Rebui
   // DML, so a cached badge can never become authority for a later action.
   const precheckMemo = new Map<string,ConciliarPrecheck>()
   const checked: RebuildRow[] = []
-  for(const item of rows) {
-    const row=await guardConciliarGreenRowTx(tx,{...item.row,source:item.source,sourceFingerprint:item.sourceFingerprint},{rows:contextRows,memo:precheckMemo})
-    checked.push({...item,row,source:row.color==='VERDE' ? {...item.source,g7Precheck:CONCILIAR_GREEN_PRECHECK_STAMP} : item.source})
+  const seal = async () => {
+    for(const item of rows) {
+      const row=await guardConciliarGreenRowTx(tx,{...item.row,source:item.source,sourceFingerprint:item.sourceFingerprint},{rows:contextRows,memo:precheckMemo})
+      checked.push({...item,row,source:row.color==='VERDE' ? {...item.source,g7Precheck:CONCILIAR_GREEN_PRECHECK_STAMP} : item.source})
+    }
+  }
+  // Manual own-transfer rows all use the same complete pending population to
+  // decide reciprocal uniqueness. Load that immutable read photo once only for
+  // this pre-DML seal, never for action confirmation or outside this callback.
+  if (rows.some(item => item.row.color === 'VERDE' && item.source.kind === 'TRANSFERENCIA_PROPIA_MANUAL')) {
+    await withConciliarHumanOwnTransferSealSnapshotTx(tx, seal)
+  } else {
+    await seal()
   }
   return checked
 }

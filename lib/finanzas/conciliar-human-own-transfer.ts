@@ -203,8 +203,16 @@ export function preflightConciliarHumanOwnTransfer(input: Readonly<{
   attestedOwnAccountIds: ReadonlySet<string>
   registeredAttestedOwnIbanKeys: ReadonlySet<string>
 }>): ConciliarHumanOwnTransferPreflight | null {
-  const source = parseConciliarHumanOwnTransferSource(input.source)
   const classified = classifyConciliarHumanOwnTransferRows(input)
+  return preflightConciliarHumanOwnTransferFromClassified(parseConciliarHumanOwnTransferSource(input.source), classified)
+}
+
+/** The caller either builds this from its current live population, or from the
+ * one immutable, caller-owned read photo used before projection DML. */
+function preflightConciliarHumanOwnTransferFromClassified(
+  source: ConciliarHumanOwnTransferSource | null,
+  classified: ReturnType<typeof classifyConciliarHumanOwnTransferRows>,
+): ConciliarHumanOwnTransferPreflight | null {
   if (!source || new Set(classified.movements.map(movement => movement.id)).size !== classified.movements.length) return null
   const movements = new Map(classified.movements.map(movement => [movement.id, movement]))
   const selected = movements.get(source.movimientoId)
@@ -339,16 +347,36 @@ type ManualOwnTransferSnapshot = Readonly<{
   population: readonly ConciliarManualOwnTransferLiveMovement[]
   accountIds: ReadonlySet<string>
   ibanKeys: ReadonlySet<string>
+  /** Present only in the projection's pre-DML seal; actions always recalculate. */
+  classified?: ReturnType<typeof classifyConciliarHumanOwnTransferRows>
 }>
 const manualOwnTransferSnapshot = new AsyncLocalStorage<ManualOwnTransferSnapshot>()
-/** Exactly one population/ownership snapshot per batch, never shared across tx,
- * requests, actors or retries. Every pair still locks and revalidates both legs. */
-export async function withConciliarHumanOwnTransferBatchTx<T>(base: Prisma.TransactionClient, callback: () => Promise<T>): Promise<T> {
+async function withManualOwnTransferSnapshotTx<T>(base: Prisma.TransactionClient, cacheClassification: boolean, callback: () => Promise<T>): Promise<T> {
   const tx = base as Tx
+  const inherited = manualOwnTransferSnapshot.getStore()
+  // A nested caller in the exact same transaction must retain its one immutable
+  // read photo instead of issuing the whole-population reads again. A different
+  // transaction never inherits it, including retries and later actions.
+  if (inherited?.tx === tx) return callback()
   const population = await readLiveManualOwnTransferPopulationTx(tx)
   const proof = await readManualOwnAccountProofTx(tx, population.map(row => String(row.cuentaId)))
   const ibanKeys = await readAttestedIbanKeysTx(tx, proof.proof.accountIds)
-  return manualOwnTransferSnapshot.run({ tx, population, accountIds: proof.proof.accountIds, ibanKeys }, callback)
+  const snapshot: ManualOwnTransferSnapshot = {
+    tx, population, accountIds: proof.proof.accountIds, ibanKeys,
+    ...(cacheClassification ? { classified: classifyConciliarHumanOwnTransferRows({
+      movements: population, attestedOwnAccountIds: proof.proof.accountIds, registeredAttestedOwnIbanKeys: ibanKeys,
+    }) } : {}),
+  }
+  return manualOwnTransferSnapshot.run(snapshot, callback)
+}
+/** Exactly one population/ownership snapshot per batch, never shared across tx,
+ * requests, actors or retries. Every pair still locks and revalidates both legs. */
+export async function withConciliarHumanOwnTransferBatchTx<T>(base: Prisma.TransactionClient, callback: () => Promise<T>): Promise<T> {
+  return withManualOwnTransferSnapshotTx(base, false, callback)
+}
+/** G7 rebuild-only snapshot: it ends before projection DML and never reaches an action. */
+export async function withConciliarHumanOwnTransferSealSnapshotTx<T>(base: Prisma.TransactionClient, callback: () => Promise<T>): Promise<T> {
+  return withManualOwnTransferSnapshotTx(base, true, callback)
 }
 
 function confirmKey(operationId: string, movementId: string): string {
@@ -499,11 +527,20 @@ export async function undoConciliarHumanOwnTransferTx(
 /** Read-only universal entry. `source` naming another movement is never proof
  * that this pair remains pending, unique and reciprocal. */
 export async function preflightConciliarHumanOwnTransferTx(tx:Tx,source:unknown,expectedSelectedAmount:number) {
-  const population=await readLiveManualOwnTransferPopulationTx(tx)
+  // Rebuild sealing may supply one caller-owned repeatable-read photo. It is
+  // read-only, bounded to this tx and discarded at callback exit; confirmations
+  // deliberately call this preflight outside that scope, then lock both legs and
+  // repeat their live checks before B4 writes.
+  const snapshot=manualOwnTransferSnapshot.getStore()
+  const population=snapshot?.tx===tx ? snapshot.population : await readLiveManualOwnTransferPopulationTx(tx)
   if(!population.length) fail('TRANSFERENCIA_CAMBIADA','No se puede comprobar la pareja propia. Actualiza la lista.')
-  const proof=await readManualOwnAccountProofTx(tx,population.map(row=>String(row.cuentaId)))
-  const ibanKeys=await readAttestedIbanKeysTx(tx,proof.proof.accountIds)
-  const preflight=preflightConciliarHumanOwnTransfer({source,movements:population,attestedOwnAccountIds:proof.proof.accountIds,registeredAttestedOwnIbanKeys:ibanKeys})
+  const accountIds=snapshot?.tx===tx ? snapshot.accountIds : (await readManualOwnAccountProofTx(tx,population.map(row=>String(row.cuentaId)))).proof.accountIds
+  const ibanKeys=snapshot?.tx===tx ? snapshot.ibanKeys : await readAttestedIbanKeysTx(tx,accountIds)
+  // A classification is reusable solely in the rebuild's pre-DML seal. The
+  // confirmation batch supplies no `classified`, so every mutable predicate is
+  // rebuilt live before its locks and B4 writes.
+  const classified=snapshot?.tx===tx && snapshot.classified ? snapshot.classified : classifyConciliarHumanOwnTransferRows({movements:population,attestedOwnAccountIds:accountIds,registeredAttestedOwnIbanKeys:ibanKeys})
+  const preflight=preflightConciliarHumanOwnTransferFromClassified(parseConciliarHumanOwnTransferSource(source),classified)
   if(!preflight || preflight.selected.importeCentimos!==expectedSelectedAmount || preflight.primary.importeCentimos!==-preflight.paired.importeCentimos) fail('TRANSFERENCIA_CAMBIADA','La pareja propia cambió, ya está confirmada o tiene otra posible pareja. Actualiza la lista.')
   return { ...preflight, ibanKeys }
 }

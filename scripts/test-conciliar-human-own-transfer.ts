@@ -8,6 +8,8 @@ import {
   parseConciliarHumanOwnTransferLegResult,
   parseConciliarHumanOwnTransferSource,
   preflightConciliarHumanOwnTransfer,
+  preflightConciliarHumanOwnTransferTx,
+  withConciliarHumanOwnTransferSealSnapshotTx,
   type ConciliarManualOwnTransferLiveMovement,
 } from '../lib/finanzas/conciliar-human-own-transfer'
 
@@ -102,6 +104,56 @@ test('el recibo humano de pata exige modo, fuente, pareja y UUID completos para 
   assert.equal(parseConciliarHumanOwnTransferLegResult({ ...receipt, confirmationMode: 'AUTO' }), null)
   assert.equal(parseConciliarHumanOwnTransferLegResult({ ...receipt, pairedOperationB4Id: 'not-a-uuid' }), null)
   assert.equal(parseConciliarHumanOwnTransferLegResult({ ...receipt, unexpected: true }), null)
+})
+
+/** A read-only fake transaction. Its fixed query order mirrors the bounded
+ * population, ownership schema, ownership proof and attested IBAN reads. */
+function snapshotTx(population: readonly ConciliarManualOwnTransferLiveMovement[]) {
+  let reads = 0
+  const tx = {
+    async $queryRaw() {
+      reads += 1
+      if (reads === 1) return population
+      if (reads === 2) return [{ found: null }]
+      if (reads === 3) return [...new Set(population.map(item => String(item.cuentaId)))].map(accountId => ({ accountId }))
+      if (reads === 4) return []
+      throw new Error(`LECTURA_FUERA_DE_FOTO_${reads}`)
+    },
+  }
+  return { tx, reads: () => reads }
+}
+
+test('la foto G7 manual es proporcional, decide igual dentro de su callback y no cruza acciones', async () => {
+  const stable = snapshotTx(legs)
+  const inSnapshot = await withConciliarHumanOwnTransferSealSnapshotTx(stable.tx as never, async () => {
+    const first = await preflightConciliarHumanOwnTransferTx(stable.tx as never, source, -12_345)
+    const repeated = await Promise.all(Array.from({ length: 40 }, () =>
+      preflightConciliarHumanOwnTransferTx(stable.tx as never, source, -12_345)))
+    await assert.rejects(
+      preflightConciliarHumanOwnTransferTx(stable.tx as never, { ...source, pairId: 'c'.repeat(64) }, -12_345),
+      (error: unknown) => !!error && typeof error === 'object' && 'code' in error && error.code === 'TRANSFERENCIA_CAMBIADA',
+      'un hash de pareja cambiado no puede recibir la decisión previa de la misma foto',
+    )
+    return { first, repeated }
+  })
+  assert.equal(stable.reads(), 4, 'cuarenta filas del mismo sellado sólo cargan una población, prueba e IBAN')
+  assert.equal(inSnapshot.first.canonicalSource.pairId, PAIR)
+  assert.ok(inSnapshot.repeated.every(result => result.canonicalSource.pairId === inSnapshot.first.canonicalSource.pairId), 'la decisión no cambia dentro de la misma foto')
+
+  const altered = snapshotTx([...legs, movement({ id: 'synthetic-ambiguous', cuentaId: 'synthetic-account-c', fecha: '2026-10-12', importeCentimos: 12_345 })])
+  await assert.rejects(
+    withConciliarHumanOwnTransferSealSnapshotTx(altered.tx as never, async () =>
+      preflightConciliarHumanOwnTransferTx(altered.tx as never, source, -12_345)),
+    (error: unknown) => !!error && typeof error === 'object' && 'code' in error && error.code === 'TRANSFERENCIA_CAMBIADA',
+    'una población/fuente alterada no puede heredar la decisión sellada',
+  )
+
+  await assert.rejects(
+    preflightConciliarHumanOwnTransferTx(stable.tx as never, source, -12_345),
+    /LECTURA_FUERA_DE_FOTO_5/,
+    'fuera del callback la acción repite las lecturas vivas; no recibe la foto previa',
+  )
+  assert.equal(stable.reads(), 5)
 })
 
 console.log('OK: capacidad humana, preflight recíproco, contrato cerrado de veinte parejas y recibo reversible verificados con fixtures sintéticas.')
