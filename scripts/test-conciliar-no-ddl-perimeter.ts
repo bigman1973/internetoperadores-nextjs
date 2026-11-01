@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { readBankInvoicingPopulation } from '../lib/finanzas/conciliar-bank-invoicing-db'
+import { conciliarDocumentSourceGuardBatchSql } from '../lib/finanzas/conciliar-document-source-guard'
 
 const root = process.cwd()
 const text = (p: string) => readFileSync(path.join(root, p), 'utf8')
@@ -34,6 +35,9 @@ const existing = sqlConstants(text('lib/finanzas/bank-invoicing-db.ts'))
 const isolated = sqlConstants(text('lib/finanzas/conciliar-bank-invoicing-db.ts'))
 assert.equal(existing.length, 10)
 assert.deepEqual(isolated, existing, 'bounded source queries must not change')
+const rendered = conciliarDocumentSourceGuardBatchSql.queryForTests([{ kind: 'PAGO_FACTURA_RECIBIDA', facturaRecibidaId: 'pure-source-query-test' }])
+assert.ok(rendered && rendered.sql.includes(' UNION ALL '))
+assert.ok(!rendered.sql.includes('[object Object]'), 'Prisma separator must be SQL text')
 async function main() {
   let queries = 0
   const database = { $queryRawUnsafe: async <T>(_sql: string): Promise<T> => { queries++; throw new Error('NO_SQL_ALLOWED') } }

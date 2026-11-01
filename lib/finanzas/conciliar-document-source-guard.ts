@@ -449,7 +449,7 @@ function sourceBatchQuery(page: readonly BatchSource[], availability: SourceAvai
       SELECT v."sourceKind",v."sourceId"
       FROM (VALUES ${Prisma.join(values)}) AS v("sourceKind","sourceId")
     ), source_rows AS (
-      ${Prisma.join(branches, Prisma.sql` UNION ALL `)}
+      ${Prisma.join(branches, ' UNION ALL ')}
     )
     SELECT * FROM source_rows
     ORDER BY "sourceKind" ASC,"requestedSourceId" ASC
