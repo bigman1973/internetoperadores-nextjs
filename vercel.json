@@ -27,5 +27,27 @@
       "path": "/api/cron/asistente-informe",
       "schedule": "0 6,7 * * *"
     }
-  ]
+  ],
+  "functions": {
+    "app/api/admin/finanzas/conciliar/route.ts": {
+      "regions": [
+        "sfo1"
+      ]
+    },
+    "app/api/admin/finanzas/conciliar/**/route.ts": {
+      "regions": [
+        "sfo1"
+      ]
+    },
+    "app/admin/finanzas/conciliar/page.tsx": {
+      "regions": [
+        "sfo1"
+      ]
+    },
+    "app/admin/finanzas/para-pedir/page.tsx": {
+      "regions": [
+        "sfo1"
+      ]
+    }
+  }
 }
