@@ -1,15 +1,9 @@
-import { after } from 'next/server'
-import { refreshAffectedConciliarProjection } from './conciliar-affected-refresh'
-
-/** Existing finite import hook. It reads only affected durable IDs, never calls
- * an importer/provider or creates an onboarding/full rebuild. */
-export async function refreshConciliarProjectionIfDirty(actorId: number | null) {
-  const result = await refreshAffectedConciliarProjection(actorId)
-  return { rebuilt: result.projectionSynchronized, ...result }
+/** Compatibility-only hook for callers outside this urgent release. The current
+ * production schema has no durable affected-source queue. Do not infer scope,
+ * schedule after(), rebuild implicitly or clear a pre-existing dirty marker. */
+export async function refreshConciliarProjectionIfDirty(_actorId: number | null) {
+  return { rebuilt: false, projectionSynchronized: false, reason: 'MANUAL_REBUILD_REQUIRED' as const }
 }
-export function scheduleConciliarProjectionRefresh(actorId: number | null) {
-  after(async () => {
-    try { await refreshConciliarProjectionIfDirty(actorId) }
-    catch { console.warn('CONCILIAR_REFRESH_PENDING') }
-  })
+export function scheduleConciliarProjectionRefresh(_actorId: number | null): void {
+  // Intentionally non-operative. A complete rebuild remains an explicit action.
 }

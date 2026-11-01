@@ -26,13 +26,6 @@ import { knownBankFeeUndoMovements } from './conciliar-fee-undo'
 import { conciliarDocumentSourceGuardMessage, lockConciliarDocumentSourceForConfirmationTx, supportsConciliarDocumentSourceGuard } from './conciliar-document-source-guard'
 import { Area3ReviewConfirmDbError, confirmArea3ReviewTx, preflightArea3ReviewConfirmTx } from './area3-review-confirm-db'
 import { trustedImpersonationContextResolutionFromRequest } from '@/lib/impersonation-context'
-import {
-  assertConciliarRecoveryIntentExecutableTx,
-  commitConciliarRecoveryIntentTx,
-  prepareConciliarRecoveryIntent,
-  resolveConciliarRecoveryIdentity,
-  type ConciliarRecoveryWriteContext,
-} from './conciliar-recovery'
 
 type Tx = Prisma.TransactionClient & Record<string, any>
 type Db = PrismaClient & Record<string, any>
@@ -829,14 +822,13 @@ async function undo(tx: Tx, actorId: number, command: Extract<ConciliarCommand, 
  * mandatory rollback. The public host below always performs the same live
  * staging/access checks before opening the SERIALIZABLE transaction. All
  * business services still revalidate the effective actor inside this tx. */
-export async function runConciliarTransactionCommand(tx: Tx, actorId: number, raw: unknown, actors: ConciliarHistoryActors, onProgress?: (event: ConciliarBatchProgress) => void, recoveryContext: ConciliarRecoveryWriteContext | null = null) {
+export async function runConciliarTransactionCommand(tx: Tx, actorId: number, raw: unknown, actors: ConciliarHistoryActors, onProgress?: (event: ConciliarBatchProgress) => void) {
   const command = parseConciliarCommand(raw)
   if (command.action === 'confirmar' && 'review' in command && command.review.kind === 'REVIEW_PREVIEW') {
     fail(409, 'REVIEW_PREVIEW_SOLO_LECTURA', 'La previsualización de revisión se ejecuta únicamente en su transacción de sólo lectura.')
   }
-  // The PENDING record is durable before business DML. Re-taking the shared
-  // receipt lock inside this callback prevents late replay/commit races.
-  await assertConciliarRecoveryIntentExecutableTx(tx, recoveryContext)
+  // Production-v1 receipts provide ordinary POST idempotency only. No durable
+  // pre-business intent or terminal recovery result is fabricated in this mode.
   let result: Record<string, any>
   if (command.action === 'confirmar') result = await confirm(tx, actorId, command, actors, onProgress)
   else if (command.action === 'confirmar_traspasos_propios_manual') result = await confirmHumanOwnTransfers(tx, actorId, command, actors)
@@ -858,16 +850,6 @@ export async function runConciliarTransactionCommand(tx: Tx, actorId: number, ra
   if (result.projectionSynchronized !== true || result.idempotent === true) {
     const refreshed = await refreshAffectedConciliarProjectionTx(tx, actorId)
     result = { ...result, projectionSynchronized: refreshed.projectionSynchronized }
-  }
-  if (recoveryContext) {
-    const receiptOperationId = typeof result.recoveryReceiptOperationId === 'string' ? result.recoveryReceiptOperationId : null
-    if (!receiptOperationId) fail(503, 'RECOVERY_RECIBO_AUSENTE', 'La acción no devolvió un recibo recuperable.')
-    await commitConciliarRecoveryIntentTx(
-      tx,
-      recoveryContext,
-      receiptOperationId,
-      recoveryContext.intent.action === 'DESHACER' ? recoveryContext.intent.targetConfirmationOperationId : null,
-    )
   }
   const projection = await responseProjection(tx, 'responseView' in command ? command.responseView : undefined, result.projectionSynchronized === true)
   return { ...result, ...(projection ? { projection } : {}) }
@@ -915,11 +897,6 @@ export async function runConciliarAction(actorId: number, raw: unknown, options:
     fail(409, 'REVIEW_PREVIEW_SOLO_LECTURA', 'La previsualización de revisión no es una mutación.')
   }
   const actors = await conciliarHistoryActors(actorId)
-  const recoveryIdentity = await resolveConciliarRecoveryIdentity(actorId)
-  // This independent commit precedes all financial DML. Any crash, rollback or
-  // exhausted serializable retry therefore remains PENDING; this code never
-  // invents NOT_COMMITTED from a missing receipt.
-  const recoveryContext = await prepareConciliarRecoveryIntent(actorId, command, recoveryIdentity)
   let provisionalCompleted = 0
   const reportProgress = (event: ConciliarBatchProgress) => {
     if (event.kind === 'row-applied') provisionalCompleted = event.completed
@@ -930,7 +907,7 @@ export async function runConciliarAction(actorId: number, raw: unknown, options:
     // Runtime identity and the actor's B4 write ACL are both reread in the
     // SERIALIZABLE transaction immediately before the receipt and business DML.
     await requireLiveWrite(actorId, tx)
-    return runWithConciliarSerializableAuthorization(tx, () => runConciliarTransactionCommand(tx, actorId, command, actors, command.action === 'confirmar' ? reportProgress : undefined, recoveryContext), actorId)
+    return runWithConciliarSerializableAuthorization(tx, () => runConciliarTransactionCommand(tx, actorId, command, actors, command.action === 'confirmar' ? reportProgress : undefined), actorId)
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 90_000 })
   return retryConciliarSerializableP2034(txSerializable, waitForSerializableRetry, retrying => {
     if (command.action === 'confirmar' && 'items' in command) {
