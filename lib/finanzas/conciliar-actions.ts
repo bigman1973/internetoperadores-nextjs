@@ -476,7 +476,7 @@ async function undoB4Leg(tx: Tx, actorId: number, operationId: string, ordinal: 
   })
   if (reversal.idempotente) fail(409, 'B4_IDEMPOTENCY_EXTERNA', 'La reversión ya existe fuera del recibo de Conciliar.')
   const review = json(priorResult.review)
-  if (review.schema === 'AREA3_REVIEW_APPROVED_V1'
+  if ((review.schema === 'AREA3_REVIEW_APPROVED_V1' || review.schema === 'AREA3_REVIEW_APPROVED_V2')
     && typeof review.motivo === 'string'
     && typeof review.sourceHash === 'string'
     && /^[a-f0-9]{64}$/.test(review.sourceHash)
@@ -716,7 +716,7 @@ async function previewArea3Review(tx: Tx, command: Extract<ConciliarCommand, { a
       mensaje: decision.mensaje,
       sourceHash: decision.sourceHash,
       acknowledgement: decision.codigo === 'ACK_REQUERIDO' ? {
-        schema: 'AREA3_REVIEW_ACK_V1', version: '2026-10-30', motivo: row.source.providerReviewReason, sourceHash: decision.sourceHash,
+        schema: 'AREA3_REVIEW_ACK_V2', version: '2026-11-01', motivo: row.source.providerReviewReason, sourceHash: decision.sourceHash,
       } : null,
     },
   }
@@ -737,7 +737,7 @@ async function confirmArea3Review(tx: Tx, actorId: number, command: Extract<Conc
     INSERT INTO eventos_justificacion_b4(id,operacion_id,movimiento_id,accion,actor_id,detalle,created_at)
     VALUES(CAST(${uuidKey('AREA3_REVIEW_CONFIRM_EVENT', receipt.id, row.id)} AS uuid),CAST(${applied.operationB4Id} AS uuid),${applied.result.movimientoId},'APROBACION'::"AccionEventoJustificacionB4",${actorId},
       CAST(${JSON.stringify({
-        schema: 'AREA3_REVIEW_CONFIRM_AUDIT_V1',
+        schema: 'AREA3_REVIEW_CONFIRM_AUDIT_V2',
         conciliarOperationId: receipt.id,
         rowId: row.id,
         actorId,
@@ -745,9 +745,10 @@ async function confirmArea3Review(tx: Tx, actorId: number, command: Extract<Conc
         acknowledgement: command.review.acknowledgement,
         review: applied.result.review,
         // La decisión durable proviene del mismo preflight bloqueado que B4
-        // acaba de confirmar; la auditoría conserva también su procedencia.
-        documentEvidenceKind: applied.result.review.documentEvidenceKind,
-        documentVersionHash: applied.result.review.documentVersionHash,
+        // acaba de confirmar; la auditoría conserva el snapshot de estado,
+        // no una supuesta huella de bytes remotos.
+        documentStateSnapshotKind: applied.result.review.documentStateSnapshotKind,
+        documentStateSnapshotHash: applied.result.review.documentStateSnapshotHash,
         versionB4: applied.result.review.versionB4,
         amountLineCentimos: applied.result.review.importeLineaCentimos,
         documentNetBeforeCentimos: applied.result.review.netoDocumentoPrevioCentimos,

@@ -7,7 +7,7 @@ import { conciliarAliasesContainDocumentaryAlias, conciliarAliasesMatch } from '
 import { movementPartyAliases } from './conciliar-db'
 import { type ConciliarProjectionSource } from './conciliar-contract'
 import { safeInteger } from './conciliar-core'
-import { readArea3ReviewDocumentEvidenceTx } from './area3-review-document-evidence'
+import { readArea3ReviewDocumentStateSnapshotTx } from './area3-review-document-evidence'
 import {
   evaluateArea3ReviewConfirm,
   type Area3ReviewAcknowledgement,
@@ -44,6 +44,15 @@ type SourceRow = Readonly<{
   referenciaDocumento: string | null
   fechaDocumento: string | null
   importeObjetivoDocumentoCentimos: number | bigint | string | null
+  estadoDocumento: string | null
+  calidadDocumento: string | null
+  copiaDeId: string | null
+  naturalezaDocumento: string | null
+  conflictoIdentidad: boolean | null
+  duplicadoExterno: boolean | null
+  versionCalidad: number | bigint | string | null
+  versionNaturaleza: number | bigint | string | null
+  documentoUpdatedAt: string | null
   driveId: string | null
   itemId: string | null
   archivo: string | null
@@ -104,6 +113,10 @@ async function currentMaterialTx(tx: Tx, row: SealedReviewRow, lock: boolean): P
       b4_importe_bancario_centimos(m.importe) AS "importeBancoCentimos",COALESCE(e.version,1) AS "versionB4",
       fr.id AS "facturaId",fr.proveedor,fr.num_factura AS "referenciaDocumento",fr.fecha::date::text AS "fechaDocumento",
       -b4_importe_bancario_centimos(fr.total) AS "importeObjetivoDocumentoCentimos",
+      fr.estado::text AS "estadoDocumento",fr.calidad::text AS "calidadDocumento",fr.copia_de_id AS "copiaDeId",
+      fr.naturaleza_documento::text AS "naturalezaDocumento",fr.conflicto_identidad AS "conflictoIdentidad",
+      fr.duplicado_externo AS "duplicadoExterno",fr.version_calidad AS "versionCalidad",
+      fr.version_naturaleza_documento AS "versionNaturaleza",fr.updated_at::text AS "documentoUpdatedAt",
       fr.onedrive_drive_id AS "driveId",fr.onedrive_item_id AS "itemId",fr.archivo_onedrive AS archivo
     FROM movimientos_bancarios m
     JOIN facturas_recibidas fr ON fr.id=${sealed.invoiceId}
@@ -129,8 +142,26 @@ async function currentMaterialTx(tx: Tx, row: SealedReviewRow, lock: boolean): P
   if (!source || source.movementId !== sealed.movementId || source.facturaId !== sealed.invoiceId) {
     fail(409, 'REVISION_AREA3_OBSOLETA', 'El movimiento o la factura ya no están disponibles para esta revisión.')
   }
-  const documentEvidence = await readArea3ReviewDocumentEvidenceTx(tx, {
-    source: { invoiceId: source.facturaId, driveId: source.driveId, itemId: source.itemId, archivo: source.archivo },
+  const documentStateSnapshot = await readArea3ReviewDocumentStateSnapshotTx(tx, {
+    invoice: {
+      invoiceId: source.facturaId,
+      proveedor: source.proveedor,
+      referencia: source.referenciaDocumento,
+      fecha: source.fechaDocumento,
+      importeObjetivoCentimos: cents(source.importeObjetivoDocumentoCentimos),
+      estado: source.estadoDocumento,
+      calidad: source.calidadDocumento,
+      copiaDeId: source.copiaDeId,
+      naturaleza: source.naturalezaDocumento,
+      conflictoIdentidad: source.conflictoIdentidad,
+      duplicadoExterno: source.duplicadoExterno,
+      versionCalidad: cents(source.versionCalidad),
+      versionNaturaleza: cents(source.versionNaturaleza),
+      driveId: source.driveId,
+      itemId: source.itemId,
+      archivo: source.archivo,
+      updatedAt: source.documentoUpdatedAt,
+    },
     projectionSource: row.source,
     lock,
   })
@@ -189,9 +220,9 @@ async function currentMaterialTx(tx: Tx, row: SealedReviewRow, lock: boolean): P
     archivoControladoDisponible: controlled,
     documentoAccesible: true,
     documentoCanonico: wrapperSound,
-    documentLifecycleEligible: documentEvidence.eligible,
-    documentEvidenceKind: documentEvidence.kind,
-    documentVersionHash: documentEvidence.hash,
+    documentStateSnapshotEligible: documentStateSnapshot.eligible,
+    documentStateSnapshotKind: documentStateSnapshot.kind,
+    documentStateSnapshotHash: documentStateSnapshot.snapshotHash,
   }
 }
 
@@ -232,7 +263,7 @@ export async function preflightArea3ReviewConfirmTx(tx: Tx, row: SealedReviewRow
 /**
  * Applies exactly one DOCUMENTO B4 line after the Area 3 core has accepted the
  * signed acknowledgement. No input supplies an amount, provider, source ID,
- * lifecycle version or difference reason. `confirmarB4Tx` rechecks live source,
+ * source-state version or difference reason. `confirmarB4Tx` rechecks live source,
  * document capacity, current permission/audit transaction and undo semantics.
  */
 export async function confirmArea3ReviewTx(
@@ -267,15 +298,15 @@ export async function confirmArea3ReviewTx(
       state: 'confirmada', movimientoId: material.movimientoId, operationB4Id: String(confirmed.operacion.id),
       sourceKind: 'PAGO_FACTURA_RECIBIDA',
       review: {
-        schema: 'AREA3_REVIEW_APPROVED_V1',
+        schema: 'AREA3_REVIEW_APPROVED_V2',
         acknowledgementSchema: acknowledgement.schema,
         acknowledgementVersion: acknowledgement.version,
         motivo: decision.motivo,
         sourceHash: decision.sourceHash,
         decisionHash: row.decisionHash,
         advertencia: decision.advertencia,
-        documentEvidenceKind: decision.documentEvidenceKind,
-        documentVersionHash: decision.documentVersionHash,
+        documentStateSnapshotKind: decision.documentStateSnapshotKind,
+        documentStateSnapshotHash: decision.documentStateSnapshotHash,
         versionB4: decision.versionB4,
         importeLineaCentimos: decision.importeLineaCentimos,
         netoDocumentoPrevioCentimos: decision.netoDocumentoPrevioCentimos,

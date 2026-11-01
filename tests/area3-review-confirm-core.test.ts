@@ -31,14 +31,24 @@ function material(overrides: Partial<Area3ReviewConfirmMaterial> = {}): Area3Rev
     archivoControladoDisponible: true,
     documentoAccesible: true,
     documentoCanonico: true,
-    documentLifecycleEligible: true,
-    documentEvidenceKind: 'LIFECYCLE_CAPTURED',
-    documentVersionHash: 'c'.repeat(64),
+    documentStateSnapshotEligible: true,
+    documentStateSnapshotKind: 'PRODUCTIVE_CANONICAL_STATE',
+    documentStateSnapshotHash: 'c'.repeat(64),
     ...overrides,
   }
 }
 
-test('el preflight ámbar sólo solicita ACK y la confirmación exige su hash versionado', () => {
+function acknowledgement(source: Area3ReviewConfirmMaterial) {
+  return {
+    schema: 'AREA3_REVIEW_ACK_V2' as const,
+    version: '2026-11-01' as const,
+    motivo: source.motivoProyeccion!,
+    sourceHash: area3ReviewSourceHash(source),
+    advertenciaReconocida: true as const,
+  }
+}
+
+test('el preflight ámbar sólo solicita ACK V2 y la confirmación conserva ámbar', () => {
   const source = material()
   const preview = evaluateArea3ReviewConfirm(source)
   assert.equal(preview.ok, false)
@@ -46,20 +56,38 @@ test('el preflight ámbar sólo solicita ACK y la confirmación exige su hash ve
   assert.equal(preview.color, 'AMBAR')
   assert.equal(preview.confirmableGreen, false)
 
-  const acknowledgement = {
-    schema: 'AREA3_REVIEW_ACK_V1' as const,
-    version: '2026-10-30' as const,
-    motivo: 'SIN_REFERENCIA_DOCUMENTAL' as const,
-    sourceHash: area3ReviewSourceHash(source),
-    advertenciaReconocida: true as const,
-  }
-  const approved = evaluateArea3ReviewConfirm(source, acknowledgement)
+  const approved = evaluateArea3ReviewConfirm(source, acknowledgement(source))
   assert.equal(approved.ok, true)
   if (!approved.ok) return
   assert.equal(approved.color, 'AMBAR')
   assert.equal(approved.confirmableGreen, false)
   assert.equal(approved.importeLineaCentimos, -10_000)
   assert.equal(approved.restoMovimientoCentimos, 0)
+  assert.equal(approved.documentStateSnapshotKind, 'PRODUCTIVE_CANONICAL_STATE')
+})
+
+test('un cambio de snapshot productivo invalida el ACK aunque importe y fila permanezcan iguales', () => {
+  const source = material()
+  const ack = acknowledgement(source)
+  const changed = material({ documentStateSnapshotHash: 'd'.repeat(64) })
+  assert.notEqual(area3ReviewSourceHash(source), area3ReviewSourceHash(changed), 'el snapshot se incluye en el sello ACK')
+  const rejected = evaluateArea3ReviewConfirm(changed, ack)
+  assert.equal(rejected.ok, false)
+  assert.equal(rejected.codigo, 'ACK_SOURCE_STALE')
+})
+
+test('el snapshot ausente o de una clase ajena bloquea sin reclamar bytes remotos', () => {
+  const missing = evaluateArea3ReviewConfirm(material({ documentStateSnapshotEligible: false, documentStateSnapshotKind: null, documentStateSnapshotHash: null }))
+  assert.equal(missing.ok, false)
+  assert.equal(missing.codigo, 'DOCUMENT_STATE_SNAPSHOT_NO_VIGENTE')
+
+  const malformed = evaluateArea3ReviewConfirm(material({ documentStateSnapshotKind: null }))
+  assert.equal(malformed.ok, false)
+  assert.equal(malformed.codigo, 'DOCUMENT_STATE_SNAPSHOT_KIND_REQUIRED')
+
+  const noHash = evaluateArea3ReviewConfirm(material({ documentStateSnapshotHash: null }))
+  assert.equal(noHash.ok, false)
+  assert.equal(noHash.codigo, 'DOCUMENT_STATE_SNAPSHOT_HASH_REQUIRED')
 })
 
 test('un importe documental distinto no habilita pagos parciales, diferencias ni ajustes ficticios', () => {
@@ -131,21 +159,14 @@ test('DOCUMENTARY exige ACK humano sellado, conserva ámbar y nombra el proveedo
   assert.match(preview.mensaje, /BUTPO/)
   assert.match(preview.mensaje, /F260008/)
 
-  const acknowledgement = {
-    schema: 'AREA3_REVIEW_ACK_V1' as const,
-    version: '2026-10-30' as const,
-    motivo: 'REFERENCIA_NUMERO_INCOMPLETO' as const,
-    sourceHash: area3ReviewSourceHash(source),
-    advertenciaReconocida: true as const,
-  }
-  const approved = evaluateArea3ReviewConfirm(source, acknowledgement)
+  const approved = evaluateArea3ReviewConfirm(source, acknowledgement(source))
   assert.equal(approved.ok, true)
   if (!approved.ok) return
   assert.equal(approved.color, 'AMBAR')
   assert.equal(approved.confirmableGreen, false)
 })
 
-test('DOCUMENTARY no equivale a EXACT, se sella con su proveedor y estados ajenos siguen bloqueados', () => {
+test('un proveedor documental ajeno no equivale a identidad exacta y se sella en el ACK', () => {
   const documentary = material({ proveedorExacto: false, tipoProveedor: 'DOCUMENTARY', proveedorDocumental: 'HubSpot' })
   const alteredProvider = { ...documentary, proveedorDocumental: 'Otro proveedor' }
   assert.notEqual(area3ReviewSourceHash(documentary), area3ReviewSourceHash(alteredProvider), 'el ACK no sobrevive a otro proveedor documental')
@@ -154,20 +175,10 @@ test('DOCUMENTARY no equivale a EXACT, se sella con su proveedor y estados ajeno
   assert.equal(malformed.ok, false)
   assert.equal(malformed.codigo, 'PROVEEDOR_DOCUMENTAL_DESCONOCIDO')
 
-  const incoherent = evaluateArea3ReviewConfirm(material({ proveedorExacto: false, tipoProveedor: 'INCOHERENT' }))
-  assert.equal(incoherent.ok, false)
-  assert.equal(incoherent.codigo, 'PROVEEDOR_TIPO_INCOHERENTE')
-  assert.equal(incoherent.color, 'ROJO')
-})
-
-test('la procedencia legacy queda sellada en el ACK y una procedencia ausente bloquea aunque haya hash', () => {
-  const captured = material({ documentEvidenceKind: 'LIFECYCLE_CAPTURED' })
-  const legacy = material({ documentEvidenceKind: 'LEGACY_CONTROLLED_FINGERPRINT' })
-  assert.notEqual(area3ReviewSourceHash(captured), area3ReviewSourceHash(legacy), 'el ACK no sobrevive a un cambio entre snapshot y huella legacy')
-
-  const missing = evaluateArea3ReviewConfirm(material({ documentEvidenceKind: null }))
-  assert.equal(missing.ok, false)
-  assert.equal(missing.codigo, 'DOCUMENT_EVIDENCE_KIND_REQUIRED')
+  const foreignProvider = evaluateArea3ReviewConfirm(material({ proveedorExacto: false, tipoProveedor: 'INCOHERENT' }))
+  assert.equal(foreignProvider.ok, false)
+  assert.equal(foreignProvider.codigo, 'PROVEEDOR_TIPO_INCOHERENTE')
+  assert.equal(foreignProvider.color, 'ROJO')
 })
 
 test('una tarjeta etiquetada no es una factura, pero una factura explícita y una referencia separada siguen bloqueadas', () => {

@@ -9,9 +9,9 @@ import { normalizarReferenciaFactura, referenciasFacturaCitadas } from './concil
  * ejecutar esta misma función tanto en el preflight como bajo los bloqueos de
  * la confirmación. Así la UI nunca inventa una condición seleccionable.
  */
-export const AREA3_REVIEW_CONFIRM_SCHEMA = 'AREA3_REVIEW_CONFIRM_V1' as const
-export const AREA3_REVIEW_ACK_SCHEMA = 'AREA3_REVIEW_ACK_V1' as const
-export const AREA3_REVIEW_ACK_VERSION = '2026-10-30' as const
+export const AREA3_REVIEW_CONFIRM_SCHEMA = 'AREA3_REVIEW_CONFIRM_V2' as const
+export const AREA3_REVIEW_ACK_SCHEMA = 'AREA3_REVIEW_ACK_V2' as const
+export const AREA3_REVIEW_ACK_VERSION = '2026-11-01' as const
 export const AREA3_REVIEW_CONFIRM_REASONS = [
   'SIN_REFERENCIA_DOCUMENTAL',
   'REFERENCIA_NUMERO_INCOMPLETO',
@@ -53,12 +53,12 @@ export type Area3ReviewConfirmMaterial = Readonly<{
   archivoControladoDisponible: boolean
   documentoAccesible: boolean
   documentoCanonico: boolean
-  /** Resultado de la misma guarda lifecycle que volverá a bloquearse al confirmar. */
-  documentLifecycleEligible: boolean
-  /** Procedencia de una prueba documental que el servidor volvió a comprobar. */
-  documentEvidenceKind: 'LIFECYCLE_CAPTURED' | 'LEGACY_CONTROLLED_FINGERPRINT' | null
-  /** SHA-256 documental verificado por servidor; nunca es input HTTP. */
-  documentVersionHash: string | null
+  /** Snapshot de estado documental productivo, revalidado con la guarda server-owned. */
+  documentStateSnapshotEligible: boolean
+  /** Nunca representa bytes remotos ni una huella de contenido. */
+  documentStateSnapshotKind: 'PRODUCTIVE_CANONICAL_STATE' | null
+  /** Sello SHA-256 del estado productivo canónico; nunca es input HTTP. */
+  documentStateSnapshotHash: string | null
 }>
 
 export type Area3ReviewBlockCode =
@@ -70,9 +70,9 @@ export type Area3ReviewBlockCode =
   | 'DOCUMENTO_NO_CANONICO'
   | 'DOCUMENTO_NO_ACCESIBLE'
   | 'ARCHIVO_CONTROLADO_REQUERIDO'
-  | 'DOCUMENT_LIFECYCLE_NO_VIGENTE'
-  | 'DOCUMENT_EVIDENCE_KIND_REQUIRED'
-  | 'DOCUMENT_VERSION_HASH_REQUIRED'
+  | 'DOCUMENT_STATE_SNAPSHOT_NO_VIGENTE'
+  | 'DOCUMENT_STATE_SNAPSHOT_KIND_REQUIRED'
+  | 'DOCUMENT_STATE_SNAPSHOT_HASH_REQUIRED'
   | 'IMPORTE_DOCUMENTAL_DESCONOCIDO'
   | 'IMPORTE_BANCARIO_INVALIDO'
   | 'FECHA_BANCO_INVALIDA'
@@ -99,8 +99,8 @@ export type Area3ReviewDecision =
     motivo: Area3ReviewConfirmReason
     advertencia: string
     sourceHash: string
-    documentEvidenceKind: 'LIFECYCLE_CAPTURED' | 'LEGACY_CONTROLLED_FINGERPRINT'
-    documentVersionHash: string
+    documentStateSnapshotKind: 'PRODUCTIVE_CANONICAL_STATE'
+    documentStateSnapshotHash: string
     versionB4: number
     importeLineaCentimos: number
     restoMovimientoCentimos: 0
@@ -152,9 +152,9 @@ export function area3ReviewSourceHash(material: Area3ReviewConfirmMaterial): str
     archivoControladoDisponible: material.archivoControladoDisponible,
     documentoAccesible: material.documentoAccesible,
     documentoCanonico: material.documentoCanonico,
-    documentLifecycleEligible: material.documentLifecycleEligible,
-    documentEvidenceKind: material.documentEvidenceKind,
-    documentVersionHash: material.documentVersionHash,
+    documentStateSnapshotEligible: material.documentStateSnapshotEligible,
+    documentStateSnapshotKind: material.documentStateSnapshotKind,
+    documentStateSnapshotHash: material.documentStateSnapshotHash,
   }
   return createHash('sha256').update(stable(canonical), 'utf8').digest('hex')
 }
@@ -258,14 +258,14 @@ export function evaluateArea3ReviewConfirm(
   if (!material.archivoControladoDisponible) {
     return blocked('ARCHIVO_CONTROLADO_REQUERIDO', 'El documento no conserva un archivo controlado accesible.', sourceHash)
   }
-  if (!material.documentLifecycleEligible) {
-    return blocked('DOCUMENT_LIFECYCLE_NO_VIGENTE', 'La versión documental ya no es vigente o cambió desde la propuesta; actualiza y vuelve a revisar.', sourceHash)
+  if (!material.documentStateSnapshotEligible) {
+    return blocked('DOCUMENT_STATE_SNAPSHOT_NO_VIGENTE', 'El estado documental productivo ya no es vigente o cambió desde la propuesta; actualiza y vuelve a revisar.', sourceHash)
   }
-  if (material.documentEvidenceKind !== 'LIFECYCLE_CAPTURED' && material.documentEvidenceKind !== 'LEGACY_CONTROLLED_FINGERPRINT') {
-    return blocked('DOCUMENT_EVIDENCE_KIND_REQUIRED', 'El documento no conserva una procedencia de evidencia verificable para esta excepción.', sourceHash)
+  if (material.documentStateSnapshotKind !== 'PRODUCTIVE_CANONICAL_STATE') {
+    return blocked('DOCUMENT_STATE_SNAPSHOT_KIND_REQUIRED', 'El documento no conserva un estado productivo verificable para esta excepción.', sourceHash)
   }
-  if (typeof material.documentVersionHash !== 'string' || !/^[a-f0-9]{64}$/.test(material.documentVersionHash)) {
-    return blocked('DOCUMENT_VERSION_HASH_REQUIRED', 'El documento no conserva una huella de versión verificable para esta excepción.', sourceHash)
+  if (typeof material.documentStateSnapshotHash !== 'string' || !/^[a-f0-9]{64}$/.test(material.documentStateSnapshotHash)) {
+    return blocked('DOCUMENT_STATE_SNAPSHOT_HASH_REQUIRED', 'El documento no conserva un snapshot de estado verificable para esta excepción.', sourceHash)
   }
   if (!isCents(material.importeBancoCentimos)) {
     return blocked('IMPORTE_BANCARIO_INVALIDO', 'El importe bancario no se puede comprobar con seguridad.', sourceHash, 'ROJO')
@@ -318,8 +318,8 @@ export function evaluateArea3ReviewConfirm(
     motivo: material.motivoProyeccion,
     advertencia: warning(material),
     sourceHash,
-    documentEvidenceKind: material.documentEvidenceKind,
-    documentVersionHash: material.documentVersionHash,
+    documentStateSnapshotKind: material.documentStateSnapshotKind,
+    documentStateSnapshotHash: material.documentStateSnapshotHash,
     versionB4: material.versionB4,
     importeLineaCentimos: material.importeBancoCentimos,
     restoMovimientoCentimos: 0,

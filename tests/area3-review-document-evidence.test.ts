@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import test from 'node:test'
 import { classifyPrisma5RawSqlStatement } from '../lib/prisma'
-import { readArea3ReviewDocumentEvidenceTx } from '../lib/finanzas/area3-review-document-evidence'
+import { readArea3ReviewDocumentStateSnapshotTx } from '../lib/finanzas/area3-review-document-evidence'
 import { readConciliarDocumentSourceEligibilityTx } from '../lib/finanzas/conciliar-document-source-guard'
 
 const DRIVE = 'drive-sintetico'
@@ -37,7 +37,7 @@ function transaction(fixture: Fixture = {}) {
           return [{ facturasRecibidas: available, nominas: available, nominaDocumentos: available, adjuntosB5: available }] as T
         }
         if (sql.includes('FROM facturas_recibidas fr')) return (fixture.sourceRows ?? []) as T
-        throw new Error('AREA3_REVIEW_EVIDENCE_SQL_UNRECOGNIZED')
+        throw new Error('AREA3_REVIEW_SNAPSHOT_SQL_UNRECOGNIZED')
       },
     },
   }
@@ -45,7 +45,25 @@ function transaction(fixture: Fixture = {}) {
 
 function source(projectionSource: Record<string, unknown> = {}) {
   return {
-    source: { invoiceId: INVOICE, driveId: DRIVE, itemId: ITEM, archivo: ARCHIVO },
+    invoice: {
+      invoiceId: INVOICE,
+      proveedor: 'Proveedor sintético, S.L.',
+      referencia: 'FAC-2026-42',
+      fecha: '2026-10-29',
+      importeObjetivoCentimos: -10_000,
+      estado: 'VALIDADA',
+      calidad: 'VALIDA',
+      copiaDeId: null,
+      naturaleza: 'FACTURA_RECIBIDA',
+      conflictoIdentidad: false,
+      duplicadoExterno: false,
+      versionCalidad: 1,
+      versionNaturaleza: 1,
+      driveId: DRIVE,
+      itemId: ITEM,
+      archivo: ARCHIVO,
+      updatedAt: UPDATED_AT,
+    },
     projectionSource: { kind: 'PAGO_FACTURA_RECIBIDA' as const, facturaRecibidaId: INVOICE, movimientoId: 'movimiento-sintetico', versionB4: 1, ...projectionSource },
   }
 }
@@ -73,54 +91,90 @@ const controlledSourceRow = {
   updatedAt: UPDATED_AT,
 }
 
-test('una fuente productiva disponible no se convierte en hash de bytes ni autoriza la revisión humana', async () => {
-  await withControlledDrive(async () => {
-    const eligibilityMock = transaction({ sourceRows: [controlledSourceRow] })
-    const projectionSource = source().projectionSource
-    const eligibility = await readConciliarDocumentSourceEligibilityTx(eligibilityMock.tx as any, projectionSource as any)
-    assert.equal(eligibility.elegible, true, 'la fuente controlada actual puede ser legible por la guarda de fuente')
-    assert.match(eligibility.versionEstado, /^[a-f0-9]{64}$/)
+async function sealedProjectionSource() {
+  const guard = transaction({ sourceRows: [controlledSourceRow] })
+  const projectionSource = source().projectionSource
+  const eligibility = await readConciliarDocumentSourceEligibilityTx(guard.tx as any, projectionSource as any)
+  assert.equal(eligibility.elegible, true, 'la fuente controlada actual debe ser legible por la guarda')
+  return { ...projectionSource, documentLifecycleVersionState: eligibility.versionEstado }
+}
 
+test('el estado documental productivo controlado crea un snapshot semántico, no una huella de bytes', async () => {
+  await withControlledDrive(async () => {
+    const projectionSource = await sealedProjectionSource()
     const previewMock = transaction({ sourceRows: [controlledSourceRow] })
-    const preview = await readArea3ReviewDocumentEvidenceTx(previewMock.tx as any, { ...source(), lock: false })
-    assert.deepEqual(preview, { eligible: false, hash: null, kind: null }, 'metadata disponible no es una huella de contenido autenticada')
+    const preview = await readArea3ReviewDocumentStateSnapshotTx(previewMock.tx as any, { invoice: source().invoice, projectionSource, lock: false })
+    assert.equal(preview.eligible, true)
+    assert.equal(preview.kind, 'PRODUCTIVE_CANONICAL_STATE')
+    assert.match(preview.snapshotHash ?? '', /^[a-f0-9]{64}$/)
 
     const confirmMock = transaction({ sourceRows: [controlledSourceRow] })
-    const locked = await readArea3ReviewDocumentEvidenceTx(confirmMock.tx as any, {
-      ...source({ documentLifecycleVersionState: eligibility.versionEstado }),
-      lock: true,
-    })
-    assert.deepEqual(locked, { eligible: false, hash: null, kind: null }, 'ni la misma fuente bloqueada concede REVIEW_CONFIRM sin observación autenticada')
+    const locked = await readArea3ReviewDocumentStateSnapshotTx(confirmMock.tx as any, { invoice: source().invoice, projectionSource, lock: true })
+    assert.deepEqual(locked, preview, 'la misma foto productiva sellada conserva el mismo ACK')
     assert.ok(confirmMock.statements.some(sql => /FOR KEY SHARE OF fr/.test(sql)), 'la confirmación vuelve a bloquear la fuente real')
 
-    for (const statement of [...eligibilityMock.statements, ...previewMock.statements, ...confirmMock.statements]) {
+    for (const statement of [...previewMock.statements, ...confirmMock.statements]) {
       for (const forbidden of ['document_version_', 'area3_received_document_hashes', 'content_sha256', 'file_sha256', 'payload_hash', 'private_storage_handle']) {
-        assert.equal(statement.includes(forbidden), false, `la lectura de evidencia no depende de ${forbidden}`)
+        assert.equal(statement.includes(forbidden), false, `el snapshot no depende de ${forbidden}`)
       }
     }
   })
 })
 
-test('ausencia de esquema o fila productiva permanece ámbar y no hace fallback histórico', async () => {
+test('cualquier cambio de estado, identidad o fuente invalida el snapshot sin fallback elegible', async () => {
   await withControlledDrive(async () => {
+    const projectionSource = await sealedProjectionSource()
+    for (const invoice of [
+      { ...source().invoice, estado: 'RECHAZADA' },
+      { ...source().invoice, conflictoIdentidad: true },
+      { ...source().invoice, duplicadoExterno: true },
+      { ...source().invoice, proveedor: null },
+      { ...source().invoice, referencia: null },
+      { ...source().invoice, itemId: 'x' },
+      { ...source().invoice, updatedAt: null },
+    ]) {
+      const mock = transaction({ sourceRows: [controlledSourceRow] })
+      const result = await readArea3ReviewDocumentStateSnapshotTx(mock.tx as any, { invoice, projectionSource, lock: false })
+      assert.deepEqual(result, { eligible: false, snapshotHash: null, kind: null }, JSON.stringify(invoice))
+    }
+
+    const changedSource = transaction({ sourceRows: [{ ...controlledSourceRow, updatedAt: '2026-10-29 12:01:00+00' }] })
+    const changed = await readArea3ReviewDocumentStateSnapshotTx(changedSource.tx as any, { invoice: source().invoice, projectionSource, lock: true })
+    assert.deepEqual(changed, { eligible: false, snapshotHash: null, kind: null }, 'una fuente modificada no conserva el estado sellado')
+  })
+})
+
+test('ausencia de esquema o fila productiva permanece ámbar y no consulta un historial', async () => {
+  await withControlledDrive(async () => {
+    const projectionSource = { ...source().projectionSource, documentLifecycleVersionState: 'a'.repeat(64) }
     for (const fixture of [{ sourceTables: false }, { sourceRows: [] }] as const) {
       const mock = transaction(fixture)
-      const result = await readArea3ReviewDocumentEvidenceTx(mock.tx as any, { ...source(), lock: true })
-      assert.deepEqual(result, { eligible: false, hash: null, kind: null })
+      const result = await readArea3ReviewDocumentStateSnapshotTx(mock.tx as any, { invoice: source().invoice, projectionSource, lock: true })
+      assert.deepEqual(result, { eligible: false, snapshotHash: null, kind: null })
       if (fixture.sourceTables === false) assert.equal(mock.statements.length, 1, 'sin tabla actual no se intenta una ruta histórica')
       assert.equal(mock.statements.some(sql => /document_version_|area3_received_document_hashes/.test(sql)), false)
     }
   })
 })
 
-test('el lector de evidencia activo no importa lifecycle, recovery ni APIs de archivo', () => {
+test('el lector de snapshot no importa lifecycle, recovery ni APIs de archivo y no afirma bytes remotos', () => {
   const root = resolve(__dirname, '..')
   const evidence = readFileSync(resolve(root, 'lib/finanzas/area3-review-document-evidence.ts'), 'utf8')
   assert.match(evidence, /readConciliarDocumentSourceEligibilityTx/)
   assert.match(evidence, /lockConciliarDocumentSourceForConfirmationTx/)
-  assert.match(evidence, /void input\.source/)
-  assert.match(evidence, /return unavailable\(\)/)
-  assert.doesNotMatch(evidence, /conciliar-document-lifecycle-guard|conciliar-recovery|document_version_|area3_received_document_hashes|contentSha|fileSha|payloadHash|fetch\(|https?:/i)
+  assert.match(evidence, /PRODUCTIVE_CANONICAL_STATE/)
+  assert.match(evidence, /not a content hash/)
+  const forbidden = new RegExp([
+    ['conciliar-document-', 'lifecycle-guard'].join(''),
+    ['conciliar-', 'recovery'].join(''),
+    ['document_', 'version_'].join(''),
+    ['area3_received_', 'document_hashes'].join(''),
+    ['document', 'ContentHash'].join(''),
+    ['LEGACY_', 'CONTROLLED_FINGERPRINT'].join(''),
+    ['content', 'Sha'].join(''), ['file', 'Sha'].join(''), ['payload', 'Hash'].join(''),
+    'fetch\\(', 'https?:',
+  ].join('|'), 'i')
+  assert.doesNotMatch(evidence, forbidden)
 })
 
-console.log('OK: fuente disponible no prueba bytes ni concede revisión; fallback ámbar llano, sin lifecycle, recovery, DML ni llamadas externas.')
+console.log('OK: snapshot productivo server-owned, fuente bloqueada y fallos cerrados; sin bytes remotos, lifecycle, recovery, DML ni llamadas externas.')

@@ -102,8 +102,8 @@ export type ConciliarReviewPreview = Readonly<{
   mensaje: string;
   sourceHash: string | null;
   acknowledgement: Readonly<{
-    schema: 'AREA3_REVIEW_ACK_V1';
-    version: '2026-10-30';
+    schema: 'AREA3_REVIEW_ACK_V2';
+    version: '2026-11-01';
     motivo: 'SIN_REFERENCIA_DOCUMENTAL' | 'REFERENCIA_NUMERO_INCOMPLETO';
     sourceHash: string;
   }> | null;
@@ -441,8 +441,8 @@ export function parseConciliarReviewPreviewResponse(value: unknown): ConciliarRe
   if (color !== 'AMBAR' && color !== 'ROJO') throw new Error('La revisión no conserva un color verificable.');
   const acknowledgement = raw.acknowledgement === null ? null : object(raw.acknowledgement, 'reviewPreview.acknowledgement');
   const parsedAcknowledgement = acknowledgement === null ? null : {
-    schema: acknowledgement.schema === 'AREA3_REVIEW_ACK_V1' ? acknowledgement.schema : (() => { throw new Error('La revisión no conserva la advertencia vigente.'); })(),
-    version: acknowledgement.version === '2026-10-30' ? acknowledgement.version : (() => { throw new Error('La revisión no conserva la advertencia vigente.'); })(),
+    schema: acknowledgement.schema === 'AREA3_REVIEW_ACK_V2' ? acknowledgement.schema : (() => { throw new Error('La revisión no conserva la advertencia vigente.'); })(),
+    version: acknowledgement.version === '2026-11-01' ? acknowledgement.version : (() => { throw new Error('La revisión no conserva la advertencia vigente.'); })(),
     motivo: acknowledgement.motivo === 'SIN_REFERENCIA_DOCUMENTAL' || acknowledgement.motivo === 'REFERENCIA_NUMERO_INCOMPLETO'
       ? acknowledgement.motivo : (() => { throw new Error('La revisión no conserva un motivo permitido.'); })(),
     sourceHash: decisionHash(acknowledgement.sourceHash, 'reviewPreview.acknowledgement.sourceHash'),

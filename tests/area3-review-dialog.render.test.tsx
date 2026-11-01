@@ -13,7 +13,7 @@ const row: ConciliarRow = {
 const review: ConciliarReviewPreview = {
   id: row.id, decisionHash: row.decisionHash, color: 'AMBAR', puedeConfirmarRevision: true, confirmableGreen: false,
   codigo: 'ACK_REQUERIDO', mensaje: 'El proveedor y el importe coinciden, pero requiere revisión.', sourceHash: 'b'.repeat(64),
-  acknowledgement: { schema: 'AREA3_REVIEW_ACK_V1', version: '2026-10-30', motivo: 'SIN_REFERENCIA_DOCUMENTAL', sourceHash: 'b'.repeat(64) },
+  acknowledgement: { schema: 'AREA3_REVIEW_ACK_V2', version: '2026-11-01', motivo: 'SIN_REFERENCIA_DOCUMENTAL', sourceHash: 'b'.repeat(64) },
 }
 
 test('render G7: la excepción permanece ámbar, no es seleccionable y requiere ACK humano', () => {

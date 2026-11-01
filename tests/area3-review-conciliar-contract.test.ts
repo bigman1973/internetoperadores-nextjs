@@ -27,7 +27,7 @@ test('REVIEW_CONFIRM exige ACK versionado y no acepta importe, documento ni moti
     review: {
       kind: 'REVIEW_CONFIRM', id: 'fila-ambar', decisionHash,
       acknowledgement: {
-        schema: 'AREA3_REVIEW_ACK_V1', version: '2026-10-30',
+        schema: 'AREA3_REVIEW_ACK_V2', version: '2026-11-01',
         motivo: 'REFERENCIA_NUMERO_INCOMPLETO', sourceHash,
         advertenciaReconocida: true,
       },
@@ -40,6 +40,18 @@ test('REVIEW_CONFIRM exige ACK versionado y no acepta importe, documento ni moti
     action: 'confirmar', idempotencyKey,
     review: {
       kind: 'REVIEW_CONFIRM', id: 'fila-ambar', decisionHash, importeCentimos: -100,
+      acknowledgement: {
+        schema: 'AREA3_REVIEW_ACK_V2', version: '2026-11-01',
+        motivo: 'REFERENCIA_NUMERO_INCOMPLETO', sourceHash,
+        advertenciaReconocida: true,
+      },
+    },
+  }), (error: unknown) => error instanceof ConciliarValidationError && error.status === 400)
+
+  assert.throws(() => parseConciliarCommand({
+    action: 'confirmar', idempotencyKey,
+    review: {
+      kind: 'REVIEW_CONFIRM', id: 'fila-ambar', decisionHash,
       acknowledgement: {
         schema: 'AREA3_REVIEW_ACK_V1', version: '2026-10-30',
         motivo: 'REFERENCIA_NUMERO_INCOMPLETO', sourceHash,
@@ -58,4 +70,8 @@ test('la auditoría humana asigna ID explícito y el deshacer enlaza el recibo o
   assert.match(source, /undoB4Leg\(tx, actorId, receipt\.id, leg\.ordinal, leg, source\.id\)/)
   assert.match(source, /originalConciliarOperationId,\s*reversalConciliarOperationId: operationId/)
   assert.doesNotMatch(source, /originalConciliarOperationId: operationId,\s*motivo: review\.motivo/)
+  assert.match(source, /requireLiveWrite\(actorId, tx\)/)
+  assert.match(source, /lockOperationOrReplay\(tx, actorId, 'CONFIRMAR', command\.idempotencyKey/)
+  assert.match(source, /documentStateSnapshotHash/)
+  assert.doesNotMatch(source, /document(?:EvidenceKind|VersionHash)/)
 })

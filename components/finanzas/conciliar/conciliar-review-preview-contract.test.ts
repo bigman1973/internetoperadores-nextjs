@@ -14,7 +14,7 @@ function response(overrides: Record<string, unknown> = {}) {
       mensaje: 'El proveedor y el importe coinciden, pero el banco no cita una factura; revísala antes de confirmar.',
       sourceHash,
       acknowledgement: {
-        schema: 'AREA3_REVIEW_ACK_V1', version: '2026-10-30',
+        schema: 'AREA3_REVIEW_ACK_V2', version: '2026-11-01',
         motivo: 'SIN_REFERENCIA_DOCUMENTAL', sourceHash,
       },
       ...overrides,
