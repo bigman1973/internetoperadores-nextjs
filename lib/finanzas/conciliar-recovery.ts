@@ -5,6 +5,7 @@ import { requireB4ActorAccess } from '@/lib/finanzas/reconciliation-auth'
 import { trustedImpersonationContextResolutionFromRequest } from '@/lib/impersonation-context'
 import { impersonationRequestAllowed } from '@/lib/impersonation-policy'
 import type { ConciliarCommand } from './conciliar-contract'
+import { retryConciliarRecoveryPreparation } from './conciliar-recovery-retry-core'
 import {
   buildConciliarRecoveryIntent,
   formatConciliarRecoveryResponse,
@@ -38,6 +39,12 @@ export type ConciliarRecoveryWriteContext = Readonly<{
 }>
 
 function sameNullable(left: string | null, right: string | null): boolean { return left === right }
+
+function sameRecoveryIdentity(left: ConciliarRecoveryIdentity, right: ConciliarRecoveryIdentity): boolean {
+  return left.actorRealId === right.actorRealId
+    && left.actorEffectiveId === right.actorEffectiveId
+    && sameNullable(left.actingSessionId, right.actingSessionId)
+}
 
 function rowToRecord(row: Record<string, unknown>): ConciliarRecoveryRecord | null {
   const resolution = row.resolution
@@ -172,8 +179,15 @@ export async function prepareConciliarRecoveryIntent(
   if (identity.actorEffectiveId !== actorEffectiveId) fail(403, 'RECOVERY_ACTOR_INVALIDO', 'La identidad efectiva de recuperación no coincide.')
   const intent = buildConciliarRecoveryIntent(actorEffectiveId, command)
   const context: ConciliarRecoveryWriteContext = { identity, intent }
-  return db().$transaction(async base => {
+  return retryConciliarRecoveryPreparation(() => db().$transaction(async base => {
     const tx = asTx(base)
+    // A serialization abort discards this entire callback. Resolve the signed
+    // request identity again before every fresh snapshot; never carry a stale
+    // acting session into a retried durable PENDING preparation.
+    const liveIdentity = await resolveConciliarRecoveryIdentity(actorEffectiveId)
+    if (!sameRecoveryIdentity(liveIdentity, identity)) {
+      fail(403, 'CONTEXTO_ACTUACION_CONCILIAR_INVALIDO', 'La identidad de recuperación cambió antes de preparar el intent.')
+    }
     await assertRecoveryWriteAccessTx(tx, actorEffectiveId)
     await lockRecoveryKeyTx(tx, actorEffectiveId, intent.idempotencyKey)
     const existing = await readIntentForUpdateTx(tx, actorEffectiveId, intent.idempotencyKey)
@@ -199,7 +213,7 @@ export async function prepareConciliarRecoveryIntent(
       )
     `)
     return context
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 30_000 })
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 30_000 }))
 }
 
 /** Locks the already durable exact intent inside the financial transaction. */
