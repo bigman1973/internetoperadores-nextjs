@@ -6,6 +6,7 @@ import {
   area3RemittanceMapAmberReason,
   area3RemittanceMapProposalFromRaw,
   evaluateArea3RemittanceMapPreflight,
+  evaluateArea3RemittanceMapPreflights,
   type Area3RemittanceMapEvidence,
   type Area3RemittanceMapProposal,
 } from '../lib/finanzas/area3-remittance-map-core'
@@ -107,6 +108,46 @@ test('G7 cubre todas las propuestas hermanas de remesa y permite la misma FI en 
   assert.equal(result.complete, true)
   assert.equal(result.expectedReceiptCount, 2)
   assert.match(result.proposalSetHash ?? '', /^[a-f0-9]{64}$/)
+})
+
+test('cada abono cuenta su composición: 167 recibos no se expanden a 179 hermanos', () => {
+  // Synthetic pure fixtures reproduce the observed cardinalities only. Real
+  // production/staging counts are evaluated separately from their own data.
+  const id = (index: number) => `00000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`
+  const selected = proposal(PROPOSAL_A, Array.from({ length: 167 }, (_, index) => id(index + 1)))
+  const sibling = proposal(PROPOSAL_B, Array.from({ length: 12 }, (_, index) => id(index + 168)))
+  const missing = evaluateArea3RemittanceMapPreflights([selected, sibling], [])
+  assert.equal(missing.get(PROPOSAL_A)?.missingReceiptCount, 167)
+  assert.equal(missing.get(PROPOSAL_A)?.expectedReceiptCount, 167)
+  assert.equal(missing.get(PROPOSAL_B)?.missingReceiptCount, 12)
+  assert.equal(area3RemittanceMapAmberReason(missing.get(PROPOSAL_A)), 'Falta enlazar 167 recibos.')
+  const selectedEvidence = selected.facturaEmitidaIds.map((facturaEmitidaId, index) => evidence(facturaEmitidaId, {
+    facturaISPId: index + 1,
+    facturaISPGestionId: index + 9001,
+    facturaEmitidaRemoteId: String(index + 9001),
+    facturaEmitidaNumero: `R-${index + 1}`,
+    facturaISPNumero: `R-${index + 1}`,
+  }))
+  const mapped = evaluateArea3RemittanceMapPreflights([selected, sibling], selectedEvidence)
+  assert.equal(mapped.get(PROPOSAL_A)?.complete, true)
+  assert.equal(mapped.get(PROPOSAL_B)?.complete, false)
+  assert.equal(mapped.get(PROPOSAL_B)?.missingReceiptCount, 12)
+  assert.equal(mapped.get(PROPOSAL_A)?.proposalSetHash, evaluateArea3RemittanceMapPreflight([selected], selectedEvidence).proposalSetHash)
+})
+
+test('una composición ausente no toma enlaces de un abono hermano y los duplicados bloquean', () => {
+  const selected = proposal(PROPOSAL_A, [FI_A])
+  const sibling = proposal(PROPOSAL_B, [FI_B])
+  const missing = evaluateArea3RemittanceMapPreflights([selected, sibling], [evidence(FI_B)])
+  assert.equal(missing.get(PROPOSAL_A)?.complete, false)
+  assert.equal(missing.get(PROPOSAL_A)?.missingReceiptCount, 1)
+  assert.equal(missing.get(PROPOSAL_B)?.complete, true)
+  const duplicateProposal = evaluateArea3RemittanceMapPreflights([selected, selected], [evidence(FI_A)])
+  assert.equal(duplicateProposal.get(PROPOSAL_A)?.complete, false)
+  assert.equal(duplicateProposal.get(PROPOSAL_A)?.proposalSetHash, null)
+  const duplicateEvidence = evaluateArea3RemittanceMapPreflights([selected], [evidence(FI_A), evidence(FI_A)])
+  assert.equal(duplicateEvidence.get(PROPOSAL_A)?.complete, false)
+  assert.equal(duplicateEvidence.get(PROPOSAL_A)?.missingReceiptCount, 1)
 })
 
 test('G7 lee la evidencia FI en lotes acotados sin recortar la foto completa de propuestas', async () => {

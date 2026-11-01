@@ -223,22 +223,26 @@ export function evaluateArea3RemittanceMapPreflight(
   return { complete: missing === 0, missingReceiptCount: missing, proposalSetHash, expectedReceiptCount: expected.size }
 }
 
-/** Shared G7 grouping for projection, release readback and confirmation. Every
- * sibling in one current remesa generation receives the exact same preflight;
- * callers cannot promote a single proposal by omitting its siblings. */
+/** Shared G7 map for projection, release readback and confirmation. Receipt
+ * completeness belongs to one immutable bank proposal/composition, not to the
+ * union of every bank payment of the administrative remesa. The separate B7
+ * authority still validates the whole remesa, capacities and sibling locks. */
 export function evaluateArea3RemittanceMapPreflights(
   proposals: readonly Area3RemittanceMapProposal[],
   evidence: readonly Area3RemittanceMapEvidence[],
 ): ReadonlyMap<string, Area3RemittanceMapPreflight> {
-  const byRemesa = new Map<string, Area3RemittanceMapProposal[]>()
+  const byProposal = new Map<string, Area3RemittanceMapProposal[]>()
   for (const proposal of proposals) {
-    const key = `${proposal.generacionId}:${proposal.remesaId}`
-    byRemesa.set(key, [...(byRemesa.get(key) ?? []), proposal])
+    const key = invoiceId(proposal.propuestaId)
+    if (!key) continue
+    byProposal.set(key, [...(byProposal.get(key) ?? []), proposal])
   }
   const result = new Map<string, Area3RemittanceMapPreflight>()
-  for (const members of byRemesa.values()) {
+  for (const [proposalId, members] of byProposal) {
+    // Duplicate/conflicting proposal identities fail in the same strict set
+    // parser; never silently overwrite an earlier composition with a later one.
     const preflight = evaluateArea3RemittanceMapPreflight(members, evidence)
-    for (const proposal of members) result.set(proposal.propuestaId, preflight)
+    result.set(proposalId, preflight)
   }
   return result
 }
@@ -246,5 +250,5 @@ export function evaluateArea3RemittanceMapPreflights(
 export function area3RemittanceMapAmberReason(preflight: Area3RemittanceMapPreflight | undefined): string {
   const missing = preflight?.missingReceiptCount
   if (Number.isSafeInteger(missing) && missing! > 0) return `Falta enlazar ${missing} recibos.`
-  return 'No se puede comprobar el enlace FI–ISP de esta remesa.'
+  return 'No se puede comprobar qué recibos pertenecen a este abono.'
 }
