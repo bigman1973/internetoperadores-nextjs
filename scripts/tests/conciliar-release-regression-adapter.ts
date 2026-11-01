@@ -6,7 +6,7 @@
  * already inside BEGIN READ ONLY. All identifiers below are opaque local tokens;
  * the runner emits only case IDs and static codes.
  */
-import { readBankInvoicingPopulation } from '../../lib/finanzas/bank-invoicing-db'
+import { readBankInvoicingPopulation } from '../../lib/finanzas/conciliar-bank-invoicing-db'
 import { extractRefsOwnIssued, normalizarReferenciaFactura, referenciasEmitidasComposicionCompatible, referenciasFacturaCitadas } from '../../lib/finanzas/conciliar-issued-reference-core'
 import { readManualOwnAccountProofTx } from '../../lib/finanzas/conciliar-own-account-proof-db'
 import { projectionRow } from '../../lib/finanzas/conciliar-projection-read'

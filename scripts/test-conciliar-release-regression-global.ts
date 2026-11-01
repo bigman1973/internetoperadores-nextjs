@@ -155,7 +155,7 @@ test('G3 histórico solicitado sin prueba activa falla cerrado y no se sustituye
   const missing = validDataset()
   missing.historicalG3Evidence = null
   assert.ok(rule(missing, 'G3').codes.includes('G3_HISTORICAL_EVIDENCE_MISSING'))
-  const invalid = validDataset() as MutableGlobalRegressionDataset & { historicalG3Evidence?: unknown }
+  const invalid = validDataset() as Omit<MutableGlobalRegressionDataset, 'historicalG3Evidence'> & { historicalG3Evidence?: unknown }
   invalid.historicalG3Evidence = { source: 'UI_FLAG' }
   assert.ok(rule(invalid as GlobalRegressionDataset, 'G3').codes.includes('G3_HISTORICAL_EVIDENCE_INVALID'))
 })
