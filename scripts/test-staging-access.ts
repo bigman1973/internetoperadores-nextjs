@@ -3,9 +3,11 @@ import fs from 'node:fs'
 import vm from 'node:vm'
 import { NextResponse } from 'next/server'
 import * as access from '../lib/staging-access'
+import { highRiskApiRequirement } from '../lib/high-risk-api-policy'
+import { hasAltaContractCapability } from '../lib/altas/contrato-access'
 
 const source = fs.readFileSync('middleware.js', 'utf8')
-  .replace("import { NextResponse } from 'next/server';", '')
+  .replace(/^import .+;\n/gm, '')
   .replace(/  const \{ STAGING_ACCESS_PATH, STAGING_ACCESS_HEADERS, stagingAccessHtml, safeStagingReturn, readStagingAccessForm \} = await import\('\.\/lib\/staging-access'\);/, '')
   .replace(/const validUser = [^;]+;/, "const validUser = 'synthetic-reviewer';")
   .replace(/const validPassword = [^;]+;/, "const validPassword = 'synthetic-password';")
@@ -18,7 +20,12 @@ async function run(path: string, options: { method?: string; headers?: Record<st
   const request = new Request(origin + path, { method: options.method || 'GET', headers: options.headers, body: options.body }) as any
   request.nextUrl = new URL(request.url)
   request.cookies = { getAll: () => options.cookie ? [{ name: 'staging-auth', value: 'authenticated' }] : [], get: (key: string) => key === 'staging-auth' && options.cookie ? { value: 'authenticated' } : undefined }
-  const context: any = { process: { env: { VERCEL_ENV: options.production ? 'production' : 'preview', ...(options.env || {}) } }, Set, Map, Buffer, Headers, URL, NextResponse, atob, console, ...access }
+  const context: any = {
+    process: { env: { VERCEL_ENV: options.production ? 'production' : 'preview', ...(options.env || {}) } },
+    Set, Map, Buffer, Headers, URL, NextResponse, atob, console, performance,
+    ADMIN_RENDER_SURFACE_HEADER: 'x-test-render-surface', adminRenderSurface: () => 'test', conciliarRuntimeConfigured: () => null,
+    highRiskApiRequirement, hasAltaContractCapability, ...access,
+  }
   vm.createContext(context)
   vm.runInContext(source, context)
   return context.run(request) as Promise<NextResponse>
