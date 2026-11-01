@@ -27,9 +27,11 @@ function unavailable(): Area3ReviewDocumentEvidence {
 /**
  * Strict reader for a server-owned invoice file proof. It repeats the current
  * source guard but never turns source metadata into a content hash. Production
- * source rows do not contain an authenticated content fingerprint suitable for
- * the Area 3 human exception, so the only honest outcome without the frozen
- * lifecycle/observation tables is unavailable/ÁMBAR.
+ * source rows contain a controlled remote drive/item locator, not preserved
+ * immutable bytes or an authenticated content fingerprint. The existing PDF
+ * viewer resolves that locator through the remote provider; it is not a local
+ * byte source this reader may reuse. Therefore, without the frozen
+ * lifecycle/observation tables, the only honest outcome is unavailable/ÁMBAR.
  */
 export async function readArea3ReviewDocumentEvidenceTx(
   tx: Tx,
