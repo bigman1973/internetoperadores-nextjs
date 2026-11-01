@@ -340,11 +340,15 @@ export function evaluateCase(input: ConciliarReleaseRegressionCase, dataset: Con
   if (input.mode === 'PENDING_VISIBLE') {
     const source = sources[0]!
     if (source.b4Confirmed !== false) add(reasons, 'B4_NOT_PENDING')
-    // Visibility is evaluated across all persisted tabs. A duplicate is not
-    // evidence of a pending row and a hidden materialized row is not visible.
-    const rows = dataset.projectionRows.filter(row => row.movementKey === source.movementKey && row.visible)
+    // A bank task must be visible exactly once in its bank queue. EMITIDAS and
+    // RECIBIDAS may legitimately mirror the same movement; they neither prove
+    // bank visibility nor count as duplicated bank tasks. Confirmed absence
+    // remains checked across every tab in the separate branch above.
+    const expectedTab = source.amountCents > 0 ? 'COBROS' : 'PAGOS'
+    const rows = dataset.projectionRows.filter(row => row.movementKey === source.movementKey && row.visible && ['COBROS', 'PAGOS'].includes(String(row.tab)))
     if (rows.length === 0) add(reasons, 'PROJECTION_MISSING')
     else if (rows.length !== 1) add(reasons, 'PROJECTION_AMBIGUOUS')
+    else if (!same(rows[0]!.tab, expectedTab)) add(reasons, 'TAB_MISMATCH')
     return result(input.caseId, reasons)
   }
 

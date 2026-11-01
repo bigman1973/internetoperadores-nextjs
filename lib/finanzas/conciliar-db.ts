@@ -215,8 +215,11 @@ export async function applyConciliarDocumentSourceGuardToRebuildRowsTx(
   tx: Tx,
   rows: readonly RebuildRow[],
 ): Promise<RebuildRow[]> {
-  const eligibilityBySource = await preloadConciliarDocumentSourceEligibilityTx(tx, rows.map(row => row.source))
+  const eligibilityBySource = await preloadConciliarDocumentSourceEligibilityTx(tx, rows.filter(row => row.row.color !== 'ROJO').map(row => row.source))
   return rows.map(row => {
+    // A missing candidate is already a non-confirmable red task. The source
+    // guard can reject a proposal, but must not invent one or erase that reason.
+    if (row.row.color === 'ROJO') return row
     const key = conciliarDocumentSourceBatchSourceKey(row.source)
     if (!key) return row
     const documentSource = eligibilityBySource.get(key)

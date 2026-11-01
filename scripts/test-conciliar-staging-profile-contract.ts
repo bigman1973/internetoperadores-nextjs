@@ -36,6 +36,17 @@ test('STAGE has exactly four pending-visible and two confirmed-absence amendment
   }
 })
 
+test('pending visibility requires one bank task; invoice mirrors neither prove visibility nor duplicate it', () => {
+  const spec = pending('C7')
+  const data = (rows: ReturnType<typeof projection>[]) => ({ bankRows: [bank()], projectionRows: rows })
+  assert.equal(evaluateCase(spec, data([projection(), projection({ tab: 'EMITIDAS' })])).pass, true)
+  assert.equal(evaluateCase(spec, data([projection({ tab: 'EMITIDAS' })])).pass, false)
+  assert.equal(evaluateCase(spec, data([projection(), projection()])).reasons.includes('PROJECTION_AMBIGUOUS'), true)
+  assert.equal(evaluateCase(spec, data([projection({ tab: 'PAGOS' })])).pass, false)
+  assert.equal(evaluateCase(spec, data([projection({ visible: false }), projection({ tab: 'EMITIDAS' })])).pass, false)
+  assert.equal(evaluateCase(absent('C2'), { bankRows: [bank({ b4Confirmed: true })], projectionRows: [projection({ tab: 'EMITIDAS' })] }).pass, false)
+})
+
 test('production C4 remains exact green with 167 lines and blocks an amber/G7 conflict', () => {
   const c4: ConciliarReleaseRegressionCase = {
     caseId: 'C4', mode: 'EXACT', selector: { bank: 'Synthetic Bank', date: '2026-10-01', signedCents: 12_345, searchTerms: ['synthetic'] },

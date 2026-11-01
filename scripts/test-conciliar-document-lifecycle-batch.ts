@@ -124,6 +124,18 @@ test('sellado de fuente preserva verde sólo con fuente vigente y marca ámbar l
   assert.equal(amber[0]?.row.motivo, 'No se puede comprobar la fuente documental actual; requiere revisión antes de confirmar.')
 })
 
+test('una fila roja sin propuesta no se promociona ni pierde su motivo ante ausencia documental', async () => {
+  const base = row('sin-candidata', { kind: 'PAGO_FACTURA_RECIBIDA', movimientoId: 'movimiento-sintetico', versionB4: 1 }, 'ROJO')
+  const red = { ...base, row: { ...base.row, motivo: 'El banco cita una factura que no está disponible.' } }
+  const missing = guardedTx({ sourceTables: false })
+  const sealed = await applyConciliarDocumentSourceGuardToRebuildRowsTx(missing.tx as any, [red])
+  assert.strictEqual(sealed[0], red)
+  assert.equal(sealed[0]?.row.color, 'ROJO')
+  assert.equal(sealed[0]?.row.motivo, red.row.motivo)
+  assert.equal(sealed[0]?.row.seleccionable, false)
+  assert.equal(missing.statements.length, 0, 'no hay un candidato que consultar ni fabricar')
+})
+
 test('los módulos activos no importan lifecycle congelado ni dependencias de proyección añadida', () => {
   const root = resolve(__dirname, '..')
   for (const relative of [
