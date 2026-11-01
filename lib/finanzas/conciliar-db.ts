@@ -46,6 +46,7 @@ import {
 import { conciliarOwnTransferReviewMotive, normalizedRegisteredOwnIban } from './conciliar-transfer-classifier'
 import { readManualOwnAccountProofTx } from './conciliar-own-account-proof-db'
 import { classifyConciliarHumanOwnTransferRows, withConciliarHumanOwnTransferSealSnapshotTx } from './conciliar-human-own-transfer'
+import { withConciliarSealReadSnapshotTx } from './conciliar-seal-read-snapshot'
 import { remittanceSealForProposal } from './remittance-payment-receipts-db'
 import { area3RemittanceMapAmberReason, type Area3RemittanceMapPreflight } from './area3-remittance-map-core'
 import { lockArea3RemittanceMapPreflightsTx, readArea3RemittanceMapPreflightsTx } from './area3-remittance-map-db'
@@ -1229,20 +1230,25 @@ export async function sealConciliarProjectionRowsTx(tx: Tx, rows: readonly Rebui
   // DML, so a cached badge can never become authority for a later action.
   const precheckMemo = new Map<string,ConciliarPrecheck>()
   const checked: RebuildRow[] = []
-  const seal = async () => {
-    for(const item of rows) {
-      const row=await guardConciliarGreenRowTx(tx,{...item.row,source:item.source,sourceFingerprint:item.sourceFingerprint},{rows:contextRows,memo:precheckMemo})
-      checked.push({...item,row,source:row.color==='VERDE' ? {...item.source,g7Precheck:CONCILIAR_GREEN_PRECHECK_STAMP} : item.source})
-    }
-  }
   // Manual own-transfer rows all use the same complete pending population to
   // decide reciprocal uniqueness. Load that immutable read photo once only for
   // this pre-DML seal, never for action confirmation or outside this callback.
-  if (rows.some(item => item.row.color === 'VERDE' && item.source.kind === 'TRANSFERENCIA_PROPIA_MANUAL')) {
-    await withConciliarHumanOwnTransferSealSnapshotTx(tx, seal)
-  } else {
-    await seal()
-  }
+  await withConciliarSealReadSnapshotTx(tx, rows, async sealTx => {
+    const sealWithSnapshotTx = async () => {
+      for(const item of rows) {
+        const row=await guardConciliarGreenRowTx(sealTx,{...item.row,source:item.source,sourceFingerprint:item.sourceFingerprint},{rows:contextRows,memo:precheckMemo})
+        checked.push({...item,row,source:row.color==='VERDE' ? {...item.source,g7Precheck:CONCILIAR_GREEN_PRECHECK_STAMP} : item.source})
+      }
+    }
+    // Both the manual-pair snapshot and every precheck below receive the same
+    // proxy identity. Its AsyncLocalStorage snapshot therefore remains visible
+    // to both transfer legs, while the B4 state batch remains pre-DML only.
+    if (rows.some(item => item.row.color === 'VERDE' && item.source.kind === 'TRANSFERENCIA_PROPIA_MANUAL')) {
+      await withConciliarHumanOwnTransferSealSnapshotTx(sealTx, sealWithSnapshotTx)
+    } else {
+      await sealWithSnapshotTx()
+    }
+  })
   return checked
 }
 
