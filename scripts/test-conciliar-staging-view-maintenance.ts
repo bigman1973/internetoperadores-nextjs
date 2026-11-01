@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { transpileModule, ScriptTarget, ModuleKind } from 'typescript'
 import { impersonationRequestAllowed } from '../lib/impersonation-policy'
 
 const ROUTE = '/api/admin/finanzas/conciliar/actualizar-vista'
@@ -31,10 +32,11 @@ assert.match(liveSuperAdmin, /if \(!current\.effective \|\| !current\.active \|\
 assert.equal(impersonationRequestAllowed(ROUTE, 'POST'), false, 'la matriz de actuación no admite este mantenimiento en ninguna dirección')
 assert.equal(impersonationRequestAllowed(ROUTE, 'POST', new URLSearchParams(), 10, 'preparar-vista' as never), false, 'ninguna acción de cuerpo abre la ruta durante actuación')
 
-const helperStart = route.indexOf('function isPrepararVistaCommand(value) {')
+const helperStart = route.indexOf('function isPrepararVistaCommand(')
 const helperEnd = route.indexOf('\n}\n\nfunction errorResponse', helperStart) + 2
 assert.ok(helperStart >= 0 && helperEnd > helperStart, 'el validador puro del mandato debe existir')
-const isPrepararVistaCommand = new Function(`${route.slice(helperStart, helperEnd)}\nreturn isPrepararVistaCommand`)() as (value: unknown) => boolean
+const helperJs = transpileModule(route.slice(helperStart, helperEnd), { compilerOptions: { target: ScriptTarget.ES2020, module: ModuleKind.CommonJS } }).outputText
+const isPrepararVistaCommand = new Function(`${helperJs}\nreturn isPrepararVistaCommand`)() as (value: unknown) => boolean
 assert.equal(isPrepararVistaCommand({ action: 'preparar-vista' }), true)
 for (const body of [
   null,

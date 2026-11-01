@@ -13,10 +13,10 @@ export const runtime = 'nodejs'
 export const maxDuration = 180
 export const preferredRegion = 'sfo1'
 
-function isPrepararVistaCommand(value) {
+function isPrepararVistaCommand(value: unknown): value is { action: 'preparar-vista' } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const keys = Object.keys(value)
-  return keys.length === 1 && keys[0] === 'action' && value.action === 'preparar-vista'
+  return keys.length === 1 && keys[0] === 'action' && (value as Record<string, unknown>).action === 'preparar-vista'
 }
 
 function errorResponse(error: unknown) {
