@@ -9,7 +9,11 @@ for(const file of files){
  assert.ok(s.includes('requireB4FinanceAccess'))
 }
 assert.ok(fs.readFileSync('node_modules/next/dist/build/segment-config/app/app-segment-config.js','utf8').includes('preferredRegion:'))
-assert.ok(!('functions' in JSON.parse(fs.readFileSync('vercel.json','utf8'))))
+const config=JSON.parse(fs.readFileSync('vercel.json','utf8'))
+assert.ok(!('regions' in config), 'La región global no se modifica')
+const scoped=['app/api/admin/finanzas/conciliar/route.ts','app/api/admin/finanzas/conciliar/**/route.ts','app/admin/finanzas/conciliar/page.tsx','app/admin/finanzas/para-pedir/page.tsx']
+assert.deepEqual(Object.keys(config.functions).sort(), scoped.sort())
+for(const pattern of scoped) assert.deepEqual(config.functions[pattern],{regions:['sfo1']})
 const page=fs.readFileSync(files[0],'utf8')
 assert.ok(page.includes('process.env.VERCEL_REGION'))
 assert.ok(page.includes('executionRegion'))
