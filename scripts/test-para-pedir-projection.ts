@@ -31,13 +31,14 @@ test('respuesta: un pedido exige auditoría B5; el estado sin auditoría no reci
     filtro: { estado: 'TODOS', q: null, tercero: null }, total: 2, limit: 50, offset: 0, totalPagina: 2,
     resumen: { movimientos: 2, pendienteCentimos: -1200 },
     proyeccion: { actualizadaEn: '2026-10-28T10:00:00.000Z', version: 7, pendienteActualizacion: false },
-    agrupaciones: [{ tercero: 'Proveedor sintético', movimientos: 2, pendienteCentimos: -1200, pedidos: 1, pedidosMas15Dias: 1 }],
+    agrupaciones: [{ tercero: 'Proveedor sintético', movimientos: 2, pendienteCentimos: -1200, faltanPedir: 0, pedidos: 1, pedidosSinAuditoria: 1, recibidos: 0, pedidosMas15Dias: 1 }],
     movimientos: [movement(), movement({ movimientoId: 'sin-auditoria', estadoPedido: 'PEDIDO_SIN_AUDITORIA', pedido: null })],
   };
   const parsed = parseParaPedirRead(source);
   assert.equal(parsed.movimientos[0].pedido?.actorNombre, 'Actor sintético');
   assert.equal(parsed.movimientos[1].pedido, null);
   assert.throws(() => parseParaPedirRead({ ...source, movimientos: [movement({ pedido: null })] }));
+  assert.throws(() => parseParaPedirRead({ ...source, agrupaciones: [{ ...source.agrupaciones[0], faltanPedir: 1 }] }));
 });
 
 test('respuesta: sólo una fila sin pedir puede transportar el rowId opaco y hash sellado de Conciliar', () => {
@@ -46,7 +47,7 @@ test('respuesta: sólo una fila sin pedir puede transportar el rowId opaco y has
     filtro: { estado: 'TODOS', q: null, tercero: null }, total: 1, limit: 50, offset: 0, totalPagina: 1,
     resumen: { movimientos: 1, pendienteCentimos: -1200 },
     proyeccion: { actualizadaEn: '2026-10-28T10:00:00.000Z', version: 7, pendienteActualizacion: false },
-    agrupaciones: [{ tercero: 'Proveedor sintético', movimientos: 1, pendienteCentimos: -1200, pedidos: 0, pedidosMas15Dias: 0 }],
+    agrupaciones: [{ tercero: 'Proveedor sintético', movimientos: 1, pendienteCentimos: -1200, faltanPedir: 1, pedidos: 0, pedidosSinAuditoria: 0, recibidos: 0, pedidosMas15Dias: 0 }],
     movimientos: [movement({ estadoPedido: 'SIN_PEDIR', pedido: null, conciliarPedir: { rowId: 'fila-opaca-sintetica', decisionHash: 'a'.repeat(64) } })],
   };
   const parsed = parseParaPedirRead(source);

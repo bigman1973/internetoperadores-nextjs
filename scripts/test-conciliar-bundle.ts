@@ -9,13 +9,21 @@ const page = read('app/admin/finanzas/conciliar/page.tsx');
 const documentPreview = read('components/finanzas/conciliar/ConciliarDocumentPreview.tsx');
 const remesaDialog = read('components/finanzas/conciliar/ConciliarRemesaConfirmationDialog.tsx');
 const recentHistory = read('components/finanzas/conciliar/ConciliarRecentHistory.tsx');
+const globalSearch = read('components/finanzas/conciliar/conciliar-global-search.ts');
 
 test('la primera página conserva datos y tabla SSR sin esperar hidratación', () => {
   assert.match(page, /const initialData = await readConciliarProjection\(input\)/);
   assert.match(page, /initialData=\{initialData\}/);
   assert.match(workspace, /const initialParsed = useMemo\(\(\) => initialData === undefined \? null : parseConciliarReadResponse\(initialData\)/);
-  assert.match(workspace, /const \[data, setData\] = useState<ConciliarReadResponse \| null>\(initialParsed\)/);
-  assert.match(workspace, /if \(readSequence\.current === 0 && initialRequestKey\.current === buildQuery\(requestInput\)\.toString\(\)\) return/);
+  assert.match(workspace, /import \{ useConciliarGlobalSearch \} from '\.\/conciliar-global-search';/);
+  assert.match(workspace, /const search = useConciliarGlobalSearch\(\{ initialTab, initialQuery, initialOffset: 0, initialData: initialParsed, read: readGlobal, cache: searchCache \}\)/);
+  assert.match(globalSearch, /const \[acceptedData, setAcceptedData\] = useState<ConciliarReadResponse \| null>\(initial\.current\.initialData \?\? null\)/);
+  assert.match(globalSearch, /const \[dataGeneration, setDataGeneration\] = useState<number \| null>\(initial\.current\.initialData \? 0 : null\)/);
+  assert.match(globalSearch, /const hasCurrentData = dataGeneration === state\.generation && acceptedData !== null/);
+  assert.match(globalSearch, /const visibleData = \(state\.phase === 'idle' \|\| state\.phase === 'pending' \|\| state\.phase === 'loading'\) && hasCurrentData \? acceptedData : null/);
+  assert.match(globalSearch, /controllerRef\.current\?\.abort\(\)/);
+  assert.match(globalSearch, /if \(controller\.signal\.aborted\) return/);
+  assert.doesNotMatch(workspace, /\b(?:readController|initialRequestKey)\b/);
   assert.match(workspace, /role="tabpanel"/);
   assert.match(workspace, /<SummaryTab /);
   assert.match(workspace, /<ConciliarRowView /);

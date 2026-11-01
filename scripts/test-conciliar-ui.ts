@@ -11,6 +11,7 @@ const documentPreview = readFileSync(resolve(root, 'components/finanzas/concilia
 const remesaDialog = readFileSync(resolve(root, 'components/finanzas/conciliar/ConciliarRemesaConfirmationDialog.tsx'), 'utf8');
 const recentHistory = readFileSync(resolve(root, 'components/finanzas/conciliar/ConciliarRecentHistory.tsx'), 'utf8');
 const fileHrefGuard = readFileSync(resolve(root, 'lib/finanzas/conciliar-file-href.ts'), 'utf8');
+const globalSearch = readFileSync(resolve(root, 'components/finanzas/conciliar/conciliar-global-search.ts'), 'utf8');
 
 function required(source, name, fragments) {
   for (const fragment of fragments) {
@@ -68,7 +69,8 @@ required(workspace, 'espacio de trabajo', [
   "action: 'deshacer'",
   "action: 'pedir'",
   'AbortController',
-  'readController.current?.abort()',
+  "import { useConciliarGlobalSearch } from './conciliar-global-search'",
+  'useConciliarGlobalSearch({ initialTab, initialQuery, initialOffset: 0, initialData: initialParsed, read: readGlobal, cache: searchCache })',
   'response.status === 409',
   'Reintenta exactamente la misma acción',
   'Todos los verdes visibles',
@@ -111,6 +113,16 @@ required(workspace, 'espacio de trabajo', [
   'SortHeader field="CONCEPTO"',
   'SortHeader field="IMPORTE"',
 ]);
+
+required(globalSearch, 'búsqueda global', [
+  'const controllerRef = useRef<AbortController | null>(null)',
+  'controllerRef.current?.abort()',
+  'void (pending ?? readRef.current(view, { signal: controller.signal, generation }))',
+  'if (controller.signal.aborted) return',
+  'return () => controller.abort()',
+  'dataGeneration === state.generation',
+]);
+if (/readRef\.current\(view, \{ generation \}\)/.test(globalSearch)) throw new Error('La búsqueda global no puede iniciar una lectura sin AbortSignal.');
 
 required(helpers, 'helpers de presentación', [
   'Mismo cliente e importe',

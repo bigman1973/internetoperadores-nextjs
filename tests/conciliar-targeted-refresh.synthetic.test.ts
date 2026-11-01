@@ -63,12 +63,23 @@ assert.equal(undo.projection?.updatedAt, snapshot.updatedAt, 'deshacer usa el mi
 const conciliarRoute = readFileSync('app/api/admin/finanzas/conciliar/route.ts', 'utf8');
 const paraPedirRoute = readFileSync('app/api/admin/finanzas/modo-facil/para-pedir/route.ts', 'utf8');
 const workspace = readFileSync('components/finanzas/conciliar/ConciliarWorkspace.tsx', 'utf8');
+const globalSearch = readFileSync('components/finanzas/conciliar/conciliar-global-search.ts', 'utf8');
 const actions = readFileSync('lib/finanzas/conciliar-actions.ts', 'utf8');
 assert.match(conciliarRoute, /readConciliarProjection\(parseConciliarGetInput\(query\)\)/, 'GET Conciliar sigue siendo lectura de proyección autorizada');
 assert.match(paraPedirRoute, /readParaPedirProjection\(parseParaPedirInput\(queryRecord\(request\)\)\)/, 'Para pedir sigue siendo lectura de proyección autorizada');
 assert.match(workspace, /const PAGE_SIZE = 20;/, 'Workspace conserva páginas de veinte filas');
-assert.match(workspace, /search\.adopt\(projection\)/, 'el cliente adopta sólo la instantánea paginada que devolvió su propia acción');
-assert.match(workspace, /commandViewKey !== activeViewKey\.current/, 'una respuesta de otra vista no puede reemplazar la página activa');
+assert.match(workspace, /const search = useConciliarGlobalSearch\(\{ initialTab, initialQuery, initialOffset: 0, initialData: initialParsed, read: readGlobal, cache: searchCache \}\)/,
+  'el Workspace delega la única lectura de proyección al coordinador global con la semilla SSR y caché privada');
+assert.match(workspace, /invalidateProjectionMemory\(true\);\s*void load\(true, true\);/,
+  'tras mutar invalida la foto privada y solicita una nueva lectura autorizada de la vista activa');
+assert.doesNotMatch(workspace, /search\.adopt\(/,
+  'una respuesta de POST no puede sustituir directamente la vista activa después de invalidar su generación');
+assert.match(globalSearch, /controllerRef\.current\?\.abort\(\)/,
+  'el coordinador aborta la lectura anterior al cambiar la vista');
+assert.match(globalSearch, /dataGeneration !== current\.generation/,
+  'el coordinador rechaza adoptar una foto que no pertenece a la generación visible');
+assert.match(workspace, /const load = useCallback\(async \(_silent = false, _keepNotice = false\) => \{ search\.refresh\(\); \}, \[search\.refresh\]\);/,
+  'la recarga posterior sólo solicita de nuevo la vista activa que posee el coordinador, sin aplicar una vista capturada por el POST');
 assert.doesNotMatch(workspace, /applyConciliarTargetedRefresh|actualResponseView|(?:window\.)?location\.reload\(|router\.refresh\(/,
   'la UI no mantiene el parche frágil ni una recarga global tras mutar');
 assert.match(actions, /const projection = await responseProjection\(tx, 'responseView' in command \? command\.responseView : undefined, result\.projectionSynchronized === true\)/,

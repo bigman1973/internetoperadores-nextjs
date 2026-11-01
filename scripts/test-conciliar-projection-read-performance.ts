@@ -8,7 +8,11 @@ const source = readFileSync(resolve(root, 'lib/finanzas/conciliar-projection-rea
 const reader = source.slice(source.indexOf('async function readProjectionBundle'), source.indexOf('export async function readConciliarProjection'))
 
 assert.equal((reader.match(/\bclient\.\$queryRaw/g) ?? []).length, 1, 'la portada debe resolver página, total, resumen, cuentas y estado en un solo viaje SQL')
-assert.match(reader, /WITH filtered AS \(/)
+assert.match(reader, /WITH projection_state AS \(/)
+assert.match(reader, /effective_projection AS \(/)
+assert.ok(reader.indexOf('projection_state AS (') < reader.indexOf('effective_projection AS (') && reader.indexOf('effective_projection AS (') < reader.indexOf('filtered AS ('), 'el estado de proyección y la degradación efectiva deben preceder al filtro compartido')
+assert.match(reader, /FROM effective_projection p WHERE \$\{shared\}/)
+assert.doesNotMatch(reader, /filtered AS \(\s*SELECT p\.id,p\.tab,p\.fecha,p\.cuenta_id,p\.importe_centimos,p\.pendiente_centimos,p\.color,p\.propuesta\s*FROM conciliar_proyecciones p WHERE \$\{shared\}/, 'el filtro no debe eludir la capa que degrada verdes sucios o sin sello')
 assert.match(reader, /active AS \(/)
 assert.match(reader, /active_emitidas AS \(/)
 assert.match(reader, /scoped AS \(/)
