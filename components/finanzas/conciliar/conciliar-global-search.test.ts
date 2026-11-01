@@ -41,6 +41,18 @@ test('la búsqueda es global: conserva una única q al cambiar por las cuatro pe
   }
 })
 
+test('la caja conserva el espacio mientras se escribe una búsqueda compuesta y normaliza al enviar', () => {
+  let state = createConciliarSearchMachineState('COBROS', '', 0, true)
+  state = reduceConciliarSearchMachine(state, { type: 'INPUT', query: 'internet ' })
+  assert.equal(state.view.query, 'internet ')
+  state = reduceConciliarSearchMachine(state, { type: 'INPUT', query: 'internet operadores' })
+  assert.equal(state.view.query, 'internet operadores')
+  state = reduceConciliarSearchMachine(state, { type: 'INPUT', query: ' internet operadores ' })
+  state = reduceConciliarSearchMachine(state, { type: 'SUBMIT' })
+  assert.equal(state.view.query, 'internet operadores')
+  assert.equal(state.historyMode, 'push')
+})
+
 test('las respuestas antiguas no cierran ni sobrescriben la generación actual', () => {
   let state = createConciliarSearchMachineState('COBROS', '', 0, true)
   state = reduceConciliarSearchMachine(state, { type: 'INPUT', query: 'primera' })

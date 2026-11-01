@@ -17,6 +17,8 @@ import { ConciliarStreamRejectedError, ConciliarStreamUncertainError, readConcil
 import { useActuation } from '@/components/impersonation/ActuationProvider';
 import { parseConciliarDocumentDetail, type ConciliarDocumentDetail } from '@/lib/finanzas/conciliar-document-detail-contract';
 import { ConciliarDetailMemoryCache, conciliarDetailCacheKey, formatConciliarUpdatedAt } from './conciliar-detail-client';
+import { ConciliarProjectionMemoryCache, conciliarProjectionCacheKey, isCurrentConciliarProjectionResponse } from './conciliar-projection-client';
+import { useConciliarGlobalSearch } from './conciliar-global-search';
 import dynamic from 'next/dynamic';
 import { useSession } from 'next-auth/react';
 const loadConciliarDocumentPreview = () => import('./ConciliarDocumentPreview');
@@ -54,6 +56,8 @@ type BatchResult = Readonly<{ operationId: string | null; outcomes: readonly Rea
 
 /** Una respuesta 2xx malformada no prueba que la acción no haya llegado al servidor. */
 class UncertainResultError extends Error {}
+
+function conciliarAbortError(): DOMException { return new DOMException('La lectura de conciliación fue cancelada.', 'AbortError'); }
 
 const TAB_COPY: Record<ConciliarTab, Readonly<{ title: string; question: string; short: string }>> = {
   COBROS: { title: 'Cobros sin factura', question: '¿De qué factura es?', short: 'Cobros' },
@@ -148,13 +152,6 @@ function responseViewFor(input: Readonly<{ tab: ConciliarTab; from: string; to: 
     offset: input.offset,
   };
 }
-function responseViewKey(view: Readonly<{ tab: ConciliarTab; desde?: string; hasta?: string; cuentaId?: string; q?: string; cutoffDate?: string; historic?: boolean; emitidasGrupo?: ConciliarEmitidasGroup; estado?: ConciliarColor; grupo?: ConciliarGroup; orden?: ConciliarSortField; direccion?: ConciliarSortDirection; limit: number; offset: number }>): string {
-  return buildQuery({
-    tab: view.tab, from: view.desde ?? '', to: view.hasta ?? '', accountId: view.cuentaId ?? '', query: view.q ?? '',
-    cutoffDate: view.cutoffDate ?? '2026-01-01', historic: view.historic ?? false, emitidasGrupo: view.emitidasGrupo ?? '', estado: view.estado ?? '', grupo: view.grupo ?? '', orden: view.orden, direccion: view.direccion, limit: view.limit, offset: view.offset,
-  }).toString();
-}
-
 function colorWidth(summary: ConciliarSummary, color: ConciliarColor): number {
   const total = CONCILIAR_COLORS.reduce((sum, item) => sum + Math.abs(summary.colors[item].amountCentimos), 0);
   if (total === 0) return 0;
@@ -294,15 +291,12 @@ function ConciliarRowView({ row, selected, selectionNeedsReview = false, receipt
 
 
 export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery = '', initialCutoff = '2026-01-01', initialOrden = 'IMPORTE', initialDireccion = 'DESC', initialGlobalOrder = false, initialData }: { initialTab?: ConciliarTab; initialQuery?: string; initialCutoff?: string; initialOrden?: ConciliarSortField; initialDireccion?: ConciliarSortDirection; initialGlobalOrder?: boolean; initialData?: unknown }) {
-  const { active: activeActuation } = useActuation();
-  const { data: session } = useSession();
+  const { active: activeActuation, loading: actuationLoading } = useActuation();
+  const { data: session, status: sessionStatus } = useSession();
   const initialParsed = useMemo(() => initialData === undefined ? null : parseConciliarReadResponse(initialData), [initialData]);
-  const [tab, setTab] = useState<ConciliarTab>(initialTab);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [accountId, setAccountId] = useState('');
-  const [queryInput, setQueryInput] = useState(initialQuery);
-  const [query, setQuery] = useState(initialQuery);
   const [cutoffDate, setCutoffDate] = useState(initialCutoff);
   const [emitidasGrupo, setEmitidasGrupo] = useState<ConciliarEmitidasGroup | ''>('');
   const [estado, setEstado] = useState<ConciliarColor | ''>('');
@@ -310,17 +304,15 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const [orden, setOrden] = useState<ConciliarSortField>(initialOrden);
   const [direccion, setDireccion] = useState<ConciliarSortDirection>(initialDireccion);
   const [globalOrder, setGlobalOrder] = useState(initialGlobalOrder);
-  const [presentationRefreshRevision, setPresentationRefreshRevision] = useState(0);
   const [confirmationHistoryRevision, setConfirmationHistoryRevision] = useState(0);
   const [showInterestInvoices, setShowInterestInvoices] = useState(false);
   const [historicData, setHistoricData] = useState<ConciliarReadResponse | null>(null);
   const [historicLoading, setHistoricLoading] = useState(false);
   const [historicOpen, setHistoricOpen] = useState(false);
   const [historicOffset, setHistoricOffset] = useState(0);
-  const [offset, setOffset] = useState(0);
-  const [data, setData] = useState<ConciliarReadResponse | null>(initialParsed);
-  const [loading, setLoading] = useState(initialParsed === null);
-  const [refreshing, setRefreshing] = useState(false);
+  const [identityClock, setIdentityClock] = useState(() => Date.now());
+  const [cacheEpoch, setCacheEpoch] = useState(0);
+  const [identityRejected, setIdentityRejected] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   /** id -> hash sellado: una selección no confía en filas que ya no son vigentes. */
   const [selected, setSelected] = useState<ReadonlyMap<string, string>>(new Map());
@@ -335,9 +327,6 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const [area3ReviewLoading, setArea3ReviewLoading] = useState(false);
   const [remesaPreviewLoading, setRemesaPreviewLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const readController = useRef<AbortController | null>(null);
-  const readSequence = useRef(0);
-  const activeViewKey = useRef('');
   const exportController = useRef<AbortController | null>(null);
   const detailController = useRef<AbortController | null>(null);
   const detailSequence = useRef(0);
@@ -348,16 +337,112 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const detailCache = useRef(new ConciliarDetailMemoryCache<ConciliarDocumentDetail>());
   const detailCacheIdentity = useRef<string | null>(null);
   const detailPrefetchControllers = useRef(new Set<AbortController>());
-  const detailIdentityScope = activeActuation ? `actuacion:${activeActuation.sessionId}:${activeActuation.targetId}` : `usuario:${session?.user?.id ?? 'sin-sesion'}`;
+  const projectionCache = useRef(new ConciliarProjectionMemoryCache());
+  const projectionPrefetchScope = useRef<string | null>(null);
+  const identityScopeSeen = useRef<string | null | undefined>(undefined);
+  const stableIdentityScope = useRef<string | null>(null);
+  const hasTrustedIdentity = useRef(false);
+  const discardSearchRef = useRef<() => void>(() => {});
 
+  const sessionExpiresAt = Date.parse(session?.expires ?? '');
+  const actuationExpiresAt = activeActuation ? Date.parse(activeActuation.expiresAt) : Number.POSITIVE_INFINITY;
+  const capabilityExpiresAt = Math.min(sessionExpiresAt, actuationExpiresAt);
+  const awaitingActuationAuthority = Boolean(session?.impersonation) && (actuationLoading || !activeActuation);
+  const identityScope = useMemo(() => {
+    if (sessionStatus !== 'authenticated' || awaitingActuationAuthority || !session?.user?.id || !Number.isFinite(capabilityExpiresAt) || capabilityExpiresAt <= identityClock) return null;
+    const roles = [...(session.user.roles ?? []), session.user.role ?? ''].filter(Boolean).sort().join(',');
+    const sessionWindow = session.expires;
+    if (activeActuation) {
+      return `actuacion:${session.user.id}:${activeActuation.sessionId}:${activeActuation.targetId}:${activeActuation.expiresAt}:${sessionWindow}:${roles}`;
+    }
+    return `usuario:${session.user.id}:${sessionWindow}:${roles}`;
+  }, [activeActuation, awaitingActuationAuthority, capabilityExpiresAt, identityClock, session, sessionStatus]);
+  const cacheScope = identityScope ? `${identityScope}:epoch:${cacheEpoch}` : null;
+  const currentScopeRef = useRef<string | null>(cacheScope);
+  const currentIdentityScopeRef = useRef<string | null>(identityScope);
+  currentScopeRef.current = cacheScope;
+  currentIdentityScopeRef.current = identityScope;
+  const detailIdentityScope = identityScope ?? 'auth-desconocida';
+
+  useEffect(() => {
+    if (!Number.isFinite(capabilityExpiresAt)) return;
+    const delay = Math.max(0, Math.min(2_147_483_647, capabilityExpiresAt - Date.now() + 1));
+    const timer = window.setTimeout(() => setIdentityClock(Date.now()), delay);
+    return () => window.clearTimeout(timer);
+  }, [capabilityExpiresAt]);
+
+  const invalidateProjectionMemory = useCallback((advanceEpoch = false) => {
+    projectionCache.current.clear();
+    projectionPrefetchScope.current = null;
+    if (advanceEpoch) setCacheEpoch((current) => current + 1);
+  }, []);
+  const rejectIdentity = useCallback(() => {
+    // React aún no ha renderizado el nuevo epoch: los refs invalidan de forma
+    // síncrona un 200 cuyo cuerpo ya estuviera resolviéndose.
+    currentScopeRef.current = null;
+    currentIdentityScopeRef.current = null;
+    historicController.current?.abort();
+    historicController.current = null;
+    setHistoricData(null);
+    setHistoricLoading(false);
+    setIdentityRejected(true);
+    invalidateProjectionMemory(true);
+    discardSearchRef.current();
+  }, [invalidateProjectionMemory]);
+
+  const projectionCacheKey = useCallback((view: Readonly<{ tab: ConciliarTab; query: string; offset: number }>) => {
+    if (!cacheScope) return null;
+    return conciliarProjectionCacheKey({
+      identityScope: cacheScope, globalOrder, tab: view.tab, from, to, accountId, query: view.query, cutoffDate,
+      emitidasGrupo: view.tab === 'EMITIDAS' ? emitidasGrupo : '', estado, grupo, orden, direccion,
+      limit: PAGE_SIZE, offset: view.offset,
+    });
+  }, [accountId, cacheScope, cutoffDate, direccion, emitidasGrupo, estado, from, globalOrder, grupo, orden, to]);
+
+  const readProjection = useCallback(async (view: Readonly<{ tab: ConciliarTab; query: string; offset: number }>, signal?: AbortSignal) => {
+    if (!identityScope || !cacheScope) throw new Error('Tu sesión se está actualizando. Espera antes de consultar o confirmar.');
+    const requestScope = cacheScope;
+    const params = buildQuery({
+      tab: view.tab, from, to, accountId, query: view.query, cutoffDate,
+      emitidasGrupo: view.tab === 'EMITIDAS' ? emitidasGrupo : '', estado, grupo, orden, direccion, limit: PAGE_SIZE, offset: view.offset,
+    });
+    const response = await fetch(`${API}?${params.toString()}`, { cache: 'no-store', signal });
+    const raw: unknown = await response.json().catch(() => null);
+    if (response.status === 401 || response.status === 403) rejectIdentity();
+    // El 401/403 anterior se conserva, pero una respuesta cuyo cuerpo llegó tras
+    // clear()/abort no puede limpiar el rechazo ni devolver datos al nuevo scope.
+    if (!isCurrentConciliarProjectionResponse({ signal, requestScope, currentScope: currentScopeRef.current })) throw conciliarAbortError();
+    if (!response.ok) throw new Error(friendlyError(raw, 'No se pudo actualizar la conciliación.'));
+    setIdentityRejected(false);
+    return parseConciliarReadResponse(raw);
+  }, [accountId, cacheScope, cutoffDate, direccion, emitidasGrupo, estado, from, grupo, identityScope, orden, rejectIdentity, to]);
+  const readGlobal = useCallback((view: Readonly<{ tab: ConciliarTab; query: string; offset: number }>, { signal }: Readonly<{ signal: AbortSignal; generation: number }>) => readProjection(view, signal), [readProjection]);
+  const searchCache = useMemo(() => !cacheScope ? undefined : {
+    get: (view: Readonly<{ tab: ConciliarTab; query: string; offset: number }>) => {
+      const key = projectionCacheKey(view);
+      return key ? projectionCache.current.get(key) : undefined;
+    },
+    set: (view: Readonly<{ tab: ConciliarTab; query: string; offset: number }>, value: ConciliarReadResponse) => {
+      const key = projectionCacheKey(view);
+      if (key) projectionCache.current.set(key, value);
+    },
+    pendingFor: (view: Readonly<{ tab: ConciliarTab; query: string; offset: number }>) => {
+      const key = projectionCacheKey(view);
+      return key ? projectionCache.current.pendingFor(key) : undefined;
+    },
+  }, [cacheScope, projectionCacheKey]);
+  const search = useConciliarGlobalSearch({ initialTab, initialQuery, initialOffset: 0, initialData: initialParsed, read: readGlobal, cache: searchCache });
+  discardSearchRef.current = search.discard;
+  const { tab, query, queryBox, offset, data } = search;
+  const loading = search.searching;
+  const refreshing = search.revalidating;
   const requestInput = useMemo(() => ({ tab, from, to, accountId, query, cutoffDate, emitidasGrupo, estado, grupo, ...(orden === 'IMPORTE' && direccion === 'DESC' ? {} : { orden, direccion }), limit: PAGE_SIZE, offset }), [accountId, direccion, emitidasGrupo, estado, from, grupo, offset, orden, query, tab, to, cutoffDate]);
-  activeViewKey.current = buildQuery(requestInput).toString();
-  const initialRequestKey = useRef(initialParsed ? buildQuery({ tab: initialTab, from: '', to: '', accountId: '', query: initialQuery, cutoffDate: initialCutoff, ...(initialOrden === 'IMPORTE' && initialDireccion === 'DESC' ? {} : { orden: initialOrden, direccion: initialDireccion }), limit: PAGE_SIZE, offset: 0 }).toString() : null);
   const rows = data?.rows ?? [];
   const visibleSelectable = useMemo(() => rows.filter((row) => row.color === 'VERDE' && !remesaHint(row) && (row.seleccionable || hasHumanOwnTransferConfirmation(row))), [rows]);
   const selectionReview = useMemo(() => reviewSelectionForCurrentRows(selected, rows), [rows, selected]);
   const receiptByRow = useMemo(() => new Map(receipts.map((receipt) => [receipt.rowId, receipt])), [receipts]);
-  const mutationsBlocked = sending || retry !== null || remesaPreviewLoading || area3ReviewLoading;
+  const identityTransitioning = identityScopeSeen.current !== undefined && identityScopeSeen.current !== detailIdentityScope;
+  const mutationsBlocked = !identityScope || identityTransitioning || identityRejected || refreshing || sending || retry !== null || remesaPreviewLoading || area3ReviewLoading;
 
   const closeDetail = useCallback(() => {
     detailSequence.current += 1;
@@ -373,7 +458,23 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   }, []);
 
   useEffect(() => {
-    // Una actuación nueva o cerrada nunca puede reutilizar datos del actor anterior.
+    // Una actuación nueva/cerrada, permiso distinto, sesión expirada o auth
+    // desconocida descartan fotos, GET y detalles antes de cualquier acción.
+    const previousIdentityScope = identityScopeSeen.current;
+    if (previousIdentityScope === detailIdentityScope) return;
+    identityScopeSeen.current = detailIdentityScope;
+    const previousStableIdentityScope = stableIdentityScope.current;
+    if (identityScope) stableIdentityScope.current = identityScope;
+    // La foto SSR de 20 filas ya pasó ACL en este render. Se conserva hasta la
+    // primera identidad cliente válida (sin archivar ni precargar); sólo un
+    // cambio posterior de usuario/actuación/ventana de permiso la descarta.
+    if (!hasTrustedIdentity.current) {
+      if (identityScope) hasTrustedIdentity.current = true;
+      detailCacheIdentity.current = detailIdentityScope;
+      return;
+    }
+    invalidateProjectionMemory();
+    search.discard();
     detailCache.current.clear();
     detailCacheIdentity.current = detailIdentityScope;
     detailSequence.current += 1;
@@ -382,42 +483,49 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     detailPrefetchControllers.current.clear();
     detailController.current = null;
     setOpenDocument(null);
-    // No se transfiere ninguna selección entre identidades o sesiones de actuación.
+    historicController.current?.abort();
+    historicController.current = null;
+    setHistoricData(null);
+    setHistoricLoading(false);
+    setHistoricOffset(0);
     setSelected(new Map());
     setBatchProgress(null);
     setBatchResult(null);
-  }, [detailIdentityScope]);
-
-  const load = useCallback(async (silent = false, keepNotice = false) => {
-    readController.current?.abort();
-    const controller = new AbortController();
-    readController.current = controller;
-    const sequence = ++readSequence.current;
-    if (silent) setRefreshing(true); else { setLoading(true); setData(null); }
-    try {
-      const response = await fetch(`${API}?${buildQuery(requestInput).toString()}`, { cache: 'no-store', signal: controller.signal });
-      const raw: unknown = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(friendlyError(raw, 'No se pudo actualizar la conciliación.'));
-      const parsed = parseConciliarReadResponse(raw);
-      if (sequence !== readSequence.current) return;
-      setData(parsed);
-      if (!keepNotice) setNotice(null);
-    } catch (error) {
-      if (sequence !== readSequence.current || (error instanceof DOMException && error.name === 'AbortError')) return;
-      setNotice({ tone: 'error', text: error instanceof Error ? safeOutcomeMessage(error.message, 'No se pudo actualizar la conciliación.') : 'No se pudo actualizar la conciliación.' });
-    } finally {
-      if (sequence === readSequence.current) { setLoading(false); setRefreshing(false); }
-      if (readController.current === controller) readController.current = null;
+    // Auth desconocida conserva un posible reintento del actor saliente. Sólo
+    // otro actor estable (no la restauración del mismo) limpia esa información.
+    if (identityScope && previousStableIdentityScope && previousStableIdentityScope !== identityScope) {
+      setReceipts([]);
+      setRetry(null);
     }
-  }, [requestInput]);
+    setIdentityRejected(true);
+    if (identityScope) search.refresh();
+  }, [detailIdentityScope, identityScope, invalidateProjectionMemory, search.discard, search.refresh]);
 
+  /** Las acciones y filtros vuelven a pedir sólo la foto privada; no navegan ni recargan la página. */
+  const load = useCallback(async (_silent = false, _keepNotice = false) => { search.refresh(); }, [search.refresh]);
+  const externalFilterKey = `${from}\u0000${to}\u0000${accountId}\u0000${cutoffDate}\u0000${emitidasGrupo}\u0000${estado}\u0000${grupo}\u0000${orden}\u0000${direccion}`;
+  const initialExternalFilterKey = useRef(externalFilterKey);
   useEffect(() => {
-    // El HTML ya incluye las filas autorizadas. No borrarlas para pedir lo mismo
-    // después de hidratar ni arrancar una segunda consulta en StrictMode.
-    if (readSequence.current === 0 && initialRequestKey.current === buildQuery(requestInput).toString()) return;
-    void load();
-  }, [load, presentationRefreshRevision, requestInput]);
-  useEffect(() => () => { readSequence.current += 1; detailSequence.current += 1; remesaPreviewSequence.current += 1; readController.current?.abort(); detailController.current?.abort(); detailPrefetchControllers.current.forEach((controller) => controller.abort()); detailPrefetchControllers.current.clear(); remesaPreviewController.current?.abort(); exportController.current?.abort(); }, []);
+    if (initialExternalFilterKey.current === externalFilterKey) return;
+    initialExternalFilterKey.current = externalFilterKey;
+    invalidateProjectionMemory();
+    search.refreshForFilters();
+  }, [externalFilterKey, invalidateProjectionMemory, search.refreshForFilters]);
+  useEffect(() => {
+    if (!data || loading || !identityScope) return;
+    // Tres GET fijos, uno por pestaña hermana. Nunca hay precarga por fila y el
+    // servidor vuelve a autorizar cada petición con cache:no-store.
+    const scope = `${cacheScope}\u0000${externalFilterKey}\u0000${query}\u0000${data.updatedAt}`;
+    if (projectionPrefetchScope.current === scope) return;
+    projectionPrefetchScope.current = scope;
+    for (const candidate of CONCILIAR_TABS) {
+      if (candidate === tab) continue;
+      const view = { tab: candidate, query, offset: 0 };
+      const key = projectionCacheKey(view);
+      if (key) void projectionCache.current.prefetch(key, (signal) => readProjection(view, signal)).catch(() => undefined);
+    }
+  }, [cacheScope, data, externalFilterKey, identityScope, loading, projectionCacheKey, query, readProjection, tab]);
+  useEffect(() => () => { detailSequence.current += 1; remesaPreviewSequence.current += 1; invalidateProjectionMemory(); detailCache.current.clear(); detailController.current?.abort(); detailPrefetchControllers.current.forEach((controller) => controller.abort()); detailPrefetchControllers.current.clear(); remesaPreviewController.current?.abort(); exportController.current?.abort(); }, [invalidateProjectionMemory]);
 
   useEffect(() => {
     if (!data?.stale) { refreshAttempts.current = 0; return; }
@@ -429,57 +537,67 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     return () => window.clearTimeout(timeout);
   }, [data, load, mutationsBlocked]);
 
-  const changeTab = useCallback((next: ConciliarTab) => { if (next === tab) return; closeDetail(); remesaPreviewController.current?.abort(); setRemesaConfirmation(null); setTab(next); if (next !== 'EMITIDAS') setEmitidasGrupo(''); setOffset(0); }, [closeDetail, tab]);
-  const changeAccount = useCallback((next: string) => { closeDetail(); setAccountId(next); setOffset(0); }, [closeDetail]);
-  const changeDate = useCallback((kind: 'from' | 'to', value: string) => { closeDetail(); if (kind === 'from') setFrom(value); else setTo(value); setOffset(0); }, [closeDetail]);
+  const changeTab = useCallback((next: ConciliarTab) => {
+    if (next === tab) return;
+    closeDetail(); remesaPreviewController.current?.abort(); setRemesaConfirmation(null);
+    if (next !== 'EMITIDAS' && emitidasGrupo) {
+      // La navegación ya reinicia offset. Adelantar el valor evita que el efecto
+      // de filtros aborte ese mismo GET para repetirlo sin el subfiltro Emitidas.
+      initialExternalFilterKey.current = `${from}\u0000${to}\u0000${accountId}\u0000${cutoffDate}\u0000\u0000${estado}\u0000${grupo}\u0000${orden}\u0000${direccion}`;
+      setEmitidasGrupo('');
+    }
+    search.changeTab(next);
+  }, [accountId, closeDetail, cutoffDate, direccion, emitidasGrupo, estado, from, grupo, orden, search.changeTab, tab, to]);
+  const changeAccount = useCallback((next: string) => { closeDetail(); setAccountId(next); }, [closeDetail]);
+  const changeDate = useCallback((kind: 'from' | 'to', value: string) => { closeDetail(); if (kind === 'from') setFrom(value); else setTo(value); }, [closeDetail]);
   const submitSearch = useCallback((event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     closeDetail();
-    const next = queryInput.trim().slice(0, 120);
-    if (next) { setQuery(next); setOffset(0); return; }
+    if (queryBox.trim()) { search.submitSearch(); return; }
     // Buscar vacío significa mostrar todo: restablece filtros de presentación
     // de forma visible, sin destruir la selección sellada que pueda quedar fuera.
-    setQueryInput(''); setQuery(''); setFrom(''); setTo(''); setAccountId('');
-    setEmitidasGrupo(''); setEstado(''); setGrupo(''); setOrden('IMPORTE'); setDireccion('DESC'); setGlobalOrder(false); setOffset(0);
-    setPresentationRefreshRevision((current) => current + 1);
-  }, [closeDetail, queryInput]);
+    initialExternalFilterKey.current = `\u0000\u0000\u0000${cutoffDate}\u0000\u0000\u0000\u0000IMPORTE\u0000DESC`;
+    setFrom(''); setTo(''); setAccountId(''); setEmitidasGrupo(''); setEstado(''); setGrupo('');
+    setOrden('IMPORTE'); setDireccion('DESC'); setGlobalOrder(false); invalidateProjectionMemory(); search.clearSearch();
+  }, [closeDetail, cutoffDate, invalidateProjectionMemory, queryBox, search.clearSearch, search.submitSearch]);
   const changeEmitidasGrupo = useCallback((next: ConciliarEmitidasGroup) => {
     closeDetail(); remesaPreviewController.current?.abort(); setRemesaConfirmation(null);
     setEmitidasGrupo((current) => current === next ? '' : next);
-    setOffset(0);
   }, [closeDetail]);
-  const changeEstado = useCallback((next: ConciliarColor | '') => { closeDetail(); setEstado(next); setOffset(0); }, [closeDetail]);
-  const changeGrupo = useCallback((next: ConciliarGroup | '') => { closeDetail(); setGrupo(next); setOffset(0); }, [closeDetail]);
+  const changeEstado = useCallback((next: ConciliarColor | '') => { closeDetail(); setEstado(next); }, [closeDetail]);
+  const changeGrupo = useCallback((next: ConciliarGroup | '') => { closeDetail(); setGrupo(next); }, [closeDetail]);
   const changeOrder = useCallback((field: ConciliarSortField) => {
     closeDetail();
     setGlobalOrder(true);
     if (field === orden) setDireccion((current) => current === 'ASC' ? 'DESC' : 'ASC');
     else { setOrden(field); setDireccion(field === 'IMPORTE' ? 'DESC' : 'ASC'); }
-    setOffset(0);
   }, [closeDetail, orden]);
   const changeCutoff = useCallback((value: string) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return;
     const date = new Date(`${value}T00:00:00Z`);
     if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value) return;
-    closeDetail(); setCutoffDate(value); setOffset(0); setHistoricOffset(0); setHistoricData(null);
+    closeDetail(); setCutoffDate(value); setHistoricOffset(0); setHistoricData(null);
     // Una fecha de presentación, no autorización ni estado de cobro.
     document.cookie = `io_conciliar_cutoff=${value}; Path=/admin/finanzas/conciliar; SameSite=Lax; Secure; Max-Age=31536000`;
   }, [closeDetail]);
 
   useEffect(() => {
-    if (!historicOpen || tab !== 'EMITIDAS') return;
+    if (!historicOpen || tab !== 'EMITIDAS' || !identityScope) return;
+    const requestIdentityScope = identityScope;
     const controller = new AbortController(); historicController.current?.abort(); historicController.current = controller;
     setHistoricLoading(true);
     const params = buildQuery({ tab: 'EMITIDAS', from, to, accountId, query, cutoffDate, historic: true, estado, grupo, orden, direccion, limit: PAGE_SIZE, offset: historicOffset });
     void fetch(`${API}?${params}`, { cache: 'no-store', signal: controller.signal }).then(async (response) => {
       const raw: unknown = await response.json().catch(() => null);
+      if (response.status === 401 || response.status === 403) rejectIdentity();
+      if (controller.signal.aborted || currentIdentityScopeRef.current !== requestIdentityScope) throw conciliarAbortError();
       if (!response.ok) throw new Error(friendlyError(raw, 'No se pudieron leer las facturas anteriores.'));
-      if (!controller.signal.aborted) setHistoricData(parseConciliarReadResponse(raw));
+      setHistoricData(parseConciliarReadResponse(raw));
     }).catch((error: unknown) => {
-      if (!controller.signal.aborted) setNotice({ tone: 'error', text: error instanceof Error ? safeOutcomeMessage(error.message, 'No se pudieron leer las facturas anteriores.') : 'No se pudieron leer las facturas anteriores.' });
+      if (!controller.signal.aborted && !(error instanceof DOMException && error.name === 'AbortError')) setNotice({ tone: 'error', text: error instanceof Error ? safeOutcomeMessage(error.message, 'No se pudieron leer las facturas anteriores.') : 'No se pudieron leer las facturas anteriores.' });
     }).finally(() => { if (!controller.signal.aborted) setHistoricLoading(false); });
     return () => controller.abort();
-  }, [accountId, cutoffDate, direccion, estado, from, grupo, historicOpen, historicOffset, orden, query, tab, to, data?.updatedAt]);
+  }, [accountId, cutoffDate, direccion, estado, from, grupo, historicOpen, historicOffset, identityScope, orden, query, rejectIdentity, tab, to, data?.updatedAt]);
 
   const addReceipt = useCallback((receipt: Receipt) => {
     setReceipts((current) => [receipt, ...current.filter((item) => item.key !== receipt.key && item.rowId !== receipt.rowId)].slice(0, 20));
@@ -501,20 +619,16 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   }, [addReceipt]);
 
   const post = useCallback(async (payload: ConciliarMutationPayload, label: string) => {
-    if (sending) return;
+    if (sending || !identityScope || identityTransitioning || identityRejected) return;
+    const operationIdentityScope = identityScope;
     // A retry retains its original view/idempotency payload; a first attempt gets
     // the exact normalized view that was visibly rendered when it was sent.
     const command: ConciliarMutationPayload = payload.responseView ? payload : { ...payload, responseView: responseViewFor(requestInput) };
-    const commandViewKey = command.responseView ? responseViewKey(command.responseView) : null;
-    const adoptProjection = (projection: ConciliarReadResponse | undefined): boolean => {
-      if (!projection || !commandViewKey || commandViewKey !== activeViewKey.current) return false;
-      // Cancel an earlier GET of the old projection; it must not overwrite this
-      // same-transaction snapshot with a stale pre-action response.
-      readSequence.current += 1;
-      readController.current?.abort();
-      setData(projection);
-      return true;
-    };
+    // Una acción nunca comparte decisiones con otra: se descartan fotos y
+    // precargas antes del POST. El servidor vuelve a comprobar actor, permiso,
+    // lock G7 y hash de cada fila; su proyección de respuesta no se adopta para
+    // evitar cruzar una vista o una generación distinta.
+    invalidateProjectionMemory(true);
     const batchItems = command.action === 'confirmar' && 'items' in command ? command.items : null;
     const isBatch = batchItems !== null && batchItems.length > 1;
     setBatchResult(null);
@@ -533,6 +647,18 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       const raw: unknown = command.action === 'confirmar' && isBatch
         ? await readConciliarBatchResponse(response, (batchItems ?? []).map((item) => item.id), setBatchProgress)
         : await response.json().catch(() => null);
+      if (response.status === 401 || response.status === 403) {
+        rejectIdentity();
+        return;
+      }
+      // No se cancela el POST: el servidor conserva su recuperación/idempotencia.
+      // Auth temporalmente desconocida conserva el recibo/reintento para volver
+      // al mismo actor; otro scope estable nunca recibe ese resultado local.
+      if (currentIdentityScopeRef.current !== null && currentIdentityScopeRef.current !== operationIdentityScope) return;
+      if (!response.ok) {
+        invalidateProjectionMemory(true);
+        search.discard();
+      }
       if (response.status === 409) {
         setRetry(null); setNotice({ tone: 'error', text: friendlyError(raw, 'Estos datos han cambiado. Actualiza: las filas modificadas no se enviarán sin volver a comprobar su hash.') });
         await load(true, true);
@@ -550,7 +676,8 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
         setReceipts((current) => current.map((item) => item.operationId === result.operationId ? { ...item, status: result.undone ? 'undone' : item.status, message: safeOutcomeMessage(result.message, 'Acción deshecha.') } : item));
         setRetry(null);
         setNotice({ tone: result.undone ? 'success' : 'info', text: safeOutcomeMessage(result.message, result.undone ? 'Acción deshecha.' : 'La acción ya no se puede deshacer.') });
-        if (!adoptProjection(result.projection)) void load(true, true);
+        invalidateProjectionMemory(true);
+        void load(true, true);
         setConfirmationHistoryRevision((current) => current + 1);
         return;
       }
@@ -568,7 +695,8 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       const succeeded = result.outcomes.filter((outcome) => outcome.ok).length;
       const failed = result.outcomes.length - succeeded;
       setNotice({ tone: failed ? 'info' : 'success', text: failed ? `${succeeded} hecha(s); ${failed} necesita(n) revisión. Consulta la actividad reciente.` : payload.action === 'pedir' ? 'Añadido a Para pedir. No se ha enviado ningún aviso.' : 'Hecho. Puedes deshacerlo aquí o desde la actividad reciente.' });
-      if (!adoptProjection(result.projection)) void load(true, true);
+      invalidateProjectionMemory(true);
+      void load(true, true);
       if (payload.action !== 'pedir') setConfirmationHistoryRevision((current) => current + 1);
     } catch (error) {
       if (error instanceof ConciliarStreamRejectedError) {
@@ -583,7 +711,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
         setNotice({ tone: 'error', text: error instanceof Error ? safeOutcomeMessage(error.message, 'No se pudo completar la acción.') : 'No se pudo completar la acción.' });
       }
     } finally { setBatchProgress(null); setSending(false); }
-  }, [activeActuation, finishOutcomes, load, requestInput, rows, sending]);
+  }, [activeActuation, finishOutcomes, identityRejected, identityScope, identityTransitioning, invalidateProjectionMemory, load, rejectIdentity, requestInput, rows, search.discard, sending]);
 
   const confirmRows = useCallback((source: readonly ConciliarRow[]) => {
     if (mutationsBlocked || remesaPreviewLoading) return;
@@ -635,6 +763,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       cache: 'no-store', signal: controller.signal,
     }).then(async (response) => {
       const raw: unknown = await response.json().catch(() => null);
+      if (response.status === 401 || response.status === 403) rejectIdentity();
       if (!response.ok) throw new Error(friendlyError(raw, 'No se pudo revisar la composición completa de la remesa.'));
       const preview = parseConciliarRemesaPreviewResponse(raw);
       if (sequence !== remesaPreviewSequence.current) return;
@@ -647,7 +776,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       if (sequence === remesaPreviewSequence.current) setRemesaPreviewLoading(false);
       if (remesaPreviewController.current === controller) remesaPreviewController.current = null;
     });
-  }, [mutationsBlocked, post, remesaPreviewLoading, rows]);
+  }, [mutationsBlocked, post, rejectIdentity, remesaPreviewLoading, rows]);
 
   const confirmSelected = useCallback(() => {
     if (mutationsBlocked) return;
@@ -689,6 +818,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
         body: JSON.stringify({ action: 'confirmar', review: { kind: 'REVIEW_PREVIEW', id: current.id, decisionHash: current.decisionHash } }),
       });
       const raw: unknown = await response.json().catch(() => null);
+      if (response.status === 401 || response.status === 403) rejectIdentity();
       if (!response.ok) throw new Error(friendlyError(raw, 'No se pudo revisar esta propuesta.'));
       const preview = parseConciliarReviewPreviewResponse(raw);
       if (preview.id !== current.id || preview.decisionHash !== current.decisionHash) {
@@ -700,7 +830,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     } finally {
       setArea3ReviewLoading(false);
     }
-  }, [activeActuation, mutationsBlocked, rows]);
+  }, [activeActuation, mutationsBlocked, rejectIdentity, rows]);
 
   const confirmArea3Review = useCallback(() => {
     const confirmation = area3ReviewConfirmation;
@@ -744,11 +874,12 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const fetchDetail = useCallback(async (currentRow: ConciliarRow, signal?: AbortSignal) => {
     const response = await fetch(`${DOCUMENT_DETAIL_API}/${encodeURIComponent(currentRow.id)}`, { cache: 'no-store', signal });
     const raw: unknown = await response.json().catch(() => null);
+    if (response.status === 401 || response.status === 403) rejectIdentity();
     if (!response.ok) throw new Error(friendlyError(raw, 'No se pudo cargar el detalle de este documento.'));
     const detail = parseConciliarDocumentDetail(raw);
     if (detail.rowId !== currentRow.id) throw new Error('El detalle recibido no corresponde a la fila abierta.');
     return detail;
-  }, []);
+  }, [rejectIdentity]);
 
   /** La precarga sólo pide el DTO privado de la fila autorizada: nunca sigue ni descarga su PDF. */
   const prefetchDetail = useCallback((requestedRow: ConciliarRow) => {
@@ -815,6 +946,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
         const params = buildQuery({ tab, from, to, accountId, query, cutoffDate, emitidasGrupo, estado, grupo, orden, direccion, limit: EXPORT_PAGE_SIZE, offset: pageOffset });
         const response = await fetch(`${API}?${params.toString()}`, { cache: 'no-store', signal: controller.signal });
         const raw: unknown = await response.json().catch(() => null);
+        if (response.status === 401 || response.status === 403) rejectIdentity();
         if (!response.ok) throw new Error(friendlyError(raw, 'No se pudo leer una página para exportar.'));
         const page = parseConciliarReadResponse(raw);
         if (page.total !== data.total) throw new Error('Los resultados cambiaron durante la exportación. Actualiza y vuelve a exportar.');
@@ -846,7 +978,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     <header data-conciliar-heading className="flex flex-col gap-3 border-b border-orange-100 pb-4 panel-dark:border-slate-800 lg:flex-row lg:items-end lg:justify-between">
       <div className="min-w-0"><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#FF5300]">Conciliación</p><h1 className="mt-1 text-2xl font-extrabold tracking-tight text-[#2D2A26] panel-dark:text-white sm:text-3xl">Conciliar</h1><p data-conciliar-subtitle className="mt-1 max-w-3xl text-sm text-slate-600 panel-dark:text-slate-300">Una vista directa de lo que queda por casar, revisar o pedir.</p></div>
       <div className="flex flex-wrap items-center gap-3 self-start">{data?.updatedAt && <p data-testid="conciliar-updated-at" className="text-xs text-slate-500 panel-dark:text-slate-400" suppressHydrationWarning>{formatConciliarUpdatedAt(data.updatedAt, { timeZone: 'Europe/Madrid' })}</p>}
-      <button type="button" onClick={() => void load(true)} disabled={loading || refreshing || mutationsBlocked} className="inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-lg border border-[#FFB18C] bg-white px-3 py-2 text-sm font-bold text-[#BF3E00] shadow-sm hover:bg-orange-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 panel-dark:bg-slate-900 panel-dark:text-orange-200"><ArrowPathIcon className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />Actualizar</button>
+      <button type="button" onClick={() => void load(true)} disabled={loading || refreshing || sending || remesaPreviewLoading || area3ReviewLoading} className="inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-lg border border-[#FFB18C] bg-white px-3 py-2 text-sm font-bold text-[#BF3E00] shadow-sm hover:bg-orange-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 panel-dark:bg-slate-900 panel-dark:text-orange-200"><ArrowPathIcon className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />Actualizar</button>
       </div>
     </header>
 
@@ -878,13 +1010,13 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
 
     <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm panel-dark:border-slate-700 panel-dark:bg-slate-900">
       <form onSubmit={submitSearch} className="grid min-w-0 gap-2 md:grid-cols-2 xl:grid-cols-[minmax(180px,1fr)_145px_145px_190px_160px_210px_auto] xl:items-end">
-        <label className="block min-w-0 text-sm font-semibold text-slate-800 panel-dark:text-slate-100">Buscar<span className="relative mt-1 block"><MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" aria-hidden="true" /><input value={queryInput} onChange={(event) => setQueryInput(event.target.value.slice(0, 120))} maxLength={120} placeholder="Concepto, factura, tercero o importe" className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 panel-dark:border-slate-600 panel-dark:bg-slate-950 panel-dark:text-white" /></span></label>
+        <label className="block min-w-0 text-sm font-semibold text-slate-800 panel-dark:text-slate-100">Buscar<span className="relative mt-1 block"><MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" aria-hidden="true" /><input value={queryBox} onChange={(event) => search.onQueryChange(event.target.value.slice(0, 120))} maxLength={120} placeholder="Concepto, factura, tercero o importe" className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 panel-dark:border-slate-600 panel-dark:bg-slate-950 panel-dark:text-white" /></span></label>
         <label className="block text-sm font-semibold text-slate-800 panel-dark:text-slate-100">Estado<select value={estado} onChange={(event) => changeEstado(event.target.value as ConciliarColor | '')} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 panel-dark:border-slate-600 panel-dark:bg-slate-950 panel-dark:text-white"><option value="">Todos los estados</option><option value="VERDE">Verde · listo</option><option value="AMBAR">Ámbar · revisar</option><option value="ROJO">Rojo · falta el papel</option></select></label>
         <label className="block text-sm font-semibold text-slate-800 panel-dark:text-slate-100">Grupo / tipo<select value={grupo} onChange={(event) => changeGrupo(event.target.value as ConciliarGroup | '')} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 panel-dark:border-slate-600 panel-dark:bg-slate-950 panel-dark:text-white"><option value="">Todos los grupos / tipos</option>{CONCILIAR_GROUPS.map((item) => <option key={item} value={item}>{GROUP_FILTER_COPY[item]}</option>)}</select></label>
         <label className="block text-sm font-semibold text-slate-800 panel-dark:text-slate-100">Desde<input type="date" value={from} onChange={(event) => changeDate('from', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 panel-dark:border-slate-600 panel-dark:bg-slate-950 panel-dark:text-white" /></label>
         <label className="block text-sm font-semibold text-slate-800 panel-dark:text-slate-100">Hasta<input type="date" value={to} onChange={(event) => changeDate('to', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 panel-dark:border-slate-600 panel-dark:bg-slate-950 panel-dark:text-white" /></label>
         <label className="block min-w-0 text-sm font-semibold text-slate-800 panel-dark:text-slate-100">Cuenta<select value={accountId} onChange={(event) => changeAccount(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 panel-dark:border-slate-600 panel-dark:bg-slate-950 panel-dark:text-white"><option value="">Todas las cuentas</option>{(data?.cuentas ?? []).map((account) => <option key={account.id} value={account.id}>{accountLabel(account)}</option>)}</select></label>
-        <button type="submit" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[#FF5300] px-3 py-2 text-sm font-extrabold text-white hover:bg-[#E04900] focus:outline-none focus:ring-2 focus:ring-[#FF5300] focus:ring-offset-2 panel-dark:focus:ring-offset-slate-950"><MagnifyingGlassIcon className="h-4 w-4" aria-hidden="true" />Buscar</button>
+        {search.searching && <span role="status" className="self-end pb-2 text-xs font-semibold text-slate-600 panel-dark:text-slate-300">Buscando…</span>}<button type="button" onClick={() => search.clearSearch()} className="self-end min-h-10 rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold panel-dark:border-slate-600">Limpiar</button><button type="submit" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[#FF5300] px-3 py-2 text-sm font-extrabold text-white hover:bg-[#E04900] focus:outline-none focus:ring-2 focus:ring-[#FF5300] focus:ring-offset-2 panel-dark:focus:ring-offset-slate-950"><MagnifyingGlassIcon className="h-4 w-4" aria-hidden="true" />Buscar</button>
       </form>
       <p className="mt-2 text-xs text-slate-600 panel-dark:text-slate-300">Buscar vacío restablece las fechas, cuenta, estado, grupo y orden para mostrar todo. No confirma selecciones que queden fuera del filtro.</p>
     </section>
@@ -900,7 +1032,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
         {showGroupedRows ? displayGroups.map((group) => group.rows.length > 1 ? <section data-conciliar-group={group.label} key={group.key}><GroupHeader group={group} />{group.rows.map(renderRow)}</section> : group.rows.map(renderRow)) : <div data-testid="conciliar-global-order">{rows.map(renderRow)}</div>}
       </>}</div>
       {openDocument && <ConciliarDocumentPreview document={openDocument} onClose={closeDetail} onRetry={() => { if (openDocument) void openDetail(openDocument.row); }} />}
-      {data && <footer className="flex flex-col gap-2 border-t border-slate-200 px-3 py-3 text-sm panel-dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-slate-600 panel-dark:text-slate-300">Mostrando {data.total === 0 ? 0 : data.offset + 1}–{Math.min(data.offset + data.rows.length, data.total)} de {data.total.toLocaleString('es-ES')}.</p><div className="flex gap-2"><button type="button" disabled={data.offset === 0 || mutationsBlocked} onClick={() => { closeDetail(); setOffset(Math.max(0, data.offset - data.limit)); }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 panel-dark:border-slate-600 panel-dark:text-slate-100"><ChevronLeftIcon className="h-4 w-4" aria-hidden="true" />Anterior</button><button type="button" disabled={data.rows.length === 0 || data.offset + data.rows.length >= data.total || mutationsBlocked} onClick={() => { closeDetail(); setOffset(data.offset + data.rows.length); }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 panel-dark:border-slate-600 panel-dark:text-slate-100">Ver más<ChevronRightIcon className="h-4 w-4" aria-hidden="true" /></button></div></footer>}
+      {data && <footer className="flex flex-col gap-2 border-t border-slate-200 px-3 py-3 text-sm panel-dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-slate-600 panel-dark:text-slate-300">Mostrando {data.total === 0 ? 0 : data.offset + 1}–{Math.min(data.offset + data.rows.length, data.total)} de {data.total.toLocaleString('es-ES')}.</p><div className="flex gap-2"><button type="button" disabled={data.offset === 0 || mutationsBlocked} onClick={() => { closeDetail(); search.changeOffset(Math.max(0, data.offset - data.limit)); }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 panel-dark:border-slate-600 panel-dark:text-slate-100"><ChevronLeftIcon className="h-4 w-4" aria-hidden="true" />Anterior</button><button type="button" disabled={data.rows.length === 0 || data.offset + data.rows.length >= data.total || mutationsBlocked} onClick={() => { closeDetail(); search.changeOffset(data.offset + data.rows.length); }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 panel-dark:border-slate-600 panel-dark:text-slate-100">Ver más<ChevronRightIcon className="h-4 w-4" aria-hidden="true" /></button></div></footer>}
     </section>
 
     {tab === 'EMITIDAS' && data && <details onToggle={(event) => setHistoricOpen(event.currentTarget.open)} className="rounded-xl border border-slate-200 bg-white p-3 panel-dark:border-slate-700 panel-dark:bg-slate-900">
