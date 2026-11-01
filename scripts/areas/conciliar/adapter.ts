@@ -10,6 +10,7 @@ import { readBankInvoicingPopulation } from '../../../lib/finanzas/bank-invoicin
 import { extractRefsOwnIssued, normalizarReferenciaFactura, referenciasEmitidasComposicionCompatible, referenciasFacturaCitadas } from '../../../lib/finanzas/conciliar-issued-reference-core'
 import { readManualOwnAccountProofTx } from '../../../lib/finanzas/conciliar-own-account-proof-db'
 import { projectionRow } from '../../../lib/finanzas/conciliar-projection-read'
+import { readCurrentArea3RemittanceMapPreflightsTx } from '../../../lib/finanzas/area3-remittance-map-db'
 import { selectorSearchableText, type CanonicalRemittanceSelectorLink } from './selector-evidence'
 import type { ApiProjectionComparableRow, ApiProjectionCoverage } from './api-core'
 import type { Prisma } from '@prisma/client'
@@ -493,6 +494,16 @@ export async function readReleaseRegressionAdapter(client: ReadonlyPgClient): Pr
       return (await client.query(statement.text, statement.values)).rows as T
     },
   }, movementRaw.map(row => String(row.accountKey ?? '')))
+  // C4 consumes the actual current-generation FI→ISP→remesa preflight used by
+  // the server. This remains inside the caller's pinned READ ONLY transaction;
+  // it does not reimplement the source query, synthesize a B7 map, or derive a
+  // missing count from the proposal amount/composition.
+  const currentRemittanceMap = await readCurrentArea3RemittanceMapPreflightsTx({
+    async $queryRaw<T>(statement: Prisma.Sql): Promise<T> {
+      safeSelect(statement.text)
+      return (await client.query(statement.text, statement.values)).rows as T
+    },
+  } as Prisma.TransactionClient)
 
   const projections = projectionRaw.map(toCandidateProjection)
   if (projectionStateRows.length !== 1) fail('REGRESSION_SCHEMA_INVALID')
@@ -585,6 +596,7 @@ export async function readReleaseRegressionAdapter(client: ReadonlyPgClient): Pr
 
   const cpProjection = (row: CandidateProjection): RegressionProjectionRow => {
     const proposal = row.source.propuestaId ? proposalByKey.get(row.source.propuestaId) : undefined
+    const remittanceMapPreflight = row.source.propuestaId ? currentRemittanceMap.preflights.get(row.source.propuestaId) : undefined
     const composition = proposal ? parseComposition(proposal.composition) : []
     const documentReferences = composition.flatMap(item => item.reference ? [item.reference] : [])
     const partialReferences = composition.flatMap(item => {
@@ -605,6 +617,7 @@ export async function readReleaseRegressionAdapter(client: ReadonlyPgClient): Pr
       differenceCents: row.differenceCents, isParaPedir,
       confirmingEvidence: c11 ? { persisted: c11.persisted, nominalCents: integer(matchedC11?.row.nominalCents), deductionsCents: [integer(matchedC11?.row.interestCents) ?? Number.NaN, integer(matchedC11?.row.commissionCents) ?? Number.NaN, integer(matchedC11?.row.vatCommissionCents) ?? Number.NaN], netCents: integer(matchedC11?.row.netCents) } : null,
       remittanceComposition: proposal ? { lineCount: composition.length, sumCents: composition.reduce((sum, item) => sum + (Number.isSafeInteger(item.amountCents) ? item.amountCents : 0), 0), exact: row.color === 'VERDE' && composition.every(item => Number.isSafeInteger(item.amountCents) && item.amountCents > 0) } : null,
+      remittanceMapPreflight: remittanceMapPreflight ?? null,
     }
   }
   const cpAllTabProjectionRows = projections.filter(row => row.movementKey !== null).map(cpProjection)

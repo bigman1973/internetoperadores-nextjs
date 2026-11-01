@@ -74,6 +74,8 @@ export type RemittanceCompositionExpectation = Readonly<{
   sumCents: number
   exact: boolean
 }>
+/** C4's exceptional alternative is closed: it is not a general amber waiver. */
+export type RemittancePreflightExpectation = 'GREEN_EXACT_B7_OR_AMBER_MISSING_RECEIPTS'
 
 export type RegressionExpectation = Readonly<{
   tab?: string
@@ -100,6 +102,8 @@ export type RegressionExpectation = Readonly<{
   maxPairDays?: number
   confirmingEquation?: ConfirmingEquationExpectation
   remittanceComposition?: RemittanceCompositionExpectation
+  /** Current FI→ISP→remesa/B7 preflight branch; currently authorized for C4 only. */
+  remittancePreflight?: RemittancePreflightExpectation
 }>
 
 export type ConciliarReleaseRegressionCase = Readonly<{
@@ -151,6 +155,13 @@ export type RegressionProjectionRow = Readonly<{
     lineCount: number
     sumCents: number
     exact: boolean
+  }> | null
+  /** Evidence supplied by the server's actual current-generation preflight. */
+  remittanceMapPreflight?: Readonly<{
+    complete: boolean
+    missingReceiptCount: number
+    expectedReceiptCount: number
+    proposalSetHash: string | null
   }> | null
 }>
 
@@ -223,6 +234,9 @@ function validCase(input: ConciliarReleaseRegressionCase): boolean {
   if (equation && (!Number.isSafeInteger(equation.nominalCents) || !Number.isSafeInteger(equation.netCents) || !equation.deductionsCents.every(Number.isSafeInteger))) return false
   const remittance = expectation.remittanceComposition
   if (remittance && (!Number.isSafeInteger(remittance.lineCount) || remittance.lineCount < 1 || !Number.isSafeInteger(remittance.sumCents))) return false
+  if (expectation.remittancePreflight !== undefined
+    && (input.caseId !== 'C4' || expectation.remittancePreflight !== 'GREEN_EXACT_B7_OR_AMBER_MISSING_RECEIPTS'
+      || expectation.color !== undefined || expectation.allowedColors !== undefined || expectation.remittanceComposition !== undefined)) return false
   // This is an operational-state amendment, not a new classification. The
   // case must prove a pending B4 source and a rendered row, while deliberately
   // refusing every colour assertion (including a hidden green assertion).
@@ -260,6 +274,38 @@ function assertTransfer(expectation: RegressionExpectation, source: RegressionBa
   const validPairs = pairs.filter(pair => pair.oppositeSign && pair.distinctAccount && Number.isSafeInteger(pair.daysApart) && pair.daysApart >= 0 && pair.daysApart <= maxDays)
   if (expectation.requiresOppositeOwnAccountPair === true && validPairs.length === 0) add(reasons, 'TRANSFER_PAIR_MISSING')
   if (expectation.requiresMissingPair === true && validPairs.length > 0) add(reasons, 'TRANSFER_PAIR_UNEXPECTED')
+}
+function validRemittanceMapEvidence(value: RegressionProjectionRow['remittanceMapPreflight']): value is NonNullable<RegressionProjectionRow['remittanceMapPreflight']> {
+  return value !== null && value !== undefined
+    && typeof value.complete === 'boolean'
+    && Number.isSafeInteger(value.missingReceiptCount) && value.missingReceiptCount >= 0
+    && Number.isSafeInteger(value.expectedReceiptCount) && value.expectedReceiptCount > 0
+    && value.missingReceiptCount <= value.expectedReceiptCount
+    && typeof value.proposalSetHash === 'string' && /^[a-f0-9]{64}$/.test(value.proposalSetHash)
+}
+/**
+ * The only C4 amber branch is a current server preflight reporting its exact
+ * missing FI→ISP→remesa receipt count. No count, monetary value, or colour is
+ * inferred here; the adapter supplies the preflight result from the existing
+ * read-only server reader.
+ */
+function assertC4RemittancePreflight(source: RegressionBankRow, row: RegressionProjectionRow, reasons: Set<SAFE_STATIC_CODES>): void {
+  const evidence = row.remittanceMapPreflight
+  const composition = row.remittanceComposition
+  if (!validRemittanceMapEvidence(evidence) || !composition || composition.lineCount < 1 || composition.sumCents !== source.amountCents) {
+    add(reasons, 'REMESA_COMPOSITION_MISSING')
+    return
+  }
+  const green = same(row.color, 'VERDE')
+    && evidence.complete === true
+    && evidence.missingReceiptCount === 0
+    && composition.exact === true
+  const expectedReason = `Falta enlazar ${evidence.missingReceiptCount} recibos.`
+  const amber = same(row.color, 'AMBAR')
+    && evidence.complete === false
+    && evidence.missingReceiptCount > 0
+    && row.reasonText === expectedReason
+  if (!green && !amber) add(reasons, 'REMESA_COMPOSITION_MISMATCH')
 }
 function assertProjection(selector: RegressionSelector, expectation: RegressionExpectation, source: RegressionBankRow, row: RegressionProjectionRow, reasons: Set<SAFE_STATIC_CODES>): void {
   if (expectation.tab !== undefined && !same(row.tab, expectation.tab)) add(reasons, 'TAB_MISMATCH')
@@ -306,6 +352,7 @@ function assertProjection(selector: RegressionSelector, expectation: RegressionE
     if (!composition) add(reasons, 'REMESA_COMPOSITION_MISSING')
     else if (composition.lineCount !== wanted.lineCount || composition.sumCents !== wanted.sumCents || composition.exact !== wanted.exact) add(reasons, 'REMESA_COMPOSITION_MISMATCH')
   }
+  if (expectation.remittancePreflight === 'GREEN_EXACT_B7_OR_AMBER_MISSING_RECEIPTS') assertC4RemittancePreflight(source, row, reasons)
   assertTransfer(expectation, source, reasons)
 }
 
@@ -340,9 +387,11 @@ export function evaluateCase(input: ConciliarReleaseRegressionCase, dataset: Con
   if (input.mode === 'PENDING_VISIBLE') {
     const source = sources[0]!
     if (source.b4Confirmed !== false) add(reasons, 'B4_NOT_PENDING')
-    // Visibility is evaluated across all persisted tabs. A duplicate is not
-    // evidence of a pending row and a hidden materialized row is not visible.
-    const rows = dataset.projectionRows.filter(row => row.movementKey === source.movementKey && row.visible)
+    // A pending bank task belongs to COBROS/PAGOS according to its signed bank
+    // source. EMITIDAS copies are invoice mirrors: they neither prove a bank
+    // task nor turn its one persisted bank task into a duplicate.
+    const bankTab = source.amountCents > 0 ? 'COBROS' : 'PAGOS'
+    const rows = dataset.projectionRows.filter(row => row.movementKey === source.movementKey && row.visible && same(row.tab, bankTab))
     if (rows.length === 0) add(reasons, 'PROJECTION_MISSING')
     else if (rows.length !== 1) add(reasons, 'PROJECTION_AMBIGUOUS')
     return result(input.caseId, reasons)

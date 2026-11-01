@@ -21,7 +21,14 @@ import { evaluateCase, type ConciliarReleaseRegressionCase } from './case-core'
 import { evaluateGlobalRegression } from './global-core'
 import { readReleaseRegressionAdapter } from './adapter'
 import { evaluateConciliarStagingApiSnapshot, type ApiGateStaticCode } from './api-core'
-import { stageProfileIsExactDerivative } from './stage-profile-core'
+import {
+  C4_REMITTANCE_MODE,
+  ORIGINAL_PRODUCTION_GOLDEN_SHA256,
+  PRODUCTION_GOLDEN_AMENDMENT_IDS,
+  STAGE_OVERRIDE_IDS,
+  productionGoldenIsAuthorizedDerivative,
+  stageProfileIsExactDerivative,
+} from './stage-profile-core'
 
 const ROOT = resolve(process.cwd())
 const EXPECTED_CASE_IDS = [
@@ -36,11 +43,10 @@ const MAX_SNAPSHOT_BYTES = 64 * 1024 * 1024
 const MAX_CASE_SPEC_BYTES = 256 * 1024
 const MAX_ENV_BYTES = 32 * 1024
 const PROFILE = 'STAGE'
-const STAGE_GOLDEN_SHA256 = '14045a576f46af17c58c800f2573022e7f7b6ff79cfd8941e93c38d6ae3b1905'
 
 type Cli = Readonly<{ profile: typeof PROFILE; snapshotFile: string; inputFile: string; manifestFile: string; envFile: string }>
 type PrivateCaseSpec = Readonly<{ schema: string; cases: readonly Record<string, unknown>[]; supplementalCases?: readonly ConciliarReleaseRegressionCase[] }>
-type StageProfileManifest = Readonly<{ schema?: unknown; profile?: unknown; source?: unknown; derivative?: unknown; authorization?: unknown; exactCaseDiff?: unknown }>
+type StageProfileManifest = Readonly<{ schema?: unknown; profile?: unknown; originalGolden?: unknown; productionGolden?: unknown; derivative?: unknown; authorization?: unknown }>
 type SafeOutcome = Readonly<{ caseId: string; pass: boolean; reasons: readonly string[] }>
 type RunOutput = Readonly<{
   ok: boolean
@@ -63,7 +69,8 @@ function privateFile(path: string, maximum: number): string {
   if (file.startsWith(`${ROOT}/`)) fail('PRIVATE_FILE_IN_REPOSITORY')
   let stat: ReturnType<typeof lstatSync>
   try { stat = lstatSync(file) } catch { fail('PRIVATE_FILE_UNAVAILABLE') }
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.uid !== process.getuid?.() || (stat.mode & 0o777) !== 0o600 || stat.size < 1 || stat.size > maximum) fail('PRIVATE_FILE_UNSAFE')
+  const permission = stat.mode & 0o777
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.uid !== process.getuid?.() || ![0o400, 0o600].includes(permission) || stat.size < 1 || stat.size > maximum) fail('PRIVATE_FILE_UNSAFE')
   return file
 }
 function parseCli(argv: readonly string[]): Cli {
@@ -102,39 +109,37 @@ function privateEnv(file: string): Record<string, string> {
 function readJson(file: string, code: string): unknown {
   try { return JSON.parse(readFileSync(file, 'utf8')) } catch { fail(code) }
 }
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
-  if (value && typeof value === 'object') return `{${Object.keys(value as Record<string, unknown>).sort().map(key => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`).join(',')}}`
-  return JSON.stringify(value)
-}
 function sha256(value: Buffer): string { return createHash('sha256').update(value).digest('hex') }
 function readCaseSpec(file: string, manifestFile: string): PrivateCaseSpec {
   const source = readFileSync(file)
   let parsed: unknown
   try { parsed = JSON.parse(source.toString('utf8')) } catch { fail('CASE_SPEC_UNREADABLE') }
   const manifest = readJson(manifestFile, 'STAGE_PROFILE_MANIFEST_UNREADABLE') as StageProfileManifest
-  const expectedDiff = [
-    { caseId: 'C2', collection: 'cases', before: { mode: 'EXACT', expect: { tab: 'COBROS', color: 'VERDE', documentReference: 'INST26/78' } }, after: { mode: 'ABSENT_CONFIRMED', expect: { b4Confirmed: true, absentAllTabs: true } } },
-    { caseId: 'C3', collection: 'cases', before: { mode: 'ABSENT_CONFIRMED', expect: { b4Confirmed: true, absentAllTabs: true } }, after: { mode: 'PENDING_VISIBLE', expect: { b4Confirmed: false, visible: true } } },
-    { caseId: 'C7', collection: 'cases', before: { mode: 'ABSENT_CONFIRMED', expect: { absentAllTabs: true, b4Confirmed: true } }, after: { mode: 'PENDING_VISIBLE', expect: { b4Confirmed: false, visible: true } } },
-    { caseId: 'C8', collection: 'cases', before: { mode: 'ABSENT_CONFIRMED', expect: { absentAllTabs: true, b4Confirmed: true } }, after: { mode: 'PENDING_VISIBLE', expect: { b4Confirmed: false, visible: true } } },
-    { caseId: 'P7', collection: 'cases', before: { mode: 'ABSENT_CONFIRMED', expect: { b4Confirmed: true, absentAllTabs: true } }, after: { mode: 'PENDING_VISIBLE', expect: { b4Confirmed: false, visible: true } } },
-    { caseId: 'P31', collection: 'supplementalCases', before: { mode: 'EXACT', expect: { tab: 'PAGOS', group: 'TARJETA', allowedColors: ['VERDE', 'AMBAR', 'ROJO'] } }, after: { mode: 'ABSENT_CONFIRMED', expect: { b4Confirmed: true, absentAllTabs: true } } },
-  ]
-  const sourceMeta = manifest?.source as Record<string, unknown> | undefined
+  const originalMeta = manifest?.originalGolden as Record<string, unknown> | undefined
+  const productionMeta = manifest?.productionGolden as Record<string, unknown> | undefined
   const derivative = manifest?.derivative as Record<string, unknown> | undefined
   const authorization = manifest?.authorization as Record<string, unknown> | undefined
-  if (manifest?.schema !== 'CONCILIAR_RELEASE_REGRESSION_STAGING_PROFILE_MANIFEST_V1' || manifest?.profile !== PROFILE
-    || sourceMeta?.sha256 !== STAGE_GOLDEN_SHA256 || sourceMeta?.unchanged !== true || derivative?.sha256 !== sha256(source)
-    || derivative?.caseChanges !== 6 || authorization?.issuer !== 'Claude' || typeof authorization?.receivedAt !== 'string'
-    || canonical(manifest?.exactCaseDiff) !== canonical(expectedDiff)) fail('STAGE_PROFILE_MANIFEST_INVALID')
-  if (typeof sourceMeta?.path !== 'string') fail('STAGE_PROFILE_GOLDEN_SOURCE_REQUIRED')
-  const goldenFile = privateFile(sourceMeta.path, MAX_CASE_SPEC_BYTES)
-  const goldenBytes = readFileSync(goldenFile)
-  if (sha256(goldenBytes) !== STAGE_GOLDEN_SHA256) fail('GOLDEN_HASH_MISMATCH')
-  let golden: unknown
-  try { golden = JSON.parse(goldenBytes.toString('utf8')) } catch { fail('CASE_SPEC_UNREADABLE') }
-  if (!stageProfileIsExactDerivative(golden, parsed, expectedDiff)) fail('STAGE_PROFILE_NOT_EXACT_DERIVATIVE')
+  if (manifest?.schema !== 'CONCILIAR_RELEASE_REGRESSION_STAGING_PROFILE_MANIFEST_V2' || manifest?.profile !== PROFILE
+    || originalMeta?.sha256 !== ORIGINAL_PRODUCTION_GOLDEN_SHA256 || originalMeta?.unchanged !== true
+    || derivative?.sha256 !== sha256(source) || derivative?.caseChanges !== STAGE_OVERRIDE_IDS.length
+    || JSON.stringify(derivative?.stageOverrideIds) !== JSON.stringify(STAGE_OVERRIDE_IDS)
+    || authorization?.issuer !== 'Claude' || typeof authorization?.receivedAt !== 'string'
+    || JSON.stringify(authorization?.productionAmendmentIds) !== JSON.stringify(PRODUCTION_GOLDEN_AMENDMENT_IDS)
+    || JSON.stringify(authorization?.stageOverrideIds) !== JSON.stringify(STAGE_OVERRIDE_IDS)
+    || productionMeta?.baseSha256 !== ORIGINAL_PRODUCTION_GOLDEN_SHA256
+    || JSON.stringify(productionMeta?.amendmentIds) !== JSON.stringify(PRODUCTION_GOLDEN_AMENDMENT_IDS)
+    || typeof productionMeta?.sha256 !== 'string') fail('STAGE_PROFILE_MANIFEST_INVALID')
+  if (typeof originalMeta?.immutableCopyPath !== 'string' || typeof productionMeta?.path !== 'string') fail('STAGE_PROFILE_GOLDEN_SOURCE_REQUIRED')
+  const originalBytes = readFileSync(privateFile(originalMeta.immutableCopyPath, MAX_CASE_SPEC_BYTES))
+  const productionBytes = readFileSync(privateFile(productionMeta.path, MAX_CASE_SPEC_BYTES))
+  if (sha256(originalBytes) !== ORIGINAL_PRODUCTION_GOLDEN_SHA256 || sha256(productionBytes) !== productionMeta.sha256) fail('GOLDEN_HASH_MISMATCH')
+  let original: unknown, production: unknown
+  try {
+    original = JSON.parse(originalBytes.toString('utf8'))
+    production = JSON.parse(productionBytes.toString('utf8'))
+  } catch { fail('CASE_SPEC_UNREADABLE') }
+  if (!productionGoldenIsAuthorizedDerivative(original, production)) fail('PRODUCTION_GOLDEN_NOT_AUTHORIZED_DERIVATIVE')
+  if (!stageProfileIsExactDerivative(production, parsed)) fail('STAGE_PROFILE_NOT_EXACT_DERIVATIVE')
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) fail('CASE_SPEC_INVALID')
   const spec = parsed as PrivateCaseSpec
   if (spec.schema !== 'CONCILIAR_RELEASE_REGRESSION_V1' || !Array.isArray(spec.cases)) fail('CASE_SPEC_INVALID')
@@ -145,7 +150,7 @@ function readCaseSpec(file: string, manifestFile: string): PrivateCaseSpec {
     || new Set(supplemental.map(item => item.caseId)).size !== SUPPLEMENTAL_IDS.size
     || supplemental.some(item => !item || typeof item !== 'object' || !SUPPLEMENTAL_IDS.has(item.caseId))) fail('SUPPLEMENTAL_CASE_COVERAGE_INVALID')
   const expectedModes: Readonly<Record<string, string>> = {
-    C2: 'ABSENT_CONFIRMED', C3: 'PENDING_VISIBLE', C7: 'PENDING_VISIBLE', C8: 'PENDING_VISIBLE', P7: 'PENDING_VISIBLE',
+    C1: 'PENDING_VISIBLE', P1: 'PENDING_VISIBLE', C2: 'ABSENT_CONFIRMED', C3: 'PENDING_VISIBLE', C7: 'PENDING_VISIBLE', C8: 'PENDING_VISIBLE', P7: 'PENDING_VISIBLE',
   }
   for (const [caseId, mode] of Object.entries(expectedModes)) {
     const item = spec.cases.find(row => row.caseId === caseId)
@@ -154,6 +159,9 @@ function readCaseSpec(file: string, manifestFile: string): PrivateCaseSpec {
     if (mode === 'ABSENT_CONFIRMED' && (expect.b4Confirmed !== true || expect.absentAllTabs !== true)) fail('STAGE_PROFILE_CASES_REQUIRED')
     if (mode === 'PENDING_VISIBLE' && (expect.b4Confirmed !== false || expect.visible !== true || Object.hasOwn(expect, 'color') || Object.hasOwn(expect, 'allowedColors'))) fail('STAGE_PROFILE_CASES_REQUIRED')
   }
+  const c4 = spec.cases.find(row => row.caseId === 'C4')
+  if (!c4 || c4.mode !== 'EXACT' || !c4.expect || typeof c4.expect !== 'object'
+    || (c4.expect as Record<string, unknown>).remittancePreflight !== C4_REMITTANCE_MODE) fail('STAGE_PROFILE_CASES_REQUIRED')
   const bbva = supplemental.find(item => item.caseId === 'C30')
   if (!bbva || bbva.mode !== 'EXACT' || bbva.expect.color !== 'VERDE' || !bbva.expect.confirmingEquation) fail('PENDING_BBVA_DETAIL_SAMPLE_REQUIRED')
   const p31 = supplemental.find(item => item.caseId === 'P31')

@@ -37,10 +37,10 @@ function run(argv, output, name) {
 }
 function productionRestoreGate(config, output) {
   const entry = config?.productionRestore;
-  if (!entry?.inputFile || !entry?.clientFile || !entry?.restoreReceipt || !entry?.cloneReceipt || !entry?.candidateRebuildReceipt) return { pass: false, reason: 'NEW_PROD_RESTORE_INPUTS_REQUIRED' };
+  if (!entry?.inputFile || !entry?.originalGoldenFile || !entry?.clientFile || !entry?.restoreReceipt || !entry?.cloneReceipt || !entry?.candidateRebuildReceipt) return { pass: false, reason: 'NEW_PROD_RESTORE_INPUTS_REQUIRED' };
   const result = run([
     join(ROOT, 'node_modules/.bin/tsx'), 'scripts/test-conciliar-production-restore-regression.ts',
-    '--profile', 'PROD_NEW_RESTORE', '--input-file', entry.inputFile, '--client-file', entry.clientFile,
+    '--profile', 'PROD_NEW_RESTORE', '--input-file', entry.inputFile, '--original-golden-file', entry.originalGoldenFile, '--client-file', entry.clientFile,
     '--restore-receipt', entry.restoreReceipt, '--clone-receipt', entry.cloneReceipt, '--candidate-rebuild-receipt', entry.candidateRebuildReceipt,
   ], output, 'production-restore-golden');
   let evidence; try { evidence = JSON.parse(result.stdout); } catch { return { pass: false, reason: 'NEW_PROD_RESTORE_RESULT_INVALID' }; }

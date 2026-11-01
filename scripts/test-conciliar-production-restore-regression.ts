@@ -2,14 +2,15 @@
  * Golden Conciliar verifier for a newly restored local production copy.
  *
  * This verifier never opens a production connection, browser or API. It accepts
- * only a parent-owned private Golden fixture, a private restore receipt, a
+ * only a parent-owned new Golden fixture plus its immutable original, a private restore receipt, a
  * candidate-rebuild receipt and a private local PG-client descriptor.
  * It starts one REPEATABLE READ + READ ONLY transaction and always rolls back.
  *
  * Usage (parent-owned private inputs):
  *   ./node_modules/.bin/tsx scripts/test-conciliar-production-restore-regression.ts \
  *     --profile PROD_NEW_RESTORE \
- *     --input-file /private/conciliar-release-regression-20261029.json \
+ *     --input-file /private/conciliar-release-regression-production-amended.json \
+ *     --original-golden-file /private/immutable/conciliar-release-regression-20261029.json \
  *     --client-file /private/pg-produccion-client.json \
  *     --restore-receipt /private/respaldo-verificado.json \
  *     --clone-receipt /private/clone-produccion-verified.json \
@@ -21,13 +22,13 @@ import { spawnSync } from 'node:child_process'
 import { lstatSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { evaluateCase, type ConciliarReleaseRegressionCase } from '../lib/finanzas/conciliar-release-regression-core'
-import { evaluateGlobalRegression } from '../lib/finanzas/conciliar-release-regression-global'
-import { readReleaseRegressionAdapter } from './tests/conciliar-release-regression-adapter'
+import { evaluateCase, type ConciliarReleaseRegressionCase } from './areas/conciliar/case-core'
+import { evaluateGlobalRegression } from './areas/conciliar/global-core'
+import { readReleaseRegressionAdapter } from './areas/conciliar/adapter'
+import { ORIGINAL_PRODUCTION_GOLDEN_SHA256, productionGoldenIsAuthorizedDerivative } from './areas/conciliar/stage-profile-core'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const PROFILE = 'PROD_NEW_RESTORE'
-const EXPECTED_GOLDEN_SHA256 = '14045a576f46af17c58c800f2573022e7f7b6ff79cfd8941e93c38d6ae3b1905'
 const MAX_PRIVATE_BYTES = 256 * 1024
 const EXPECTED_CASE_IDS = [
   'C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8', 'C9',
@@ -38,7 +39,7 @@ const CP_CASE_IDS = new Set<string>(EXPECTED_CASE_IDS.filter(id => id.startsWith
 const G_CASE_IDS = new Set(EXPECTED_CASE_IDS.filter(id => id.startsWith('G')))
 const SUPPLEMENTAL_IDS = new Set(['C30', 'P31', 'P32', 'P33', 'P34', 'P35'])
 
-type Cli = Readonly<{ profile: typeof PROFILE; inputFile: string; clientFile: string; restoreReceipt: string; cloneReceipt: string; candidateRebuildReceipt: string }>
+type Cli = Readonly<{ profile: typeof PROFILE; inputFile: string; originalGoldenFile: string; clientFile: string; restoreReceipt: string; cloneReceipt: string; candidateRebuildReceipt: string }>
 type PrivateCaseSpec = Readonly<{ schema: string; cases: readonly Record<string, unknown>[]; supplementalCases?: readonly ConciliarReleaseRegressionCase[] }>
 type FixtureReceipt = Readonly<{ allVerified?: unknown; backupComplete?: unknown; restoreExecuted?: unknown; dataMatch?: unknown; columnsMatch?: unknown; constraintsMatch?: unknown; indexesMatch?: unknown; triggersMatch?: unknown; viewsMatch?: unknown; functionsMatch?: unknown; enumsMatch?: unknown; extensionsMatch?: unknown; sequencesMatch?: unknown; mismatchedTableCount?: unknown; productionWrites?: unknown; sha256?: unknown }>
 type CloneReceipt = Readonly<{ ok?: unknown; source?: unknown; localOnly?: unknown; allSourceDataHashesMatch?: unknown; readOnlyVerification?: unknown; remoteWrites?: unknown; financialDataChanges?: unknown; freshBackupSha256?: unknown }>
@@ -56,20 +57,22 @@ function privateFile(path: string, maximum: number): string {
   if (file.startsWith(`${ROOT}/`)) fail('PRIVATE_FILE_IN_REPOSITORY')
   let stat: ReturnType<typeof lstatSync>
   try { stat = lstatSync(file) } catch { fail('PRIVATE_FILE_UNAVAILABLE') }
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.uid !== process.getuid?.() || (stat.mode & 0o777) !== 0o600 || stat.size < 1 || stat.size > maximum) fail('PRIVATE_FILE_UNSAFE')
+  const permission = stat.mode & 0o777
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.uid !== process.getuid?.() || ![0o400, 0o600].includes(permission) || stat.size < 1 || stat.size > maximum) fail('PRIVATE_FILE_UNSAFE')
   return file
 }
 function parseCli(argv: readonly string[]): Cli {
   const values = new Map<string, string>()
   for (let index = 0; index < argv.length; index += 2) {
     const key = argv[index], value = argv[index + 1]
-    if (!['--profile', '--input-file', '--client-file', '--restore-receipt', '--clone-receipt', '--candidate-rebuild-receipt'].includes(String(key)) || typeof value !== 'string' || values.has(key!)) fail('PROD_RESTORE_ARGUMENTS_INVALID')
+    if (!['--profile', '--input-file', '--original-golden-file', '--client-file', '--restore-receipt', '--clone-receipt', '--candidate-rebuild-receipt'].includes(String(key)) || typeof value !== 'string' || values.has(key!)) fail('PROD_RESTORE_ARGUMENTS_INVALID')
     values.set(key!, value)
   }
-  if (argv.length !== 12 || values.get('--profile') !== PROFILE || !values.get('--input-file') || !values.get('--client-file') || !values.get('--restore-receipt') || !values.get('--clone-receipt') || !values.get('--candidate-rebuild-receipt')) fail('PROD_RESTORE_PROFILE_REQUIRED')
+  if (argv.length !== 14 || values.get('--profile') !== PROFILE || !values.get('--input-file') || !values.get('--original-golden-file') || !values.get('--client-file') || !values.get('--restore-receipt') || !values.get('--clone-receipt') || !values.get('--candidate-rebuild-receipt')) fail('PROD_RESTORE_PROFILE_REQUIRED')
   return {
     profile: PROFILE,
     inputFile: privateFile(values.get('--input-file')!, MAX_PRIVATE_BYTES),
+    originalGoldenFile: privateFile(values.get('--original-golden-file')!, MAX_PRIVATE_BYTES),
     clientFile: privateFile(values.get('--client-file')!, 8 * 1024),
     restoreReceipt: privateFile(values.get('--restore-receipt')!, 64 * 1024),
     cloneReceipt: privateFile(values.get('--clone-receipt')!, 64 * 1024),
@@ -77,11 +80,9 @@ function parseCli(argv: readonly string[]): Cli {
   }
 }
 function sha256(value: Buffer): string { return createHash('sha256').update(value).digest('hex') }
-function readGolden(file: string): PrivateCaseSpec {
-  const source = readFileSync(file)
-  if (sha256(source) !== EXPECTED_GOLDEN_SHA256) fail('GOLDEN_HASH_MISMATCH')
+function parseGolden(bytes: Buffer): PrivateCaseSpec {
   let parsed: unknown
-  try { parsed = JSON.parse(source.toString('utf8')) } catch { fail('CASE_SPEC_UNREADABLE') }
+  try { parsed = JSON.parse(bytes.toString('utf8')) } catch { fail('CASE_SPEC_UNREADABLE') }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) fail('CASE_SPEC_INVALID')
   const spec = parsed as PrivateCaseSpec
   if (spec.schema !== 'CONCILIAR_RELEASE_REGRESSION_V1' || !Array.isArray(spec.cases)) fail('CASE_SPEC_INVALID')
@@ -90,6 +91,15 @@ function readGolden(file: string): PrivateCaseSpec {
   const supplemental = spec.supplementalCases ?? []
   if (!Array.isArray(supplemental) || supplemental.length !== SUPPLEMENTAL_IDS.size || new Set(supplemental.map(item => item.caseId)).size !== SUPPLEMENTAL_IDS.size || supplemental.some(item => !SUPPLEMENTAL_IDS.has(item.caseId))) fail('SUPPLEMENTAL_CASE_COVERAGE_INVALID')
   return spec
+}
+function readGolden(file: string, originalFile: string): Readonly<{ spec: PrivateCaseSpec; goldenSha256: string }> {
+  const original = readFileSync(originalFile)
+  if (sha256(original) !== ORIGINAL_PRODUCTION_GOLDEN_SHA256) fail('GOLDEN_HASH_MISMATCH')
+  const amended = readFileSync(file)
+  const originalSpec = parseGolden(original)
+  const amendedSpec = parseGolden(amended)
+  if (!productionGoldenIsAuthorizedDerivative(originalSpec, amendedSpec)) fail('PRODUCTION_GOLDEN_NOT_AUTHORIZED_DERIVATIVE')
+  return { spec: amendedSpec, goldenSha256: sha256(amended) }
 }
 function verifiedRestoreReceipt(file: string): string {
   let value: FixtureReceipt
@@ -185,7 +195,8 @@ async function readAndEvaluate(connection: LocalPgClient, spec: PrivateCaseSpec,
 }
 async function main(): Promise<void> {
   const cli = parseCli(process.argv.slice(2))
-  const spec = readGolden(cli.inputFile)
+  const golden = readGolden(cli.inputFile, cli.originalGoldenFile)
+  const spec = golden.spec
   const restoreBackupSha256 = verifiedRestoreReceipt(cli.restoreReceipt)
   const cloneBackupSha256 = verifiedCloneReceipt(cli.cloneReceipt)
   if (cloneBackupSha256 !== restoreBackupSha256) fail('NEW_PROD_CLONE_BACKUP_MISMATCH')
@@ -198,7 +209,7 @@ async function main(): Promise<void> {
   const c4ColorMismatch = Boolean(c4?.reasons.includes('COLOR_MISMATCH'))
   console.log(JSON.stringify({
     schema: 'CONCILIAR_GOLDEN_PROD_RESTORE_READONLY_V1', profile: PROFILE, ok: failures.length === 0 && supplemental.every(item => item.pass),
-    candidateCommit: commit, cloneBackupSha256, goldenSha256: EXPECTED_GOLDEN_SHA256, total: EXPECTED_CASE_IDS.length, passing: outcomes.length - failures.length, failures, supplemental,
+    candidateCommit: commit, cloneBackupSha256, originalGoldenSha256: ORIGINAL_PRODUCTION_GOLDEN_SHA256, goldenSha256: golden.goldenSha256, total: EXPECTED_CASE_IDS.length, passing: outcomes.length - failures.length, failures, supplemental,
     writeOperations: false, g7Rebuilt: false,
     warnings: [
       ...(c4ColorMismatch ? ['C4_COLOR_MISMATCH_REQUIRES_STOP'] : []),
