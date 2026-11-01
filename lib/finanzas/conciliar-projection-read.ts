@@ -280,7 +280,7 @@ async function readProjectionBundle(input: ConciliarGetInput, shared: Prisma.Sql
         CASE WHEN p.color='VERDE' AND (NOT (p.source->>'g7Precheck' IS NOT DISTINCT FROM ${CONCILIAR_GREEN_PRECHECK_STAMP}) OR EXISTS(SELECT 1 FROM projection_state WHERE dirty_at IS NOT NULL)) THEN ${CONCILIAR_GREEN_PENDING_REASON} ELSE p.motivo END AS motivo,
         p.documento,p.propuesta,
         CASE WHEN p.color='VERDE' AND (NOT (p.source->>'g7Precheck' IS NOT DISTINCT FROM ${CONCILIAR_GREEN_PRECHECK_STAMP}) OR EXISTS(SELECT 1 FROM projection_state WHERE dirty_at IS NOT NULL)) THEN false ELSE p.seleccionable END AS seleccionable,
-        p.diferencia_centimos,p.links_movimiento,p.detail,p.source,p.source_fingerprint,p.updated_at,p.read_metadata
+        p.diferencia_centimos,p.links_movimiento,p.detail,p.source,p.source_fingerprint,p.updated_at
       FROM conciliar_proyecciones p
     ), filtered AS (
       SELECT p.id,p.tab,p.fecha,p.cuenta_id,p.importe_centimos,p.pendiente_centimos,p.color,p.propuesta
@@ -302,13 +302,30 @@ async function readProjectionBundle(input: ConciliarGetInput, shared: Prisma.Sql
       SELECT p.* FROM effective_projection p JOIN scoped scope ON scope.id=p.id
       ORDER BY ${sort}
       LIMIT ${input.limit} OFFSET ${input.offset}
+    ), requested_movements AS (
+      SELECT DISTINCT movimiento_id FROM page WHERE movimiento_id IS NOT NULL
+    ), latest_document_request AS (
+      SELECT DISTINCT ON (a.movimiento_id) a.movimiento_id,a.created_at::date::text AS pedido_fecha,u.nombre AS actor_visible
+      FROM auditorias_gestiones_pendientes_b5 a
+      JOIN requested_movements r ON r.movimiento_id=a.movimiento_id
+      LEFT JOIN usuarios_admin u ON u.id=a.actor_id
+      WHERE a.snapshot_resultado->>'estado'='PEDIDO'
+      ORDER BY a.movimiento_id,a.created_at DESC,a.id DESC
+    ), current_request_files AS (
+      SELECT a.movimiento_id,
+        NOT BOOL_AND(NOT (a.estado::text='UPLOAD_COMPLETO' AND a.tipo_documento='SOPORTE')) AS soporte_b5_completo,
+        NOT BOOL_AND(NOT (a.estado::text='UPLOAD_COMPLETO' AND a.tipo_documento='TICKET' AND a.gasto_id IS NOT NULL AND a.documento_conciliable_id IS NOT NULL)) AS ticket_b5_completo,
+        MIN(CASE WHEN a.estado::text='UPLOAD_COMPLETO' AND a.tipo_documento IN ('TICKET','SOPORTE') THEN a.id::text ELSE NULL END) AS archivo_b5_id
+      FROM adjuntos_pendientes_b5 a JOIN requested_movements r ON r.movimiento_id=a.movimiento_id
+      GROUP BY a.movimiento_id
     ), document_requests AS (
-      SELECT p.movimiento_id,p.read_metadata->>'gestion_estado' AS gestion_estado,
-        p.read_metadata->>'pedido_fecha' AS pedido_fecha,p.read_metadata->>'actor_visible' AS actor_visible,
-        COALESCE((p.read_metadata->>'soporte_b5_completo')::boolean,false) AS soporte_b5_completo,
-        COALESCE((p.read_metadata->>'ticket_b5_completo')::boolean,false) AS ticket_b5_completo,
-        p.read_metadata->>'archivo_b5_id' AS archivo_b5_id
-      FROM page p WHERE p.movimiento_id IS NOT NULL
+      SELECT r.movimiento_id,g.estado::text AS gestion_estado,p.pedido_fecha,p.actor_visible,
+        COALESCE(a.soporte_b5_completo,false) AS soporte_b5_completo,
+        COALESCE(a.ticket_b5_completo,false) AS ticket_b5_completo,a.archivo_b5_id
+      FROM requested_movements r
+      LEFT JOIN gestiones_pendientes_movimiento_b5 g ON g.movimiento_id=r.movimiento_id
+      LEFT JOIN latest_document_request p ON p.movimiento_id=r.movimiento_id
+      LEFT JOIN current_request_files a ON a.movimiento_id=r.movimiento_id
     ), summary AS (
       SELECT tab,color,COUNT(*)::text AS total,COALESCE(SUM(pendiente_centimos::bigint),0)::text AS amount
       FROM active GROUP BY tab,color
@@ -320,6 +337,9 @@ async function readProjectionBundle(input: ConciliarGetInput, shared: Prisma.Sql
     ), historic_summary AS (
       SELECT COUNT(*)::text AS total,COALESCE(SUM(pendiente_centimos::bigint),0)::text AS amount
       FROM filtered p WHERE p.tab='EMITIDAS' AND p.fecha<CAST(${cutoff} AS date)
+    ), account_rows AS (
+      SELECT id,banco,alias FROM cuentas_bancarias WHERE activa=true
+      ORDER BY banco ASC,alias ASC NULLS LAST,id ASC LIMIT 100
     ), state AS (
       SELECT dirty_at AS "dirtyAt",dirty_reason AS "dirtyReason",rebuilt_at AS "rebuiltAt",projection_version AS "projectionVersion"
       FROM estado_proyeccion_conciliar WHERE singleton=true LIMIT 1
@@ -332,7 +352,7 @@ async function readProjectionBundle(input: ConciliarGetInput, shared: Prisma.Sql
       COALESCE((SELECT json_agg(row_to_json(emitidas_groups) ORDER BY "group" ASC) FROM emitidas_groups),'[]'::json) AS "emitidasGroups",
       (SELECT total FROM invalid_emitidas_groups) AS "invalidEmitidasGroups",
       (SELECT row_to_json(historic_summary) FROM historic_summary) AS "historicSummary",
-      COALESCE((SELECT read_accounts FROM estado_proyeccion_conciliar WHERE singleton=true LIMIT 1),'[]'::jsonb) AS accounts,
+      COALESCE((SELECT json_agg(row_to_json(account_rows) ORDER BY banco ASC,alias ASC NULLS LAST,id ASC) FROM account_rows),'[]'::json) AS accounts,
       (SELECT row_to_json(state) FROM state) AS state
   `)
   if (result.length !== 1) fail(503, 'PROYECCION_NO_DISPONIBLE', 'No se pudo leer la foto de conciliación.')
