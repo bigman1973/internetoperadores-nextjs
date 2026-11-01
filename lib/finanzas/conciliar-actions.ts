@@ -24,7 +24,7 @@ import { ConciliarDbError, conciliarDbErrorResponse, movementPartyAliases, payro
 import { refreshAffectedConciliarProjectionTx } from './conciliar-affected-refresh'
 import { materializeConciliarReadMetadataTx, rebuildConciliarProjectionTx } from './conciliar-db'
 import { knownBankFeeUndoMovements } from './conciliar-fee-undo'
-import { conciliarDocumentLifecycleGuardMessage, lockConciliarDocumentLifecycleForConfirmationTx, supportsConciliarDocumentLifecycleGuard } from './conciliar-document-lifecycle-guard'
+import { conciliarDocumentSourceGuardMessage, lockConciliarDocumentSourceForConfirmationTx, supportsConciliarDocumentSourceGuard } from './conciliar-document-source-guard'
 import { Area3ReviewConfirmDbError, confirmArea3ReviewTx, preflightArea3ReviewConfirmTx } from './area3-review-confirm-db'
 import { trustedImpersonationContextResolutionFromRequest } from '@/lib/impersonation-context'
 import {
@@ -275,9 +275,9 @@ function rowMustMatch(row: Awaited<ReturnType<typeof readConciliarRowForAction>>
 }
 
 async function requireCurrentDocumentLifecycleForConfirmation(tx: Tx, source: ConciliarProjectionSource): Promise<void> {
-  if (!supportsConciliarDocumentLifecycleGuard(source)) return
-  const live = await lockConciliarDocumentLifecycleForConfirmationTx(tx, { source, expectedVersionState: source.documentLifecycleVersionState })
-  if (!live.elegible) fail(409, live.codigo, conciliarDocumentLifecycleGuardMessage(live.codigo))
+  if (!supportsConciliarDocumentSourceGuard(source)) return
+  const live = await lockConciliarDocumentSourceForConfirmationTx(tx, { source, expectedVersionState: source.documentLifecycleVersionState })
+  if (!live.elegible) fail(409, live.codigo, conciliarDocumentSourceGuardMessage(live.codigo))
 }
 
 async function confirmBankFee(tx: Tx, actorId: number, operationId: string, row: Awaited<ReturnType<typeof readConciliarRowForAction>>) {

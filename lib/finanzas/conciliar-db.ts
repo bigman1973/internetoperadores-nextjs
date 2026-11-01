@@ -50,10 +50,10 @@ import { remittanceSealForProposal } from './remittance-payment-receipts-db'
 import { area3RemittanceMapAmberReason, type Area3RemittanceMapPreflight } from './area3-remittance-map-core'
 import { lockArea3RemittanceMapPreflightsTx, readArea3RemittanceMapPreflightsTx } from './area3-remittance-map-db'
 import {
-  conciliarDocumentLifecycleBatchSourceKey,
-  conciliarDocumentLifecycleGuardMessage,
-  preloadConciliarDocumentLifecycleEligibilityTx,
-} from './conciliar-document-lifecycle-guard'
+  conciliarDocumentSourceBatchSourceKey,
+  conciliarDocumentSourceGuardMessage,
+  preloadConciliarDocumentSourceEligibilityTx,
+} from './conciliar-document-source-guard'
 
 export { ConciliarDbError, conciliarDbErrorResponse } from './conciliar-errors'
 export {
@@ -206,26 +206,26 @@ function candidateFileHref(id: string, available: boolean): string | null { retu
 function rowId(tab: ConciliarTab, sourceIdentity: string): string { return conciliarProjectionRowId(tab, sourceIdentity) }
 
 /**
- * Lifecycle is observational here: it never mutates lifecycle, B4, B5, C11 or
- * documentary capacity. A known unsafe lifecycle makes the existing row amber
- * and non-selectable; the historic no-lifecycle result preserves the row's
- * prior color/candidate status. Rebuilding through `projection` is deliberate:
- * the server-only version state changes the source fingerprint and therefore the
- * public decision hash derived from the persisted projection.
+ * La guardia de fuente es sólo observacional: no muta B4, B5, C11 ni capacidad.
+ * Una fuente sin prueba productiva vigente es ÁMBAR/no seleccionable; nunca se
+ * promueve por ausencia de fila o esquema. Reconstruir con la huella opaca es
+ * deliberado: cambia el fingerprint y el decision hash de la proyección.
  */
-export async function applyConciliarDocumentLifecycleGuardToRebuildRowsTx(
+export async function applyConciliarDocumentSourceGuardToRebuildRowsTx(
   tx: Tx,
   rows: readonly RebuildRow[],
 ): Promise<RebuildRow[]> {
-  const eligibilityBySource = await preloadConciliarDocumentLifecycleEligibilityTx(tx, rows.map(row => row.source))
+  const eligibilityBySource = await preloadConciliarDocumentSourceEligibilityTx(tx, rows.map(row => row.source))
   return rows.map(row => {
-    const key = conciliarDocumentLifecycleBatchSourceKey(row.source)
+    const key = conciliarDocumentSourceBatchSourceKey(row.source)
     if (!key) return row
-    const lifecycle = eligibilityBySource.get(key)
-    if (!lifecycle) throw new Error('CONCILIAR_DOCUMENT_LIFECYCLE_BATCH_RESULT_MISSING')
-    const source: ConciliarProjectionSource = { ...row.source, documentLifecycleVersionState: lifecycle.versionEstado }
-    if (lifecycle.elegible) return projection(row.tab, row.row, source, row.cuentaId)
-    const message = conciliarDocumentLifecycleGuardMessage(lifecycle.codigo)
+    const documentSource = eligibilityBySource.get(key)
+    if (!documentSource) throw new Error('CONCILIAR_DOCUMENT_SOURCE_GUARD_BATCH_RESULT_MISSING')
+    // El nombre persistido es de compatibilidad de proyección; su valor V1 lo
+    // produce exclusivamente la guardia de fuente y no procede de lifecycle.
+    const source: ConciliarProjectionSource = { ...row.source, documentLifecycleVersionState: documentSource.versionEstado }
+    if (documentSource.elegible) return projection(row.tab, row.row, source, row.cuentaId)
+    const message = conciliarDocumentSourceGuardMessage(documentSource.codigo)
     return projection(row.tab, {
       ...row.row,
       color: 'AMBAR',
@@ -235,6 +235,13 @@ export async function applyConciliarDocumentLifecycleGuardToRebuildRowsTx(
     }, source, row.cuentaId)
   })
 }
+
+/**
+ * Compatibilidad de caller para el delta existente fuera de este carril. El
+ * nombre histórico no conserva una dependencia: delega exclusivamente en la
+ * guardia de fuente productiva y puede retirarse cuando ese caller se mueva.
+ */
+export const applyConciliarDocumentLifecycleGuardToRebuildRowsTx = applyConciliarDocumentSourceGuardToRebuildRowsTx
 
 /** A received source keeps its signed economic amount. A supplier credit therefore
  * becomes a positive B4 target and is never erased or silently netted with debt. */
@@ -1818,7 +1825,7 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
   // population (including the RECIBIDAS mirror) has been rendered. This is a
   // bounded set preload, not a per-row lifecycle query, and occurs before the
   // first projection write below.
-  const guardedRows = await applyConciliarDocumentLifecycleGuardToRebuildRowsTx(tx, rows)
+  const guardedRows = await applyConciliarDocumentSourceGuardToRebuildRowsTx(tx, rows)
   // G7 prechecks share this same repeatable-read source picture and complete
   // before any projection DELETE/INSERT. The result is only a display seal;
   // confirmation repeats the live predicates in its own locked transaction.

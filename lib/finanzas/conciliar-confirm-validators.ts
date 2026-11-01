@@ -8,7 +8,7 @@ import { evaluarDocumentoExacto, isConciliarBankFee, type ConciliarProjectionSou
 import { conciliarAliasesMatch, safeInteger } from './conciliar-core'
 import { movementPartyAliases, payrollPeriodMatches, unresolvedMovements } from './conciliar-db'
 import { ConciliarDbError } from './conciliar-errors'
-import { lockConciliarDocumentLifecycleForConfirmationTx, readConciliarDocumentLifecycleEligibilityTx, supportsConciliarDocumentLifecycleGuard, conciliarDocumentLifecycleGuardMessage } from './conciliar-document-lifecycle-guard'
+import { lockConciliarDocumentSourceForConfirmationTx, readConciliarDocumentSourceEligibilityTx, supportsConciliarDocumentSourceGuard, conciliarDocumentSourceGuardMessage } from './conciliar-document-source-guard'
 import { exactMoney } from './conciliar-projection-read'
 export type PrecheckRow = Readonly<{id:string; importeCentimos:number; source:ConciliarProjectionSource}>
 type Tx = Prisma.TransactionClient & Record<string, any>
@@ -18,10 +18,10 @@ function requireMovement(source:ConciliarProjectionSource):string { if(!source.m
 const exactCents = exactMoney
 function controlledPayrollItem(value:unknown):boolean { return typeof value==='string' && /^\/api\/admin\/nominas\/download\/[A-Za-z0-9!_.~-]{4,220}$/.test(value) }
 export async function preflightConciliarLifecycleTx(tx:Tx,source:ConciliarProjectionSource,lock=false) {
-  if (!supportsConciliarDocumentLifecycleGuard(source)) return
-  const live = lock ? await lockConciliarDocumentLifecycleForConfirmationTx(tx,{source,expectedVersionState:source.documentLifecycleVersionState}) : await readConciliarDocumentLifecycleEligibilityTx(tx,source)
-  if (!live.elegible) fail(409,live.codigo,conciliarDocumentLifecycleGuardMessage(live.codigo))
-  if (live.lifecycleConocido && (!source.documentLifecycleVersionState || live.versionEstado !== source.documentLifecycleVersionState)) fail(409,'SNAPSHOT_DOCUMENTAL_CAMBIADO','El documento cambió desde que se preparó la fila. Actualiza la lista.')
+  if (!supportsConciliarDocumentSourceGuard(source)) return
+  const live = lock ? await lockConciliarDocumentSourceForConfirmationTx(tx,{source,expectedVersionState:source.documentLifecycleVersionState}) : await readConciliarDocumentSourceEligibilityTx(tx,source)
+  if (!live.elegible) fail(409,live.codigo,conciliarDocumentSourceGuardMessage(live.codigo))
+  if (!source.documentLifecycleVersionState || live.versionEstado !== source.documentLifecycleVersionState) fail(409,'FUENTE_DOCUMENTAL_CAMBIADA','La fuente documental cambió desde que se preparó la fila. Actualiza la lista.')
 }
 type LiveB5TicketSource = Readonly<{
   adjuntoB5Id: string
