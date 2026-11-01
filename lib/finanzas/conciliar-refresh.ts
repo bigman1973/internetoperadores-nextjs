@@ -1,30 +1,21 @@
 import { after } from 'next/server'
-import { Prisma } from '@prisma/client'
-import { prisma } from '@/lib/prisma'
-import { assertPrototypeStaging } from '@/lib/finanzas/prototype-staging'
-import { rebuildConciliarProjection } from '@/lib/finanzas/conciliar-db'
+import { refreshAffectedConciliarProjection } from './conciliar-affected-refresh'
 
-/** Actualización finita exclusiva de staging. No crea temporizadores, cron,
- * llamadas HTTP ni proveedores; producción conserva la marca dirty para una
- * reconstrucción revisada fuera de la respuesta. */
+/** Action-owned finite refresh. It reads only affected durable IDs, never calls
+ * an importer/provider or creates an onboarding/full rebuild. */
 export async function refreshConciliarProjectionIfDirty(actorId: number | null) {
-  if (process.env.FINANCE_STAGING_SANDBOX !== '1') return { rebuilt: false }
-  await assertPrototypeStaging()
-  const state = await prisma.$queryRaw<Array<{ dirty: boolean; ready: boolean }>>(Prisma.sql`
-    SELECT dirty_at IS NOT NULL AS dirty,rebuilt_at IS NOT NULL AS ready
-    FROM estado_proyeccion_conciliar WHERE singleton=true LIMIT 1
-  `)
-  if (state.length !== 1 || (!state[0].dirty && state[0].ready)) return { rebuilt: false }
-  const rebuilt = await rebuildConciliarProjection(actorId)
-  return { rebuilt: true, ...rebuilt }
+  const result = await refreshAffectedConciliarProjection(actorId)
+  return { rebuilt: result.projectionSynchronized, ...result }
 }
-
-/** after mantiene vivo el trabajo después de responder. El fallo conserva la
- * marca dirty para revisión y nunca altera el recibo monetario ya confirmado. */
-export function scheduleConciliarProjectionRefresh(actorId: number | null) {
-  if (process.env.FINANCE_STAGING_SANDBOX !== '1') return
+/** Only the already-authorized Conciliar action route may schedule this work.
+ * Other legacy call sites retain the inert compatibility export below: no
+ * importer, sync or watcher can acquire an after()-driven financial refresh. */
+export function scheduleConciliarActionProjectionRefresh(actorId: number | null) {
   after(async () => {
     try { await refreshConciliarProjectionIfDirty(actorId) }
     catch { console.warn('CONCILIAR_REFRESH_PENDING') }
   })
 }
+
+/** Compatibility for pre-existing non-action hooks. Deliberately inert. */
+export function scheduleConciliarProjectionRefresh(_actorId: number | null): void {}

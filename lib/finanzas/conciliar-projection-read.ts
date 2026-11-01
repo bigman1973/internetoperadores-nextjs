@@ -1,3 +1,4 @@
+import { conciliarVisualGreenIsCurrent, CONCILIAR_GREEN_PENDING_REASON, CONCILIAR_GREEN_PRECHECK_STAMP } from './conciliar-precheck-visual'
 import { Prisma, type PrismaClient } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import {
@@ -18,6 +19,7 @@ import { conciliarDecisionHash, isoDay, safeInteger } from './conciliar-core'
 import { ConciliarDbError } from './conciliar-errors'
 import { parseParaPedirRequestMetadataRows } from './para-pedir-request-metadata'
 import { safeConciliarDocumentHref } from './conciliar-file-href'
+import { humanOwnTransferActionForProjection } from './conciliar-human-own-transfer'
 
 type Tx = Prisma.TransactionClient & Record<string, any>
 type Db = PrismaClient & Record<string, any>
@@ -89,6 +91,10 @@ function storedSource(value: unknown): ConciliarProjectionSource | null {
   if (!['COBRO_PROPUESTA', 'COBRO_CONFIRMING', 'PAGO_FACTURA_RECIBIDA', 'PAGO_TICKET_B5', 'PAGO_NOMINA', 'COMISION_BANCARIA', 'PENDIENTE_FACTURA_EMITIDA', 'TRANSFERENCIA_PROPIA', 'TRANSFERENCIA_PROPIA_MANUAL'].includes(String(kind))) return null
   const scalar = (key: string) => typeof row[key] === 'string' && row[key].length > 0 && row[key].length <= 200 ? row[key] : undefined
   const integer = (key: string) => Number.isSafeInteger(row[key]) ? Number(row[key]) : undefined
+  const lifecycleVersionState = typeof row.documentLifecycleVersionState === 'string' && (row.documentLifecycleVersionState === 'SIN_LIFECYCLE_HISTORICO' || /^[a-f0-9]{64}$/.test(row.documentLifecycleVersionState)) ? row.documentLifecycleVersionState : undefined
+  const providerReviewReason = row.providerReviewReason === 'SIN_REFERENCIA_DOCUMENTAL' || row.providerReviewReason === 'REFERENCIA_NUMERO_INCOMPLETO'
+    ? row.providerReviewReason : undefined
+  if (row.providerReviewReason !== undefined && !providerReviewReason) return null
   if (kind === 'PAGO_TICKET_B5' && (!scalar('movimientoId') || !scalar('adjuntoB5Id') || !scalar('gastoId') || !scalar('documentoConciliableId') || !(integer('versionB4')! > 0))) return null
   const remesaIds = Array.isArray(row.remesaIds) && row.remesaIds.every(item => Number.isSafeInteger(item) && Number(item) > 0)
     ? row.remesaIds.map(Number).sort((a, b) => a - b) : undefined
@@ -107,16 +113,19 @@ function storedSource(value: unknown): ConciliarProjectionSource | null {
     ...(scalar('gastoId') ? { gastoId: scalar('gastoId') } : {}),
     ...(scalar('documentoConciliableId') ? { documentoConciliableId: scalar('documentoConciliableId') } : {}),
     ...(scalar('nominaId') ? { nominaId: scalar('nominaId') } : {}),
+    ...(lifecycleVersionState ? { documentLifecycleVersionState: lifecycleVersionState } : {}),
+    ...(providerReviewReason ? { providerReviewReason } : {}),
     ...(scalar('movimientoParId') ? { movimientoParId: scalar('movimientoParId') } : {}),
     ...(scalar('transferFingerprint') ? { transferFingerprint: scalar('transferFingerprint') } : {}),
     ...(typeof row.pairId === 'string' && /^[a-f0-9]{64}$/.test(row.pairId) ? { pairId: row.pairId } : {}),
     ...(row.proofSource === 'DECLARACION_MANUAL_AUDITADA_V1' ? { proofSource: 'DECLARACION_MANUAL_AUDITADA_V1' as const } : {}),
+    ...(row.g7Precheck === CONCILIAR_GREEN_PRECHECK_STAMP ? {g7Precheck:CONCILIAR_GREEN_PRECHECK_STAMP} : {}),
     ...(integer('versionB4') !== undefined ? { versionB4: integer('versionB4') } : {}),
     ...(remesaIds ? { remesaIds } : {}),
   } as ConciliarProjectionSource
 }
 
-export function projectionRow(row: ProjectionSqlRow): ConciliarRow & { source: ConciliarProjectionSource; sourceFingerprint: string; updatedAt: string } {
+export function projectionRow(row: ProjectionSqlRow, dirty = false): ConciliarRow & { source: ConciliarProjectionSource; sourceFingerprint: string; updatedAt: string } {
   const tab = String(row.tab)
   const color = String(row.color)
   if (!(CONCILIAR_TABS as readonly string[]).includes(tab) || !(CONCILIAR_COLORS as readonly string[]).includes(color)) {
@@ -125,7 +134,7 @@ export function projectionRow(row: ProjectionSqlRow): ConciliarRow & { source: C
   const source = storedSource(row.source)
   const sourceFingerprint = typeof row.source_fingerprint === 'string' && /^[a-f0-9]{64}$/.test(row.source_fingerprint) ? row.source_fingerprint : null
   if (!source || !sourceFingerprint) fail(409, 'PROYECCION_CORRUPTA', 'La proyección no conserva su identidad de fuente.')
-  const view: Omit<ConciliarRow, 'decisionHash'> = {
+  let view: Omit<ConciliarRow, 'decisionHash'> = {
     id: String(row.id), movimientoId: row.movimiento_id === null || row.movimiento_id === undefined ? null : String(row.movimiento_id),
     fecha: day(row.fecha, 'La fila'), concepto: textoSeguro(row.concepto), banco: nullableText(row.banco, 300), cuenta: nullableText(row.cuenta, 300),
     importeCentimos: cents(row.importe_centimos, 'La fila'), pendienteCentimos: cents(row.pendiente_centimos, 'La fila'), color: color as ConciliarColor,
@@ -133,9 +142,17 @@ export function projectionRow(row: ProjectionSqlRow): ConciliarRow & { source: C
     seleccionable: row.seleccionable === true, diferenciaCentimos: cents(row.diferencia_centimos, 'La fila'),
     ...(links(row.links_movimiento) ? { linksMovimiento: links(row.links_movimiento) } : {}), detail: nullableText(row.detail, 1_600),
   }
+  if(view.color==='VERDE' && !conciliarVisualGreenIsCurrent({source,dirty})) {
+    view={...view,color:'AMBAR',seleccionable:false,motivo:CONCILIAR_GREEN_PENDING_REASON}
+  }
   const updated = new Date(String(row.updated_at))
   if (!Number.isFinite(updated.getTime())) fail(409, 'PROYECCION_CORRUPTA', 'La proyección no conserva una fecha de actualización válida.')
-  return { ...view, decisionHash: conciliarDecisionHash({ row: view, source, sourceFingerprint }), source, sourceFingerprint, updatedAt: updated.toISOString() }
+  const accionHumana = humanOwnTransferActionForProjection({ color: view.color, seleccionable: view.seleccionable, grupo: view.grupo, source })
+  return {
+    ...view,
+    ...(accionHumana ? { accionHumana } : {}),
+    decisionHash: conciliarDecisionHash({ row: view, source, sourceFingerprint }), source, sourceFingerprint, updatedAt: updated.toISOString(),
+  }
 }
 
 function groupFilter(group: ConciliarGetInput['grupo']): Prisma.Sql | null {
@@ -253,8 +270,21 @@ async function readProjectionBundle(input: ConciliarGetInput, shared: Prisma.Sql
     ? Prisma.sql`SELECT p.* FROM active_emitidas p WHERE ${emitidasScope}`
     : Prisma.sql`SELECT p.* FROM filtered p WHERE ${pageScope}`
   const result = await client.$queryRaw<ProjectionReadBundle[]>(Prisma.sql`
-    WITH filtered AS (
-      SELECT p.* FROM conciliar_proyecciones p WHERE ${shared}
+    WITH projection_state AS (
+      SELECT dirty_at FROM estado_proyeccion_conciliar WHERE singleton=true LIMIT 1
+    ), effective_projection AS (
+      SELECT p.id,p.tab,p.movimiento_id,p.cuenta_id,p.fecha,p.concepto,p.banco,p.cuenta,
+        p.importe_centimos,p.pendiente_centimos,
+        CASE WHEN p.color='VERDE' AND (NOT (p.source->>'g7Precheck' IS NOT DISTINCT FROM ${CONCILIAR_GREEN_PRECHECK_STAMP}) OR EXISTS(SELECT 1 FROM projection_state WHERE dirty_at IS NOT NULL)) THEN 'AMBAR' ELSE p.color END AS color,
+        p.grupo,
+        CASE WHEN p.color='VERDE' AND (NOT (p.source->>'g7Precheck' IS NOT DISTINCT FROM ${CONCILIAR_GREEN_PRECHECK_STAMP}) OR EXISTS(SELECT 1 FROM projection_state WHERE dirty_at IS NOT NULL)) THEN ${CONCILIAR_GREEN_PENDING_REASON} ELSE p.motivo END AS motivo,
+        p.documento,p.propuesta,
+        CASE WHEN p.color='VERDE' AND (NOT (p.source->>'g7Precheck' IS NOT DISTINCT FROM ${CONCILIAR_GREEN_PRECHECK_STAMP}) OR EXISTS(SELECT 1 FROM projection_state WHERE dirty_at IS NOT NULL)) THEN false ELSE p.seleccionable END AS seleccionable,
+        p.diferencia_centimos,p.links_movimiento,p.detail,p.source,p.source_fingerprint,p.updated_at,p.read_metadata
+      FROM conciliar_proyecciones p
+    ), filtered AS (
+      SELECT p.id,p.tab,p.fecha,p.cuenta_id,p.importe_centimos,p.pendiente_centimos,p.color,p.propuesta
+      FROM effective_projection p WHERE ${shared}
     ), active AS (
       SELECT p.* FROM filtered p WHERE ${activeScope}
     ), active_emitidas AS (
@@ -269,32 +299,16 @@ async function readProjectionBundle(input: ConciliarGetInput, shared: Prisma.Sql
     ), scoped AS (
       ${scopedRows}
     ), page AS (
-      SELECT p.* FROM scoped p
+      SELECT p.* FROM effective_projection p JOIN scoped scope ON scope.id=p.id
       ORDER BY ${sort}
       LIMIT ${input.limit} OFFSET ${input.offset}
-    ), requested_movements AS (
-      SELECT DISTINCT movimiento_id FROM page WHERE movimiento_id IS NOT NULL
-    ), latest_document_request AS (
-      SELECT DISTINCT ON (a.movimiento_id) a.movimiento_id,a.created_at::date::text AS pedido_fecha,u.nombre AS actor_visible
-      FROM auditorias_gestiones_pendientes_b5 a
-      JOIN requested_movements r ON r.movimiento_id=a.movimiento_id
-      LEFT JOIN usuarios_admin u ON u.id=a.actor_id
-      WHERE a.snapshot_resultado->>'estado'='PEDIDO'
-      ORDER BY a.movimiento_id,a.created_at DESC,a.id DESC
-    ), current_request_files AS (
-      SELECT a.movimiento_id,
-        NOT BOOL_AND(NOT (a.estado::text='UPLOAD_COMPLETO' AND a.tipo_documento='SOPORTE')) AS soporte_b5_completo,
-        NOT BOOL_AND(NOT (a.estado::text='UPLOAD_COMPLETO' AND a.tipo_documento='TICKET' AND a.gasto_id IS NOT NULL AND a.documento_conciliable_id IS NOT NULL)) AS ticket_b5_completo,
-        MIN(CASE WHEN a.estado::text='UPLOAD_COMPLETO' AND a.tipo_documento IN ('TICKET','SOPORTE') THEN a.id::text ELSE NULL END) AS archivo_b5_id
-      FROM adjuntos_pendientes_b5 a JOIN requested_movements r ON r.movimiento_id=a.movimiento_id
-      GROUP BY a.movimiento_id
     ), document_requests AS (
-      SELECT r.movimiento_id,g.estado::text AS gestion_estado,p.pedido_fecha,p.actor_visible,
-        COALESCE(a.soporte_b5_completo,false) AS soporte_b5_completo,COALESCE(a.ticket_b5_completo,false) AS ticket_b5_completo,a.archivo_b5_id
-      FROM requested_movements r
-      LEFT JOIN gestiones_pendientes_movimiento_b5 g ON g.movimiento_id=r.movimiento_id
-      LEFT JOIN latest_document_request p ON p.movimiento_id=r.movimiento_id
-      LEFT JOIN current_request_files a ON a.movimiento_id=r.movimiento_id
+      SELECT p.movimiento_id,p.read_metadata->>'gestion_estado' AS gestion_estado,
+        p.read_metadata->>'pedido_fecha' AS pedido_fecha,p.read_metadata->>'actor_visible' AS actor_visible,
+        COALESCE((p.read_metadata->>'soporte_b5_completo')::boolean,false) AS soporte_b5_completo,
+        COALESCE((p.read_metadata->>'ticket_b5_completo')::boolean,false) AS ticket_b5_completo,
+        p.read_metadata->>'archivo_b5_id' AS archivo_b5_id
+      FROM page p WHERE p.movimiento_id IS NOT NULL
     ), summary AS (
       SELECT tab,color,COUNT(*)::text AS total,COALESCE(SUM(pendiente_centimos::bigint),0)::text AS amount
       FROM active GROUP BY tab,color
@@ -306,9 +320,6 @@ async function readProjectionBundle(input: ConciliarGetInput, shared: Prisma.Sql
     ), historic_summary AS (
       SELECT COUNT(*)::text AS total,COALESCE(SUM(pendiente_centimos::bigint),0)::text AS amount
       FROM filtered p WHERE p.tab='EMITIDAS' AND p.fecha<CAST(${cutoff} AS date)
-    ), account_rows AS (
-      SELECT id,banco,alias FROM cuentas_bancarias WHERE activa=true
-      ORDER BY banco ASC,alias ASC NULLS LAST,id ASC LIMIT 100
     ), state AS (
       SELECT dirty_at AS "dirtyAt",dirty_reason AS "dirtyReason",rebuilt_at AS "rebuiltAt",projection_version AS "projectionVersion"
       FROM estado_proyeccion_conciliar WHERE singleton=true LIMIT 1
@@ -321,7 +332,7 @@ async function readProjectionBundle(input: ConciliarGetInput, shared: Prisma.Sql
       COALESCE((SELECT json_agg(row_to_json(emitidas_groups) ORDER BY "group" ASC) FROM emitidas_groups),'[]'::json) AS "emitidasGroups",
       (SELECT total FROM invalid_emitidas_groups) AS "invalidEmitidasGroups",
       (SELECT row_to_json(historic_summary) FROM historic_summary) AS "historicSummary",
-      COALESCE((SELECT json_agg(row_to_json(account_rows) ORDER BY banco ASC,alias ASC NULLS LAST,id ASC) FROM account_rows),'[]'::json) AS accounts,
+      COALESCE((SELECT read_accounts FROM estado_proyeccion_conciliar WHERE singleton=true LIMIT 1),'[]'::jsonb) AS accounts,
       (SELECT row_to_json(state) FROM state) AS state
   `)
   if (result.length !== 1) fail(503, 'PROYECCION_NO_DISPONIBLE', 'No se pudo leer la foto de conciliación.')
@@ -375,7 +386,7 @@ async function projectionResponse(input: ConciliarGetInput, client: Pick<Tx, '$q
   // would be rejected by the browser contract and could look like an empty queue.
   const rebuiltAt = state?.rebuiltAt instanceof Date ? state.rebuiltAt : state?.rebuiltAt ? new Date(state.rebuiltAt) : null
   if (!rebuiltAt || !Number.isFinite(rebuiltAt.getTime())) fail(503, 'PROYECCION_NO_PREPARADA', 'La conciliación se está preparando por primera vez. Vuelve a intentarlo en unos instantes.')
-  const pageRows = rows.map(projectionRow)
+  const pageRows = rows.map(row=>projectionRow(row,!!state?.dirtyAt))
   const requests = parseParaPedirRequestMetadataRows(jsonRecords(bundle.documentRequests ?? [], 'La gestión documental'))
   return {
     tabs: CONCILIAR_TABS.map(tab => summaries.get(tab)!), rows: pageRows.map(({ source: _source, sourceFingerprint: _fingerprint, updatedAt: _updatedAt, ...row }) => {
@@ -401,16 +412,61 @@ export async function readConciliarProjectionTx(tx: Prisma.TransactionClient, in
 }
 
 export async function readConciliarProjection(input: ConciliarGetInput) {
-  return projectionResponse(input, db())
+  return projectionResponse(input,db())
 }
 
 export async function readConciliarRow(id: string) {
   if (typeof id !== 'string' || !/^[A-Za-z0-9:_-]{1,240}$/.test(id)) fail(400, 'FILA_INVALIDA', 'La fila solicitada no es válida.')
-  const rows = await db().$queryRaw<ProjectionSqlRow[]>(Prisma.sql`SELECT * FROM conciliar_proyecciones WHERE id=${id} LIMIT 1`)
+  const rows = await db().$queryRaw<ProjectionSqlRow[]>(Prisma.sql`SELECT p.*,(s.dirty_at IS NOT NULL) AS g7_dirty FROM conciliar_proyecciones p CROSS JOIN estado_proyeccion_conciliar s WHERE p.id=${id} AND s.singleton=true LIMIT 1`)
   if (!rows.length) fail(404, 'FILA_NO_ENCONTRADA', 'La fila ya no está disponible; actualiza la lista.')
-  const result = projectionRow(rows[0])
+  const result = projectionRow(rows[0],rows[0].g7_dirty===true)
   const { source: _source, sourceFingerprint: _fingerprint, updatedAt: _updatedAt, ...row } = result
   return row
+}
+
+/** G7 preview runs in a real READ ONLY transaction. It must retain the sealed
+ * source internally, but may never obtain a row lock just to render the warning. */
+export async function readConciliarRowForReviewPreflight(tx: Prisma.TransactionClient, id: string) {
+  const rows = await (tx as Tx).$queryRaw<ProjectionSqlRow[]>(Prisma.sql`SELECT * FROM conciliar_proyecciones WHERE id=${id} LIMIT 1`)
+  if (!rows.length) fail(409, 'FILA_OBSOLETA', 'La fila ya no está disponible. Actualiza la lista.')
+  return projectionRow(rows[0])
+}
+
+/** Server-only G7 sweep. The source criterion comes from the persisted projection,
+ * never from an API DTO; every page is read inside the caller's READ ONLY photo. */
+export async function readArea3ReviewPreflightCandidatesTx(tx: Prisma.TransactionClient) {
+  const client = tx as Tx
+  const countRows = await client.$queryRaw<Array<{ total: bigint | number | string }>>(Prisma.sql`
+    SELECT COUNT(*)::bigint AS total
+    FROM conciliar_proyecciones
+    WHERE color='AMBAR' AND seleccionable=false
+      AND source->>'kind'='PAGO_FACTURA_RECIBIDA'
+      AND source->>'providerReviewReason' IN ('SIN_REFERENCIA_DOCUMENTAL','REFERENCIA_NUMERO_INCOMPLETO')
+    LIMIT 1
+  `)
+  const total = safeInteger(countRows[0]?.total)
+  if (countRows.length !== 1 || total === null || total < 0 || total > 25_000) {
+    fail(503, 'REVISION_AREA3_CANDIDATOS_INVALIDOS', 'No se pudo leer una lista completa de revisiones Área 3.')
+  }
+  const pageSize = 100
+  const result: Array<ReturnType<typeof projectionRow>> = []
+  for (let offset = 0; offset < total; offset += pageSize) {
+    const page = await client.$queryRaw<ProjectionSqlRow[]>(Prisma.sql`
+      SELECT * FROM conciliar_proyecciones
+      WHERE color='AMBAR' AND seleccionable=false
+        AND source->>'kind'='PAGO_FACTURA_RECIBIDA'
+        AND source->>'providerReviewReason' IN ('SIN_REFERENCIA_DOCUMENTAL','REFERENCIA_NUMERO_INCOMPLETO')
+      ORDER BY id ASC LIMIT ${pageSize} OFFSET ${offset}
+    `)
+    if (page.length < 1 || page.length > pageSize) {
+      fail(503, 'REVISION_AREA3_CANDIDATOS_INVALIDOS', 'No se pudo leer una lista completa de revisiones Área 3.')
+    }
+    result.push(...page.map(row=>projectionRow(row)))
+  }
+  if (result.length !== total || new Set(result.map(row => row.id)).size !== result.length) {
+    fail(503, 'REVISION_AREA3_CANDIDATOS_INVALIDOS', 'No se pudo leer una lista completa de revisiones Área 3.')
+  }
+  return result
 }
 
 export async function readConciliarRowForAction(tx: Prisma.TransactionClient, id: string) {
@@ -419,18 +475,103 @@ export async function readConciliarRowForAction(tx: Prisma.TransactionClient, id
   return projectionRow(rows[0])
 }
 
-export async function readConciliarHistory(actorId: number, limit: number, offset: number) {
+export type ConciliarHistoryView = 'hoy' | 'historial'
+
+type ConciliarHistoryOperationRow = Readonly<{
+  id: string
+  estado: string
+  resultado: unknown
+  createdAt: Date
+  revertedAt: Date | null
+  legs: unknown
+}>
+
+function historyDisplay(value: unknown, field: string): string | null {
+  const parsed = nullableText(value, 240)
+  return parsed && parsed.trim().length > 0 ? parsed.trim() : null
+}
+
+function historyLegs(value: unknown, createdAt: Date) {
+  return jsonRecords(value, 'Las patas del historial').flatMap((raw, index) => {
+    const result = json(raw.resultado)
+    const presentation = json(result.presentation)
+    const ordinal = safeInteger(raw.ordinal)
+    if (presentation.schema !== 'CONCILIAR_CONFIRMACION_PATA_V1') return []
+    if (ordinal === null || ordinal !== index + 1) return []
+    const fecha = typeof presentation.fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(presentation.fecha) ? presentation.fecha : null
+    const concepto = historyDisplay(presentation.concepto, 'El concepto')
+    const importeCentimos = safeInteger(presentation.importeCentimos)
+    const documento = presentation.documento === null ? null : historyDisplay(presentation.documento, 'El documento')
+    if (!fecha || !concepto || importeCentimos === null || importeCentimos < -2_147_483_648 || importeCentimos > 2_147_483_647) return []
+    return [{ ordinal, confirmedAt: createdAt.toISOString(), fecha, concepto, importeCentimos, documento }]
+  })
+}
+
+function historyOperation(row: ConciliarHistoryOperationRow) {
+  const result = json(row.resultado)
+  const history = json(result.history)
+  const actorIdsValid = history.schema === 'CONCILIAR_HISTORIAL_V1'
+    && safeInteger(history.actorRealId) !== null && safeInteger(history.actorRealId)! > 0
+    && safeInteger(history.actorEffectiveId) !== null && safeInteger(history.actorEffectiveId)! > 0
+  const actorEffectiveDisplay = actorIdsValid ? historyDisplay(history.actorEffectiveDisplay, 'El actor efectivo') : null
+  const actorRealDisplay = actorIdsValid ? historyDisplay(history.actorRealDisplay, 'El actor real') : null
+  const legs = historyLegs(row.legs, row.createdAt)
+  const durableOutcomes = Array.isArray(result.outcomes) ? result.outcomes.length : 0
+  const storedLegCount = jsonRecords(row.legs, 'Las patas del historial').length
+  const count = durableOutcomes >= 1 && durableOutcomes <= 100 ? durableOutcomes : storedLegCount || 1
+  const detailsAvailable = legs.length === count
+  return {
+    operationId: row.id,
+    confirmedAt: row.createdAt.toISOString(),
+    revertedAt: row.revertedAt?.toISOString() ?? null,
+    state: row.estado === 'REVERTIDA' ? 'REVERTIDA' : 'APLICADA',
+    reversible: row.estado === 'APLICADA',
+    scope: count === 1 ? 'single' as const : 'batch' as const,
+    count,
+    detailsAvailable,
+    actorEffectiveDisplay,
+    actorRealDisplay,
+    actorRealStatus: actorRealDisplay ? (actorRealDisplay === actorEffectiveDisplay ? 'IGUAL_AL_EFECTIVO' : 'VINCULADO') : 'NO_DISPONIBLE_HISTORICO',
+    legs: detailsAvailable ? legs : [],
+  }
+}
+
+/** Ledger-only reader: no projection rebuild, source lookup or financial join can
+ * occur here. SET TRANSACTION READ ONLY is a real server guard, not a DTO flag. */
+export async function readConciliarHistory(actorId: number, limit: number, offset: number, view: ConciliarHistoryView = 'historial') {
   if (!Number.isSafeInteger(actorId) || actorId < 1) fail(401, 'NO_AUTORIZADO', 'No autorizado.')
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || !Number.isSafeInteger(offset) || offset < 0 || offset > 100_000) fail(400, 'PAGINACION_INVALIDA', 'La paginación no es válida.')
-  const [rows, totals] = await Promise.all([
-    db().$queryRaw<Array<{ id: string; accion: string; estado: string; resultado: unknown; createdAt: Date; revertedAt: Date | null; parentId: string | null }>>(Prisma.sql`
-      SELECT id::text,accion::text,estado::text,resultado,created_at AS "createdAt",revertida_at AS "revertedAt",operacion_padre_id::text AS "parentId"
-      FROM operaciones_conciliar WHERE actor_id=${actorId} ORDER BY created_at DESC,id DESC LIMIT ${limit} OFFSET ${offset}
-    `),
-    db().$queryRaw<Array<{ total: bigint | number | string }>>(Prisma.sql`SELECT COUNT(*) AS total FROM operaciones_conciliar WHERE actor_id=${actorId}`),
-  ])
-  return { total: count(totals[0]?.total), limit, offset, operations: rows.map(row => ({
-    id: row.id, action: row.accion, state: row.estado, createdAt: row.createdAt.toISOString(), revertedAt: row.revertedAt?.toISOString() ?? null,
-    reversible: row.accion === 'CONFIRMAR' && row.estado !== 'REVERTIDA', parentId: row.parentId, result: json(row.resultado),
-  })) }
+  if (view !== 'hoy' && view !== 'historial') fail(400, 'PAGINACION_INVALIDA', 'La vista de historial no es válida.')
+  return db().$transaction(async base => {
+    const client = base as Tx
+    await client.$executeRaw(Prisma.sql`SET TRANSACTION READ ONLY`)
+    const todayScope = view === 'hoy'
+      ? Prisma.sql`AND (created_at AT TIME ZONE 'Europe/Madrid')::date=(CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Madrid')::date`
+      : Prisma.empty
+    const [rows, totals] = await Promise.all([
+      client.$queryRaw<ConciliarHistoryOperationRow[]>(Prisma.sql`
+        WITH page AS (
+          SELECT id,estado,resultado,created_at,revertida_at
+          FROM operaciones_conciliar
+          WHERE actor_id=${actorId} AND accion='CONFIRMAR'::"AccionOperacionConciliar" ${todayScope}
+          ORDER BY created_at DESC,id DESC LIMIT ${limit} OFFSET ${offset}
+        )
+        SELECT p.id::text,p.estado::text,p.resultado,p.created_at AS "createdAt",p.revertida_at AS "revertedAt",
+          COALESCE(json_agg(jsonb_build_object('ordinal',l.ordinal,'resultado',l.resultado) ORDER BY l.ordinal ASC)
+            FILTER (WHERE l.ordinal IS NOT NULL),'[]'::json) AS legs
+        FROM page p
+        LEFT JOIN patas_operacion_conciliar l ON l.operacion_conciliar_id=p.id
+        GROUP BY p.id,p.estado,p.resultado,p.created_at,p.revertida_at
+        ORDER BY p.created_at DESC,p.id DESC
+      `),
+      client.$queryRaw<Array<{ total: bigint | number | string }>>(Prisma.sql`
+        SELECT COUNT(*) AS total FROM operaciones_conciliar
+        WHERE actor_id=${actorId} AND accion='CONFIRMAR'::"AccionOperacionConciliar" ${todayScope}
+      `),
+    ])
+    return {
+      view, total: count(totals[0]?.total), limit, offset,
+      operations: rows.map(historyOperation),
+    }
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 5_000, timeout: 15_000 })
 }

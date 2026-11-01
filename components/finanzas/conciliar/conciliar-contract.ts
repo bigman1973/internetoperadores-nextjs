@@ -16,6 +16,7 @@ import type {
   ConciliarSortField as ServerConciliarSortField,
   ConciliarTab as ServerConciliarTab,
   ConciliarTabSummary,
+  ConciliarReviewPreviewCommand,
   ConciliarUndoCommand,
 } from '@/lib/finanzas/conciliar-contract';
 
@@ -64,7 +65,10 @@ export type ConciliarConfirmItem = ServerConciliarConfirmItem;
 export type ConciliarConfirmPayload = ConciliarConfirmCommand;
 export type ConciliarAskPayload = ConciliarAskCommand;
 export type ConciliarUndoPayload = ConciliarUndoCommand;
-export type ConciliarMutationPayload = ConciliarCommand;
+/** Preflight independiente: no lleva idempotencia ni responseView porque no muta. */
+export type ConciliarReviewPreviewPayload = ConciliarReviewPreviewCommand;
+/** REVIEW_PREVIEW no puede entrar en el envío que reintenta mutaciones. */
+export type ConciliarMutationPayload = Exclude<ConciliarCommand, ConciliarReviewPreviewCommand>;
 
 export type ConciliarOutcome = Readonly<{
   id: string;
@@ -87,6 +91,51 @@ export type ConciliarUndoResponse = Readonly<{
   refreshedAt: string;
   projectionSynchronized: boolean;
   projection?: ConciliarReadResponse;
+}>;
+export type ConciliarReviewPreview = Readonly<{
+  id: string;
+  decisionHash: string;
+  color: 'AMBAR' | 'ROJO';
+  puedeConfirmarRevision: boolean;
+  confirmableGreen: false;
+  codigo: string;
+  mensaje: string;
+  sourceHash: string | null;
+  acknowledgement: Readonly<{
+    schema: 'AREA3_REVIEW_ACK_V2';
+    version: '2026-11-01';
+    motivo: 'SIN_REFERENCIA_DOCUMENTAL' | 'REFERENCIA_NUMERO_INCOMPLETO';
+    sourceHash: string;
+  }> | null;
+}>;
+export type ConciliarHistoryLeg = Readonly<{
+  ordinal: number;
+  confirmedAt: string;
+  fecha: string;
+  concepto: string;
+  importeCentimos: number;
+  documento: string | null;
+}>;
+export type ConciliarHistoryOperation = Readonly<{
+  operationId: string;
+  confirmedAt: string;
+  revertedAt: string | null;
+  state: 'APLICADA' | 'REVERTIDA';
+  reversible: boolean;
+  scope: 'single' | 'batch';
+  count: number;
+  detailsAvailable: boolean;
+  actorEffectiveDisplay: string | null;
+  actorRealDisplay: string | null;
+  actorRealStatus: 'VINCULADO' | 'IGUAL_AL_EFECTIVO' | 'NO_DISPONIBLE_HISTORICO';
+  legs: readonly ConciliarHistoryLeg[];
+}>;
+export type ConciliarHistoryResponse = Readonly<{
+  view: 'hoy' | 'historial';
+  total: number;
+  limit: number;
+  offset: number;
+  operations: readonly ConciliarHistoryOperation[];
 }>;
 /** Vista previa sellada por el servidor. Las filas son la composición completa,
  * nunca la muestra compacta que usan las tarjetas de la cola. */
@@ -209,9 +258,21 @@ function parseLinks(value: unknown, field: string): readonly ConciliarMovementLi
   });
 }
 
+/** Capacidad sellada por servidor: la UI sólo agrupa por pairId y devuelve id +
+ * decisionHash. Nunca aporta importes, movimientos, cuentas o pruebas al POST. */
+function humanAction(value: unknown, field: string): NonNullable<ConciliarRow['accionHumana']> | undefined {
+  if (value === undefined) return undefined;
+  const raw = object(value, field);
+  if (Object.keys(raw).length !== 2 || raw.kind !== 'CONFIRMAR_PAREJA_PROPIA' || !SHA256.test(text(raw.pairId, `${field}.pairId`, 64))) {
+    throw new Error(`La respuesta no incluye ${field} correctamente.`);
+  }
+  return { kind: 'CONFIRMAR_PAREJA_PROPIA', pairId: String(raw.pairId).toLowerCase() };
+}
+
 function parseRow(value: unknown, field: string): ConciliarRow {
   const raw = object(value, field);
   let gestionDocumento: ConciliarRow['gestionDocumento'];
+  const accionHumana = humanAction(raw.accionHumana, `${field}.accionHumana`);
   if (raw.gestionDocumento !== undefined) {
     const management = object(raw.gestionDocumento, `${field}.gestionDocumento`);
     if (!['SIN_PEDIR', 'PEDIDO', 'PEDIDO_SIN_AUDITORIA', 'RECIBIDO'].includes(String(management.estado))) throw new Error('El estado de pedido no es válido.');
@@ -240,6 +301,7 @@ function parseRow(value: unknown, field: string): ConciliarRow {
     linksMovimiento: parseLinks(raw.linksMovimiento, `${field}.linksMovimiento`),
     detail: nullableText(raw.detail, `${field}.detail`, 1_600),
     decisionHash: decisionHash(raw.decisionHash, `${field}.decisionHash`),
+    ...(accionHumana ? { accionHumana } : {}),
     ...(gestionDocumento ? { gestionDocumento } : {}),
   };
 }
@@ -371,6 +433,38 @@ export function parseConciliarRemesaPreviewResponse(value: unknown): ConciliarRe
   };
 }
 
+/** Una respuesta incompleta no habilita una excepción humana. */
+export function parseConciliarReviewPreviewResponse(value: unknown): ConciliarReviewPreview {
+  const root = object(value, 'previsualización de revisión');
+  const raw = object(root.reviewPreview, 'reviewPreview');
+  const color = raw.color;
+  if (color !== 'AMBAR' && color !== 'ROJO') throw new Error('La revisión no conserva un color verificable.');
+  const acknowledgement = raw.acknowledgement === null ? null : object(raw.acknowledgement, 'reviewPreview.acknowledgement');
+  const parsedAcknowledgement = acknowledgement === null ? null : {
+    schema: acknowledgement.schema === 'AREA3_REVIEW_ACK_V2' ? acknowledgement.schema : (() => { throw new Error('La revisión no conserva la advertencia vigente.'); })(),
+    version: acknowledgement.version === '2026-11-01' ? acknowledgement.version : (() => { throw new Error('La revisión no conserva la advertencia vigente.'); })(),
+    motivo: acknowledgement.motivo === 'SIN_REFERENCIA_DOCUMENTAL' || acknowledgement.motivo === 'REFERENCIA_NUMERO_INCOMPLETO'
+      ? acknowledgement.motivo : (() => { throw new Error('La revisión no conserva un motivo permitido.'); })(),
+    sourceHash: decisionHash(acknowledgement.sourceHash, 'reviewPreview.acknowledgement.sourceHash'),
+  } as const;
+  const sourceHash = raw.sourceHash === null ? null : decisionHash(raw.sourceHash, 'reviewPreview.sourceHash');
+  const canConfirm = boolean(raw.puedeConfirmarRevision, 'reviewPreview.puedeConfirmarRevision');
+  if (raw.confirmableGreen !== false || (canConfirm !== (raw.codigo === 'ACK_REQUERIDO')) || (canConfirm && (!parsedAcknowledgement || sourceHash !== parsedAcknowledgement.sourceHash || color !== 'AMBAR'))) {
+    throw new Error('La revisión no conserva un estado humano confirmable.');
+  }
+  return {
+    id: opaqueId(raw.id, 'reviewPreview.id'),
+    decisionHash: decisionHash(raw.decisionHash, 'reviewPreview.decisionHash'),
+    color,
+    puedeConfirmarRevision: canConfirm,
+    confirmableGreen: false,
+    codigo: text(raw.codigo, 'reviewPreview.codigo', 160),
+    mensaje: text(raw.mensaje, 'reviewPreview.mensaje', 900),
+    sourceHash,
+    acknowledgement: parsedAcknowledgement,
+  };
+}
+
 function parseOutcome(value: unknown, index: number): ConciliarOutcome {
   const raw = object(value, `outcomes[${index}]`);
   const operationId = raw.operationId === undefined ? undefined : parseOperationId(raw.operationId, `outcomes[${index}].operationId`);
@@ -409,24 +503,63 @@ export function parseConciliarUndoResponse(value: unknown): ConciliarUndoRespons
   };
 }
 
-export function parseConciliarHistoryResponse(value: unknown) {
+function historyTimestamp(value: unknown, field: string, nullable = false): string | null {
+  if (nullable && value === null) return null;
+  const parsed = text(value, field, 80);
+  if (Number.isNaN(new Date(parsed).getTime())) throw new Error(`La respuesta no incluye ${field} correctamente.`);
+  return parsed;
+}
+
+export function parseConciliarHistoryResponse(value: unknown): ConciliarHistoryResponse {
   const raw = object(value, 'historial');
   const operations = array(raw.operations, 'operations');
   if (operations.length > 100) throw new Error('El historial supera el límite permitido.');
-  return operations.filter((valueForOperation) => {
-    const operation = object(valueForOperation, 'operación');
-    return operation.action === 'CONFIRMAR';
-  }).map((valueForOperation) => {
-    const operation = object(valueForOperation, 'operación');
-    const result = object(operation.result, 'resultado');
-    return {
-      operationId: parseOperationId(operation.id, 'operationId'),
-      reversible: operation.reversible === true && operation.state === 'APLICADA',
-      undone: operation.state === 'REVERTIDA',
-      count: Array.isArray(result.outcomes) ? result.outcomes.length : 1,
-      createdAt: text(operation.createdAt, 'createdAt', 80),
-    };
-  });
+  const view = raw.view;
+  if (view !== 'hoy' && view !== 'historial') throw new Error('La respuesta no incluye la vista de historial correctamente.');
+  const total = integer(raw.total, 'total', true), limit = integer(raw.limit, 'limit', true), offset = integer(raw.offset, 'offset', true);
+  if (limit < 1 || limit > 100 || offset > 100_000 || operations.length > limit) throw new Error('La respuesta no incluye paginación de historial correcta.');
+  return {
+    view, total, limit, offset,
+    operations: operations.map((valueForOperation) => {
+      const operation = object(valueForOperation, 'operación');
+      const legs = array(operation.legs, 'patas');
+      const state = operation.state;
+      const scope = operation.scope;
+      const actorRealStatus = operation.actorRealStatus;
+      if (state !== 'APLICADA' && state !== 'REVERTIDA') throw new Error('La respuesta no incluye el estado de historial correctamente.');
+      if (scope !== 'single' && scope !== 'batch') throw new Error('La respuesta no incluye el alcance de historial correctamente.');
+      if (!['VINCULADO', 'IGUAL_AL_EFECTIVO', 'NO_DISPONIBLE_HISTORICO'].includes(String(actorRealStatus))) throw new Error('La respuesta no incluye la auditoría de historial correctamente.');
+      const count = integer(operation.count, 'count', true);
+      const detailsAvailable = boolean(operation.detailsAvailable, 'detailsAvailable');
+      if ((detailsAvailable && count !== legs.length) || (!detailsAvailable && legs.length !== 0) || count < 1 || count > 100 || (scope === 'single') !== (count === 1)) throw new Error('La respuesta no incluye patas de historial correctas.');
+      return {
+        operationId: parseOperationId(operation.operationId, 'operationId'),
+        confirmedAt: historyTimestamp(operation.confirmedAt, 'confirmedAt')!,
+        revertedAt: historyTimestamp(operation.revertedAt, 'revertedAt', true),
+        state,
+        reversible: boolean(operation.reversible, 'reversible') && state === 'APLICADA',
+        scope,
+        count,
+        detailsAvailable,
+        actorEffectiveDisplay: nullableText(operation.actorEffectiveDisplay, 'actorEffectiveDisplay', 240),
+        actorRealDisplay: nullableText(operation.actorRealDisplay, 'actorRealDisplay', 240),
+        actorRealStatus: actorRealStatus as ConciliarHistoryOperation['actorRealStatus'],
+        legs: legs.map((valueForLeg, index) => {
+          const leg = object(valueForLeg, `patas[${index}]`);
+          const ordinal = integer(leg.ordinal, `patas[${index}].ordinal`, true);
+          if (ordinal !== index + 1) throw new Error('La respuesta no incluye el orden de historial correctamente.');
+          return {
+            ordinal,
+            confirmedAt: historyTimestamp(leg.confirmedAt, `patas[${index}].confirmedAt`)!,
+            fecha: date(leg.fecha, `patas[${index}].fecha`)! ,
+            concepto: text(leg.concepto, `patas[${index}].concepto`, 500),
+            importeCentimos: integer(leg.importeCentimos, `patas[${index}].importeCentimos`),
+            documento: nullableText(leg.documento, `patas[${index}].documento`, 300),
+          };
+        }),
+      };
+    }),
+  };
 }
 
 export function makeIdempotencyKey(): string {
