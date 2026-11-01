@@ -14,6 +14,8 @@ No se configura WAF. El retorno aprobado combina el deployment anterior y la res
 
 Se requiere copia completa reciente, restauración aislada verificada, ensayo de las nueve migraciones del manifiesto, `pnpm build` correcto, guardas de entorno, pruebas de bloqueo del middleware y conservación de columnas originales. El DDL se aplica en una única transacción y no ejecuta backfills, seeds ni vínculos. No se usa `prisma migrate reset` ni se ejecuta el historial completo de migraciones.
 
+Antes de **cualquier** publicación, incluida una publicación de staging, la batería debe acreditar el perfil `PROD_NEW_RESTORE` sobre una copia nueva de producción restaurada y verificada. El perfil lee el Golden privado completo y no admite un derivado de staging. Sólo después puede ejecutarse `STAGE` contra su API capturada y sus seis cambios autorizados. Si el Golden informa C4 con `COLOR_MISMATCH` tras reconstruir la proyección candidata, se detiene la promoción: no se modifica C4, no se relaja G7 y no se usa STAGE para compensar el fallo.
+
 El procedimiento operativo exacto y los comprobantes se conservan fuera de Git, en un directorio privado de esta tarea. No se incluyen dump, credenciales, SQL con datos ni manifiestos de registros privados en el repositorio.
 
 ## Retorno

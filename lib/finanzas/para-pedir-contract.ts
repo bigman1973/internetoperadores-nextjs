@@ -38,7 +38,10 @@ export type ParaPedirAgrupacion = Readonly<{
   tercero: string;
   movimientos: number;
   pendienteCentimos: number;
+  faltanPedir: number;
   pedidos: number;
+  pedidosSinAuditoria: number;
+  recibidos: number;
   pedidosMas15Dias: number;
 }>;
 export type ParaPedirRead = Readonly<{
@@ -153,13 +156,20 @@ export function parseParaPedirRead(value: unknown): ParaPedirRead {
   const proyeccion = record(raw.proyeccion, 'proyeccion');
   const agrupaciones = array(raw.agrupaciones, 'agrupaciones').map((valueForGroup, index): ParaPedirAgrupacion => {
     const group = record(valueForGroup, `agrupaciones[${index}]`);
-    return {
+    const parsed = {
       tercero: text(group.tercero, `agrupaciones[${index}].tercero`, PARA_PEDIR_MAX_TERCERO),
       movimientos: integer(group.movimientos, `agrupaciones[${index}].movimientos`, true),
       pendienteCentimos: integer(group.pendienteCentimos, `agrupaciones[${index}].pendienteCentimos`),
+      faltanPedir: integer(group.faltanPedir, `agrupaciones[${index}].faltanPedir`, true),
       pedidos: integer(group.pedidos, `agrupaciones[${index}].pedidos`, true),
+      pedidosSinAuditoria: integer(group.pedidosSinAuditoria, `agrupaciones[${index}].pedidosSinAuditoria`, true),
+      recibidos: integer(group.recibidos, `agrupaciones[${index}].recibidos`, true),
       pedidosMas15Dias: integer(group.pedidosMas15Dias, `agrupaciones[${index}].pedidosMas15Dias`, true),
     };
+    if (parsed.faltanPedir + parsed.pedidos + parsed.pedidosSinAuditoria + parsed.recibidos !== parsed.movimientos) {
+      throw new Error(`La respuesta de Para pedir no conserva contadores coherentes para agrupaciones[${index}].`);
+    }
+    return parsed;
   });
   const movimientos = array(raw.movimientos, 'movimientos').map((valueForMovement, index): ParaPedirMovimiento => {
     const movement = record(valueForMovement, `movimientos[${index}]`);

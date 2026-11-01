@@ -28,6 +28,18 @@ test('C/P core returns only static safe codes and validates a simple exact row',
   assert(SAFE_STATIC_CODES.every(code => /^[A-Z][A-Z0-9_]+$/.test(code)))
 })
 
+test('C1/P1 exact green cases retain required expectations and do not become colour-free pending cases', () => {
+  for (const [caseId, tab, reference] of [['C1', 'COBROS', 'SYN/C1'], ['P1', 'PAGOS', 'SYN/P1']] as const) {
+    const input: ConciliarReleaseRegressionCase = {
+      ...exact({ tab, color: 'VERDE', group: 'CLIENTES', documentReference: reference }), caseId,
+    }
+    const row = projection({ tab, color: 'VERDE', documentReference: reference })
+    assert.equal(evaluateCase(input, { bankRows: [source()], projectionRows: [row] }).pass, true)
+    assert(evaluateCase(input, { bankRows: [source()], projectionRows: [{ ...row, color: 'AMBAR' }] }).reasons.includes('COLOR_MISMATCH'))
+    assert(evaluateCase(input, { bankRows: [source()], projectionRows: [{ ...row, documentReference: null }] }).reasons.includes('DOCUMENT_REFERENCE_MISSING'))
+  }
+})
+
 test('exact lookup fails closed for zero and multiple sources', () => {
   const missing = evaluateCase(exact(), { bankRows: [], projectionRows: [] })
   assert.deepEqual(missing.reasons, ['SOURCE_MISSING'])
@@ -95,6 +107,19 @@ test('C7/C8 absence is accepted only with actual B4 confirmation and no row in a
   assert.equal(evaluateCase(absent, { bankRows: [source({ b4Confirmed: true })], projectionRows: [] }).pass, true)
   assert(evaluateCase(absent, { bankRows: [source({ b4Confirmed: false })], projectionRows: [] }).reasons.includes('B4_NOT_CONFIRMED'))
   assert(evaluateCase(absent, { bankRows: [source({ b4Confirmed: true })], projectionRows: [projection({ tab: 'PAGOS' })] }).reasons.includes('PROJECTION_PRESENT_WHEN_ABSENT'))
+})
+
+test('PENDING_VISIBLE requires a pending B4 source and exactly one visible row without asserting any colour', () => {
+  const pending: ConciliarReleaseRegressionCase = {
+    caseId: 'C3', mode: 'PENDING_VISIBLE', selector: { bank: 'Synthetic Bank', date: '2026-09-01', signedCents: 123_45, searchTerms: ['synthetic'] },
+    expect: { b4Confirmed: false, visible: true },
+  }
+  assert.equal(evaluateCase(pending, dataset({}, { color: 'ROJO' })).pass, true)
+  assert.equal(evaluateCase(pending, dataset({}, { color: 'AMBAR' })).pass, true)
+  assert.equal(evaluateCase(pending, dataset({ b4Confirmed: true })).reasons.includes('B4_NOT_PENDING'), true)
+  assert.equal(evaluateCase(pending, { bankRows: [source()], projectionRows: [projection({ visible: false })] }).reasons.includes('PROJECTION_MISSING'), true)
+  assert.equal(evaluateCase(pending, { bankRows: [source()], projectionRows: [projection(), projection({ tab: 'PAGOS' })] }).reasons.includes('PROJECTION_AMBIGUOUS'), true)
+  assert.deepEqual(evaluateCase({ ...pending, expect: { ...pending.expect, color: 'VERDE' } }, dataset()).reasons, ['CASE_SPEC_INVALID'])
 })
 
 test('parametric C9/P8/P12/P15 coverage can never pass vacuously', () => {

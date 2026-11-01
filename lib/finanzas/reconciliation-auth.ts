@@ -3,7 +3,7 @@ import type { Session } from 'next-auth'
 import type { Prisma } from '@prisma/client'
 import { NextResponse } from 'next/server'
 import { authOptions } from '@/lib/auth'
-import prisma from '@/lib/prisma'
+import prisma, { conciliarTransactionReadOnce } from '@/lib/prisma'
 import { verificarPermisoServer } from '@/lib/permisos'
 
 export const B4_CONCILIACION_AREA = 'admin.finanzas.conciliacion'
@@ -39,7 +39,10 @@ export async function requireB4FinanceAccess(
 }
 
 /** Sólo para servicios server-side llamados tras autenticar la solicitud. */
-export async function requireB4ActorAccess(userId:number,required:'lectura'|'escritura',database:B4AccessClient=prisma):Promise<{ok:true;actor:B4Actor}|{ok:false;response:NextResponse}> {
+export function requireB4ActorAccess(userId:number,required:'lectura'|'escritura',database:B4AccessClient=prisma):Promise<{ok:true;actor:B4Actor}|{ok:false;response:NextResponse}> {
+  return conciliarTransactionReadOnce(database, `b4-acl:${userId}:${required}`, () => readB4ActorAccess(userId, required, database))
+}
+async function readB4ActorAccess(userId:number,required:'lectura'|'escritura',database:B4AccessClient):Promise<{ok:true;actor:B4Actor}|{ok:false;response:NextResponse}> {
   if(!Number.isInteger(userId)||userId<=0)return {ok:false,response:privateJson({error:'No autorizado'},401)}
   const admin = await database.usuarioAdmin.findUnique({
     where: { id: userId },

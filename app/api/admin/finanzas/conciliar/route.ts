@@ -27,6 +27,8 @@ async function errorResponse(error: unknown) {
           : { error: 'El cuerpo JSON es obligatorio.', codigo: error.code }
     return privateJson(body, error.status)
   }
+  const { ConciliarRecoveryError } = await import('@/lib/finanzas/conciliar-recovery')
+  if (error instanceof ConciliarRecoveryError) return privateJson({ error: error.message, codigo: error.code }, error.status)
   const { conciliarActionErrorResponse } = await import('@/lib/finanzas/conciliar-actions')
   const action = conciliarActionErrorResponse(error)
   if (action.status !== 500 || action.body.codigo !== 'CONCILIAR_ACCION_FALLIDA') return privateJson(action.body, action.status)
@@ -87,7 +89,7 @@ function actionResponse(command: ConciliarCommand, result: unknown) {
   const projectionSynchronized = raw.projectionSynchronized === true
   // Durable idempotent receipts omit the transient view. Replaying must return
   // the same receipt, not fail while parsing a projection that was not stored.
-  const projection = projectionSynchronized && command.responseView && raw.projection !== undefined ? readResponse(raw.projection) : undefined
+  const projection = projectionSynchronized && 'responseView' in command && command.responseView && raw.projection !== undefined ? readResponse(raw.projection) : undefined
   if (command.action === 'deshacer') {
     const undone = raw.ok === true
     return {
@@ -116,6 +118,21 @@ export async function GET(request: NextRequest) {
     const access = await requireB4FinanceAccess('lectura', await getServerSession(authOptions))
     if ('response' in access) return access.response
     const query = queryRecord(request)
+    if (query.recover !== undefined) {
+      // Exact private capability on the already-authorized Conciliar GET route.
+      // It neither accepts an actor/session selector nor falls through to the
+      // paginated projection reader.
+      const { parseConciliarRecoveryLookup } = await import('@/lib/finanzas/conciliar-recovery-core')
+      const { readConciliarRecoveryIntent } = await import('@/lib/finanzas/conciliar-recovery')
+      const lookup = (() => {
+        try {
+          return parseConciliarRecoveryLookup(query)
+        } catch {
+          throw new ConciliarValidationError(400, 'VALIDATION_ERROR', 'La consulta de recuperación no es válida.')
+        }
+      })()
+      return privateJson(await readConciliarRecoveryIntent(access.actor.id, lookup))
+    }
     const rowId = query.rowId
     if (rowId !== undefined) {
       if (Object.keys(query).length !== 1 || !rowId) throw new ConciliarValidationError(400, 'VALIDATION_ERROR', 'rowId debe ser la única consulta de detalle.')
@@ -131,20 +148,26 @@ export async function POST(request: NextRequest) {
   try {
     phase('handler-start')
     await assertConciliarRuntime()
-    const access = await requireB4FinanceAccess('escritura', await getServerSession(authOptions))
-    if ('response' in access) return access.response
     if (!sameOrigin(request)) return privateJson({ error: 'Origen de la solicitud no válido.', codigo: 'INVALID_ORIGIN' }, 403)
     const command = (await readJsonLimited(request, MAX_JSON_BYTES)) as unknown
     // Parse here as well as in the action service: malformed input cannot reach it
     // and the route retains the exact command needed to normalize the UI response.
     const parsed = parseConciliarCommand(command)
+    const reviewPreview = parsed.action === 'confirmar' && 'review' in parsed && parsed.review.kind === 'REVIEW_PREVIEW'
+    const access = await requireB4FinanceAccess(reviewPreview ? 'lectura' : 'escritura', await getServerSession(authOptions))
+    if ('response' in access) return access.response
     phase('command-ready')
-    const [{ runConciliarAction, conciliarActionErrorResponse }, { scheduleConciliarProjectionRefresh }] = await Promise.all([
-      import('@/lib/finanzas/conciliar-actions'),
-      import('@/lib/finanzas/conciliar-refresh'),
-    ])
+    const { runConciliarAction, runConciliarReviewPreview, conciliarActionErrorResponse } = await import('@/lib/finanzas/conciliar-actions')
     phase('action-start')
-    if (parsed.action === 'confirmar' && acceptsConciliarNdjson(request.headers.get('accept'))) {
+    if (reviewPreview) {
+      // Esta vía no crea recibo, no cambia la proyección y no puede iniciar
+      // refresh/importación. Sólo devuelve el G7 de revisión en READ ONLY.
+      const result = await runConciliarReviewPreview(access.actor.id, parsed)
+      phase('preview-finished')
+      return privateJson(result)
+    }
+    const { scheduleConciliarActionProjectionRefresh } = await import('@/lib/finanzas/conciliar-refresh')
+    if (parsed.action === 'confirmar' && 'items' in parsed && acceptsConciliarNdjson(request.headers.get('accept'))) {
       // Same POST, same closed body and same auth/origin guard as JSON. Progress is
       // only negotiated by Accept; no uncommitted outcome reaches the browser.
       return streamConciliarConfirmation({
@@ -152,7 +175,7 @@ export async function POST(request: NextRequest) {
         execute: async onProgress => {
           const result = await runConciliarAction(access.actor.id, parsed, { onProgress })
           if ((result as { projectionSynchronized?: unknown }).projectionSynchronized !== true) {
-            scheduleConciliarProjectionRefresh(access.actor.id)
+            scheduleConciliarActionProjectionRefresh(access.actor.id)
           }
           return result
         },
@@ -162,7 +185,7 @@ export async function POST(request: NextRequest) {
     }
     const result = await runConciliarAction(access.actor.id, parsed)
     phase('action-finished')
-    if ((result as { projectionSynchronized?: unknown }).projectionSynchronized !== true) scheduleConciliarProjectionRefresh(access.actor.id)
+    if ((result as { projectionSynchronized?: unknown }).projectionSynchronized !== true) scheduleConciliarActionProjectionRefresh(access.actor.id)
     return privateJson(actionResponse(parsed, result))
   } catch (error) {
     phase('controlled-error')

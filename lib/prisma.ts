@@ -81,6 +81,7 @@ type ConciliarSerializableAuthorization = Readonly<{
   tx: Prisma.TransactionClient
   /** Actor effective whose Conciliar runtime+B4 ACL was just checked in tx. */
   actorId: number
+  reads: Map<string, Promise<unknown>>
 }>
 const conciliarSerializableAuthorizationScope = new AsyncLocalStorage<ConciliarSerializableAuthorization | null>()
 
@@ -100,7 +101,7 @@ export function runWithConciliarSerializableAuthorization<T>(
   if (typeof verifiedActorId !== 'number' || !Number.isSafeInteger(verifiedActorId) || verifiedActorId < 1) {
     return conciliarSerializableAuthorizationScope.run(null, callback)
   }
-  return conciliarSerializableAuthorizationScope.run({ tx, actorId: verifiedActorId }, callback)
+  return conciliarSerializableAuthorizationScope.run({ tx, actorId: verifiedActorId, reads: new Map() }, callback)
 }
 
 /** Server-only equality accessor for the narrow Conciliar SERIALIZABLE scope. */
@@ -111,6 +112,18 @@ export function hasConciliarSerializableAuthorizationForActor(
   const authorization = conciliarSerializableAuthorizationScope.getStore()
   return Number.isSafeInteger(actorId) && actorId > 0
     && authorization?.tx === tx && authorization.actorId === actorId
+}
+
+/** Coalesces observational metadata only in the exact live-authorized tx.
+ * Source amounts, OCC, locks, document capacity and writes must not use this. */
+export function conciliarTransactionReadOnce<T>(tx: object, key: string, read: () => Promise<T>): Promise<T> {
+  const scope = conciliarSerializableAuthorizationScope.getStore()
+  if (!scope || scope.tx !== tx) return read()
+  const existing = scope.reads.get(key)
+  if (existing) return existing as Promise<T>
+  const pending = read()
+  scope.reads.set(key, pending)
+  return pending
 }
 
 export function currentImpersonationTransactionClient(): Prisma.TransactionClient | null {

@@ -1,0 +1,171 @@
+{
+  "schema": "io.migrations.baseline.v1",
+  "recordedAt": "2026-10-30",
+  "migrations": {
+    "20260708_add_sub_remesas_banco": [
+      "1452255b866e4845b657fc9c5a5c0f9c74666a11c4631f1e91438de542a006f4"
+    ],
+    "20260813_add_visor_role": [
+      "186e0d3a9d5f3d95a3a89961f5e1b1c348ac12a793c13a45bd9b7f8fac66ab08"
+    ],
+    "20260929_add_crm_activity_metadata": [
+      "c819b5b8892f2689196523e3e5ed285fa3fb5960a558c2b562187fbc73c7cdcf"
+    ],
+    "20260930_add_cliente_web_email_index": [
+      "ff70a5e613dc9efd5e8e8594f77cb5ebfbb3243b969a81ccd863e427b464c97a"
+    ],
+    "20260930_add_crm_companies": [
+      "6d5121e86eebc92e4ded136bc0fb8d6542169c16a6440b919e361b4e834f16e6"
+    ],
+    "20260930_add_outlook_user_connections": [
+      "f19b576456b9addb4cd0d56d820dbb541808d9418b9f34725ac9eabd9e6efc4b"
+    ],
+    "20261005_add_employee_private_documents": [
+      "8c9ac8bedfc4f43f07adf78dc9cd1c10a0870f74109d25ea4b49ca8d7ee6ae5c"
+    ],
+    "20261005_add_payroll_documents": [
+      "07372252b68a9ad356cf91ae30155c81db270833e711ce262f9dcf0680b1a606"
+    ],
+    "20261005_add_payroll_settlement_breakdown": [
+      "4dbbb461c3758c48887e2765c18cd39b4faa1b3976108b5bdbbe7a3d9cfd5b63"
+    ],
+    "20261006_add_employee_payroll_seniority": [
+      "701e7e32444f64a0aac93b2a798d318e965cef59b1a89b75380a049287062de8"
+    ],
+    "20261006_add_payroll_nonsalary_expenses": [
+      "eb2176a8b7a9fe44c88a7d3ba45112f1934da7ba712f5d8cab4996542b5c191f"
+    ],
+    "20261008_add_invoice_cost_comments": [
+      "18940135718888562b01796cae92b704af0081d67f7406d3c038e615949989a4"
+    ],
+    "20261008_add_sale_service_components": [
+      "e8021fcd3b99c3334adf19fd19bd2ea12f944c34a3965da9404b1cee1617c63f"
+    ],
+    "20261008_add_sale_supplier_references": [
+      "87e48adbd4dce57a60fdb9e285cdb01e467f06671c2f54af7e45e88b1679a645"
+    ],
+    "20261008_add_sales_profitability": [
+      "88cba7b401faf88dbd688d036e5c29f88ff307b4846fa2981b02788e5b294c21"
+    ],
+    "20261009_add_operator_costs": [
+      "2140e5a697017d869137fa570a8f1458a58e28ce77c945d1f46fc1a39c28dd51"
+    ],
+    "20261009_pending_refactoring": [
+      "29ff28199340d5067d80b4690dd3acd32e3274275d695f0a2ec6b1ff3876dcbe"
+    ],
+    "20261016_add_certification_workspace": [
+      "6ffb6aefa7bfa409643b93c011c185d18b7ac543628631a21fa15c18e787ab99"
+    ],
+    "20261022_b1_onedrive_inventory": [
+      "a0abe91ee9214e84814587fc24bcf21efccd386796e155fd59d30abfeada7a6f"
+    ],
+    "20261022_b2_invoice_quality": [
+      "a77a653320abf56bec1f6cc0182c15f94deff3a1f6a5fb39da2b151e3f5310a2"
+    ],
+    "20261022_b3_bank_extract_cutoff": [
+      "b31afa6cbb5dabc91df96597d3e1cb6ff76c83f3598a62496fc1911fe34ae0c2"
+    ],
+    "20261022_b4_document_reconciliation": [
+      "938cb8206771f2161bef7bfe1bd96d50324d199ac5e2579c5c668cbabc373ece"
+    ],
+    "20261022_b5_pending_inbox": [
+      "7f033ac2bfabba9fc319ac02a7daadee91cf97b9d33631dee5379d1847e90113"
+    ],
+    "20261022_b6_explicit_remittances": [
+      "b756273bace1bfe4d46e06d0bce2a179293f307df4b4abb8d45d479bf24b6e5b"
+    ],
+    "20261022_b7_invoice_identity_audit": [
+      "e96858e743459c3db93e83014185b6a4f6ee9058de124b08d193c716ad7d8e2f"
+    ],
+    "20261022_b8_cost_centers": [
+      "99c48db1423a6e0af3c58a4a2db50feadc6710e7df02650d9632a1c26b4f7944"
+    ],
+    "20261022_c9_confirming_draxton_support": [
+      "715fb7eb5b013bd04de8cff8527d167e7f95814873cea4ab8f8e4efddc107efe"
+    ],
+    "20261022_p2_durable_finance_sync": [
+      "7a4fe7c663bb38389f2cd176634e32f8cff9c0b260cf1154b2a6361632067b6d"
+    ],
+    "20261023_b3_manual_cutoffs": [
+      "b4bc18be1850b0ff18695ce9a338b46dced65c2e02bb8edaed4f2e4903e22caf"
+    ],
+    "20261023_b4_historical_recovery": [
+      "12c70513aebf5acc458b1a17e6c8d44a6be08145f6d251a60689d40eae51179a"
+    ],
+    "20261024_customer_cost_allocation": [
+      "da9365de35774e2d1497827a78b92e8b694557eea36059ca2c88b2d96abc1112"
+    ],
+    "20261024_easy_access_profiles": [
+      "ba8f28600b06f8a6327996ca9b6d8a3fe82fa63ed6bcc8dad3f51d0ba95e4f00"
+    ],
+    "20261024_easy_counterparty_steps": [
+      "a010920f06d5793605b10ab7d99a1e5f8c07ebf089d422527d138725504a9bf2"
+    ],
+    "20261024_easy_counterparty_uuid_guard": [
+      "60bb94106bb764c0b4cfa205c122402714b4e680b385e48018c684f15ced1e11"
+    ],
+    "20261024_easy_restricted_automation": [
+      "ff3e03bfa12e8bfa72f226a4661d2e6b73bb7dc7a74d0e8e677a19ff09d684ab"
+    ],
+    "20261024_impersonation_ledger": [
+      "146cccfa21b608c37b89f653b8bace71e8e3b7138003fa4e43bb67d9dcae1e08"
+    ],
+    "20261024_modo_facil_proposal_rules": [
+      "a487b3acc6af12d4dfb6225b60f8a1875c00e3b186f002a98e901024c58f44ae"
+    ],
+    "20261024_phone_single_service_evidence": [
+      "2c7a5740e678e86c118b8b89a228f1f1345a378257e7ef21130aef18c07f77fb"
+    ],
+    "20261024_zz_easy_counterparty_bulk": [
+      "f3e97df85e2316f4fd47e375db6caefe2574613cb13a50255a52a7a1d00e4d38"
+    ],
+    "20261024_zzz_modo_facil_cobros": [
+      "0981ef0c3196c2d6c76e9a9cc3af9f8792d9537267b70c0c2156c41b719c6f4b"
+    ],
+    "20261025_asistente_fases25": [
+      "fb33d064d7e90a6a7a65f216c7bd369dc5ba768891b7978b0e5557de7303eaa5"
+    ],
+    "20261025_asistente_ia": [
+      "2d2d3a78c2c92394dbdef54554a6811f899c855a48a7ca0383a5f02adaafaa11"
+    ],
+    "20261025_titularidad_declarada": [
+      "c81ea4fda51e206ac2fb9616a55480fa434bed38eaf7e6643bdc44f537dd9ce9"
+    ],
+    "20261026_conciliar_backend_projection": [
+      "7defd1b368323cdbb7cebe9cda4b5a32053a64f0ecf6e5aba708a858985835f4"
+    ],
+    "20261026_confirming_documented_interest_support": [
+      "08acaee1ffca91fee6a5bf3a719249e71ba881bce97f6d64fd5fe8a114c7563a"
+    ],
+    "20261027_b7_remittance_payment_receipts": [
+      "e68867176199672a1be6275572d6be87d5159b53301916927a6dd0043ac45b37"
+    ],
+    "20261027_bank_account_documented_correction": [
+      "c075fd43cf7610f85a6bbc815ed3f348fa54731eea3c2401a424668f380b4ab8"
+    ],
+    "20261027_c11_confirming_liquidation_documental": [
+      "7d4a8d14d739d4e3b556dea4c335e2d6edb634cd20a34eaa3dc56b23133aa1ae"
+    ],
+    "20261029_confirming_reading_attempts": [
+      "788a5e060781fdb593941a4b2a31fb0baee37763fa3e4cb00d99acd61a075fda"
+    ],
+    "20261029_confirming_reading_controlled_support_registry": [
+      "e3b1aeb3c864a36b35147c9587b0a0122ba5ab5831ac542295b91da0334352e2"
+    ],
+    "20261029_document_version_lifecycle": [
+      "b2e57b0c4c35e047066df69a1718175151d4850d048a81ea775ea10bb64ddc30"
+    ],
+    "20261029_document_version_zarchive": [
+      "9c32453988ec06f0f048a9d7da0ae249c6deac55049a1e5b4ca47e0c5ecbc1b8"
+    ],
+    "20261029_graph_delta_dispatch": [
+      "28897e032df3ecacac14be4cc254f76fff82061cbf9c009308735af48111a01b"
+    ],
+    "20261029_graph_delta_lifecycle": [
+      "c395e86dd08972cd9412256cb8b49c3443f6f3c62420221b0900d7a5dfaa3b18"
+    ],
+    "20261029_zz_credit_link_human_decisions": [
+      "d700ca4e7c162a6b9340b12fdc30576f76f45d19fcc91e62854a1f33e424bf64"
+    ]
+  }
+}

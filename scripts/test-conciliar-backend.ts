@@ -59,7 +59,7 @@ test('fixture sintética: POST confirmar usa sólo identidad opaca y hash de dec
     items: [{ id: 'fila-sintetica-b', decisionHash: b }, { id: 'fila-sintetica-a', decisionHash: a }],
   })
   assert.equal(parsed.action, 'confirmar')
-  if (parsed.action !== 'confirmar') throw new Error('fixture no confirmado')
+  if (parsed.action !== 'confirmar' || !('items' in parsed)) throw new Error('fixture no confirmado como lote')
   assert.deepEqual(parsed.items.map(item => item.id), ['fila-sintetica-a', 'fila-sintetica-b'])
   throwsValidation(() => parseConciliarCommand({ action: 'confirmar', idempotencyKey: '11111111-1111-4111-8111-111111111111', items: [{ id: 'fila-sintetica-a', decisionHash: a, importeCentimos: 1 }] }), 400)
   throwsValidation(() => parseConciliarCommand({ action: 'pedir', id: 'fila-sintetica-roja', decisionHash: a, idempotencyKey: 'not-a-uuid', movimientoId: 'nunca-aceptado' }), 400)
@@ -124,4 +124,18 @@ test('huella: los campos opcionales ausentes coinciden con la serialización JSO
 test('SQL: SUM(bigint) de PostgreSQL se entrega como texto de céntimos exactos', () => {
   const source=readFileSync(resolve(process.cwd(),'lib/finanzas/conciliar-db.ts'),'utf8');
   assert.match(source,/COALESCE\(SUM\(p\.pendiente_centimos::bigint\),0\)::text AS amount/);
+});
+
+test('historial: el lector usa transacción read-only y sólo el ledger de Conciliar', () => {
+  const reader = readFileSync(resolve(process.cwd(), 'lib/finanzas/conciliar-projection-read.ts'), 'utf8');
+  const route = readFileSync(resolve(process.cwd(), 'app/api/admin/finanzas/conciliar/historial/route.ts'), 'utf8');
+  assert.match(reader, /SET TRANSACTION READ ONLY/);
+  assert.match(reader, /FROM operaciones_conciliar/);
+  assert.match(reader, /LEFT JOIN patas_operacion_conciliar/);
+  assert.doesNotMatch(reader.slice(reader.indexOf('export async function readConciliarHistory')), /movimientos_bancarios|facturas_recibidas|vinculos_movimiento_documento/);
+  assert.match(reader, /history\.schema === 'CONCILIAR_HISTORIAL_V1'/);
+  assert.doesNotMatch(reader.slice(reader.indexOf('function historyOperation'), reader.indexOf('export async function readConciliarHistory')), /actorRealId:|actorEffectiveId:/);
+  assert.match(route, /requireB4FinanceAccess\('lectura'/);
+  assert.match(route, /\['limit', 'offset', 'vista'\]/);
+  assert.match(route, /view !== 'hoy' && view !== 'historial'/);
 });

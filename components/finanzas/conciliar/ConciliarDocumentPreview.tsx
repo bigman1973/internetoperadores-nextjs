@@ -62,6 +62,12 @@ function amountFields(detail: ConciliarDocumentDetail): readonly DetailField[] {
         ['Importe de factura', (detail.importeFacturaCentimos ?? detail.nominalCentimos) === null ? null : formatMagnitude((detail.importeFacturaCentimos ?? detail.nominalCentimos)!)],
         [detail.importeBancoCentimos !== null && detail.importeBancoCentimos > 0 ? 'Ingreso del banco' : 'Salida del banco', detail.importeBancoCentimos === null ? null : formatMagnitude(detail.importeBancoCentimos)],
       ];
+    case 'COBRO_PROPUESTA':
+      return [
+        ['Suma incluida en propuesta', detail.sumaPropuestaCentimos ?? null],
+        ['Suma de saldos pendientes actuales', detail.sumaSaldosPendientesActualesCentimos ?? null],
+        ['Ingreso del banco', detail.importeBancoCentimos],
+      ];
     default:
       return [
         ['Importe del documento', detail.nominalCentimos],
@@ -73,6 +79,17 @@ function amountFields(detail: ConciliarDocumentDetail): readonly DetailField[] {
 function reconciliationCopy(detail: ConciliarDocumentDetail): Readonly<{ comparison: string; status: string }> {
   const status = detail.cuadreExacto ? 'Estado: exacto.' : 'Estado: desajuste.';
   if (detail.kind === 'REMESA') return { comparison: 'Suma de recibos = ingreso del banco', status };
+  if (detail.kind === 'COBRO_PROPUESTA') {
+    const proposal = detail.sumaPropuestaCentimos;
+    const pending = detail.sumaSaldosPendientesActualesCentimos;
+    const bank = detail.importeBancoCentimos;
+    const proposalMatches = proposal !== null && bank !== null && proposal === bank;
+    const pendingMatches = pending !== null && bank !== null && pending === bank;
+    return {
+      comparison: `Suma incluida en propuesta ${proposalMatches ? '=' : '≠'} ingreso del banco · Suma de saldos pendientes actuales ${pending === null ? 'no comprobable' : pendingMatches ? '=' : '≠'} ingreso del banco`,
+      status: detail.cuadreExacto ? 'Estado: exacto.' : 'Estado: revisión requerida.',
+    };
+  }
   if (detail.kind === 'FACTURA') {
     const invoice = detail.importeFacturaCentimos ?? detail.nominalCentimos;
     const bank = detail.importeBancoCentimos;
@@ -118,10 +135,11 @@ function DetailContent({ detail }: { detail: ConciliarDocumentDetail }) {
   const isRemesa = detail.kind === 'REMESA';
   const isConfirming = detail.kind === 'CONFIRMING';
   const isSupplierInvoice = detail.kind === 'FACTURA';
+  const isCollectionProposal = detail.kind === 'COBRO_PROPUESTA';
   const confirmingNet = isConfirming ? calculateConfirmingNet(detail) : null;
   const confirmingExact = confirmingNet?.matchesDeclaredNetExactly === true && detail.cuadreExacto;
   const total = lineTotal(detail);
-  const linesTitle = isRemesa ? 'Recibos que constan en este documento' : isConfirming ? 'Facturas que constan en el documento' : 'Líneas que constan en el documento';
+  const linesTitle = isCollectionProposal ? 'Facturas incluidas en la propuesta' : isRemesa ? 'Recibos que constan en este documento' : isConfirming ? 'Facturas que constan en el documento' : 'Líneas que constan en el documento';
   const reconciliation = reconciliationCopy(detail);
   const displayExact = isSupplierInvoice ? supplierPaymentMatches(detail) : detail.cuadreExacto;
   const bankSectionTitle = isConfirming ? 'Liquidación bancaria' : isRemesa ? 'Abono bancario' : 'Movimiento bancario';
@@ -157,13 +175,14 @@ function DetailContent({ detail }: { detail: ConciliarDocumentDetail }) {
       <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
         <div><h3 id="conciliar-lines-detail-title" className="text-sm font-extrabold text-slate-950 panel-dark:text-white">{linesTitle}</h3>
           {isRemesa && <p className="mt-1 text-xs leading-5 text-slate-600 panel-dark:text-slate-300">La lista recoge todos los recibos incluidos en este documento. Una liquidación puede pagar sólo una parte de los recibos; no se infiere ningún pago fuera de esta lista.</p>}
+          {isCollectionProposal && <p className="mt-1 text-xs leading-5 text-slate-600 panel-dark:text-slate-300">El importe incluido conserva la propuesta. El saldo pendiente actual se comprueba de nuevo con evidencia B4 vigente; no se infiere un pago ni se sustituye una comprobación ausente por cero.</p>}
         </div>
-        {total !== null && <p className="shrink-0 text-sm font-extrabold tabular-nums text-slate-950 panel-dark:text-white">Suma de la lista: {formatMoney(total)}</p>}
+        {total !== null && !isCollectionProposal && <p className="shrink-0 text-sm font-extrabold tabular-nums text-slate-950 panel-dark:text-white">Suma de la lista: {formatMoney(total)}</p>}
       </div>
       <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 panel-dark:border-slate-700">
         <table className="w-max min-w-[760px] text-left text-sm">
-          <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-600 panel-dark:bg-slate-950 panel-dark:text-slate-300"><tr><th className="px-4 py-3 font-bold">Número</th><th className="px-4 py-3 font-bold">Cliente</th><th className="px-4 py-3 font-bold">Emisión</th><th className="px-4 py-3 font-bold">Vencimiento</th><th className="px-4 py-3 text-right font-bold">Nominal</th></tr></thead>
-          <tbody>{detail.lineas.map((line, index) => <tr key={`${line.numero}-${index}`} className="border-t border-slate-200 align-top text-slate-800 panel-dark:border-slate-700 panel-dark:text-slate-100"><td className="px-4 py-3 font-semibold">{line.numero}</td><td className="px-4 py-3">{line.cliente ?? 'No consta'}</td><td className="whitespace-nowrap px-4 py-3">{line.fechaEmision ? formatDate(line.fechaEmision) : 'No consta'}</td><td className="whitespace-nowrap px-4 py-3">{line.fechaVencimiento ? formatDate(line.fechaVencimiento) : 'No consta'}</td><td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums">{formatMoney(line.nominalCentimos)}</td></tr>)}</tbody>
+          <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-600 panel-dark:bg-slate-950 panel-dark:text-slate-300"><tr><th className="px-4 py-3 font-bold">Número</th><th className="px-4 py-3 font-bold">Cliente</th><th className="px-4 py-3 font-bold">Emisión</th><th className="px-4 py-3 font-bold">Vencimiento</th><th className="px-4 py-3 text-right font-bold">Nominal</th>{isCollectionProposal && <><th className="px-4 py-3 text-right font-bold">Incluido en propuesta</th><th className="px-4 py-3 text-right font-bold">Saldo pendiente actual</th><th className="px-4 py-3 font-bold">Resultado</th></>}</tr></thead>
+          <tbody>{detail.lineas.map((line, index) => <tr key={`${line.numero}-${index}`} className="border-t border-slate-200 align-top text-slate-800 panel-dark:border-slate-700 panel-dark:text-slate-100"><td className="px-4 py-3 font-semibold">{line.numero}</td><td className="px-4 py-3">{line.cliente ?? 'No consta'}</td><td className="whitespace-nowrap px-4 py-3">{line.fechaEmision ? formatDate(line.fechaEmision) : 'No consta'}</td><td className="whitespace-nowrap px-4 py-3">{line.fechaVencimiento ? formatDate(line.fechaVencimiento) : 'No consta'}</td><td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums">{formatMoney(line.nominalCentimos)}</td>{isCollectionProposal && <><td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums">{line.importePropuestoCentimos === null || line.importePropuestoCentimos === undefined ? 'No consta' : formatMoney(line.importePropuestoCentimos)}</td><td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums">{line.saldoPendienteActualCentimos === null || line.saldoPendienteActualCentimos === undefined ? 'No se puede comprobar' : formatMoney(line.saldoPendienteActualCentimos)}</td><td className={`px-4 py-3 font-bold ${line.estadoSaldo === 'COINCIDE' ? 'text-emerald-700 panel-dark:text-emerald-300' : 'text-amber-800 panel-dark:text-amber-200'}`}>{line.estadoSaldo === 'COINCIDE' ? 'Coincide' : line.estadoSaldo === 'NO_COINCIDE' ? 'No coincide; actualice antes de confirmar' : 'No se puede comprobar el saldo actual'}</td></>}</tr>)}</tbody>
         </table>
       </div>
     </section>}
@@ -172,7 +191,7 @@ function DetailContent({ detail }: { detail: ConciliarDocumentDetail }) {
       <p className="font-extrabold">{reconciliation.comparison}</p>
       <p className="mt-1 leading-5">{reconciliation.status}</p>
       {isSupplierInvoice && <p className="mt-1 leading-5">Factura y pago se comparan por su valor. El movimiento de la cabecera conserva el signo bancario original.</p>}
-      {!displayExact && <p className="mt-1 leading-5">{isSupplierInvoice ? 'El pago no está validado como exacto. Revisa los importes y los avisos antes de decidir.' : 'Los importes no cuadran exactamente. Revísalos antes de tomar cualquier decisión.'}</p>}
+      {!displayExact && <p className="mt-1 leading-5">{isCollectionProposal ? 'No confirme mientras una línea no coincida o no se pueda comprobar.' : isSupplierInvoice ? 'El pago no está validado como exacto. Revisa los importes y los avisos antes de decidir.' : 'Los importes no cuadran exactamente. Revísalos antes de tomar cualquier decisión.'}</p>}
       {detail.avisos.length > 0 && <ul className="mt-2 list-disc space-y-1 pl-5 leading-5">{detail.avisos.map((notice, index) => <li key={`${notice}-${index}`}>{notice}</li>)}</ul>}
     </section>
   </div>;

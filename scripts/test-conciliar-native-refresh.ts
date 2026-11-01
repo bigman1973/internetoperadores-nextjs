@@ -2,36 +2,32 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-
 const root = resolve(__dirname, '..')
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8')
-
 const refresh = read('lib/finanzas/conciliar-refresh.ts')
+const affected = read('lib/finanzas/conciliar-affected-refresh.ts')
+const route = read('app/api/admin/finanzas/conciliar/route.ts')
+const migration = read('prisma/migrations/20261030_area3_conciliar_work_projection/migration.sql')
 const assembly = read('lib/finanzas/sync-jobs/assembly.ts')
 const remesas = read('app/api/admin/finanzas/conciliacion-remesas/importar-pdf/route.ts')
 const confirming = read('app/api/admin/finanzas/clientes/ggcc-draxton/sync-confirmings/route.ts')
-
 assert.match(refresh, /import \{ after \} from 'next\/server'/)
-assert.match(refresh, /assertPrototypeStaging\(\)/)
-assert.match(refresh, /scheduleConciliarProjectionRefresh\(actorId: number \| null\)/)
-assert.doesNotMatch(refresh, /\b(fetch|https?:|graph|email|correo)\b/i, 'El callback no llama HTTP, Graph ni correo')
-
-assert.match(assembly, /import \{ scheduleConciliarProjectionRefresh \} from '@\/lib\/finanzas\/conciliar-refresh'/)
-assert.match(assembly, /const result = await runtime\.service\.runBudgetedWorker\(/)
-assert.match(assembly, /imported = result\.appliedItems > 0/)
-assert.match(assembly, /finally \{[\s\S]*if \(imported\) scheduleConciliarProjectionRefresh\(null\)/)
-
-assert.match(remesas, /import \{ scheduleConciliarProjectionRefresh \} from '@\/lib\/finanzas\/conciliar-refresh'/)
-assert.match(remesas, /const actor = Number\.isSafeInteger\(sessionActorId\) && sessionActorId > 0/)
-assert.match(remesas, /select: \{ id: true, activo: true \}/)
-assert.match(remesas, /const actorId = actor\?\.activo \? actor\.id : null/)
-assert.match(remesas, /async function procesarRemesas\([^)]*actorId: number \| null\)/)
-assert.match(remesas, /if \(actorId !== null\) scheduleConciliarProjectionRefresh\(actorId\)/)
-assert.match(remesas, /if \(actorId !== null && \(importados > 0 \|\| actualizados > 0\)\) scheduleConciliarProjectionRefresh\(actorId\)/)
-const devoluciones = remesas.slice(remesas.indexOf('async function procesarDevoluciones'), remesas.indexOf('async function procesarRecibosDevueltos'))
-assert.doesNotMatch(devoluciones, /scheduleConciliarProjectionRefresh/, 'La vista de devoluciones sin DML no programa una reconstrucción')
-
-assert.match(confirming, /C9_CONFIRMING_REQUIERE_CLASIFICACION_Y_CONFIRMACION_HUMANA/)
-assert.doesNotMatch(confirming, /scheduleConciliarProjectionRefresh/, 'El confirming bloqueado no programa refrescos ni ejecuta importación')
-
-console.log('Callbacks nativos de refresco Conciliar verificados estáticamente; no se abrió red ni base de datos.')
+assert.match(refresh, /import \{ refreshAffectedConciliarProjection \} from '\.\/conciliar-affected-refresh'/)
+assert.match(refresh, /export function scheduleConciliarActionProjectionRefresh\(actorId: number \| null\)/)
+assert.match(refresh, /after\(async \(\) =>[\s\S]*refreshConciliarProjectionIfDirty\(actorId\)/)
+assert.match(refresh, /export function scheduleConciliarProjectionRefresh\(_actorId: number \| null\): void \{\}/, 'compatibilidad fuera de acciones queda inerte')
+const refreshCode = refresh.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+assert.doesNotMatch(refreshCode, /\b(fetch|https?:|azure|graph|email|correo|webhook|importar|sync)\b/i, 'el callback no llama HTTP, Graph, correo, importadores, sync ni webhooks')
+assert.match(route, /scheduleConciliarActionProjectionRefresh/)
+assert.match(route, /runConciliarAction\(access\.actor\.id, parsed[\s\S]*projectionSynchronized[\s\S]*scheduleConciliarActionProjectionRefresh/, 'after sólo queda tras acción resuelta')
+assert.doesNotMatch(route, /scheduleConciliarProjectionRefresh\(/, 'la ruta no usa la exportación compatible inerte')
+assert.match(affected, /area3_conciliar_projection_changes/)
+assert.match(affected, /rebuildConciliarProjectionTx\(tx, actorId, scope\)/)
+const affectedCode = affected.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+assert.doesNotMatch(affectedCode, /\b(fetch|https?:|azure|graph|email|correo|webhook|importar|sync)\b/i)
+const triggerFunction = migration.slice(migration.indexOf('CREATE FUNCTION area3_conciliar_record_projection_change'), migration.indexOf('CREATE TRIGGER area3_conciliar_change_movement'))
+assert.ok(triggerFunction.indexOf("UPDATE estado_proyeccion_conciliar SET dirty_at=CURRENT_TIMESTAMP") < triggerFunction.indexOf('INSERT INTO area3_conciliar_projection_changes'), 'el trigger bloquea estado antes de cola')
+assert.match(assembly, /scheduleConciliarProjectionRefresh\(null\)/, 'el llamador de importador conserva sólo la compatibilidad inerte')
+assert.match(remesas, /scheduleConciliarProjectionRefresh\(actorId\)/, 'remesas conserva sólo la compatibilidad inerte')
+assert.doesNotMatch(confirming, /scheduleConciliarActionProjectionRefresh|scheduleConciliarProjectionRefresh/, 'confirming bloqueado no programa refresco')
+console.log(JSON.stringify({ test: 'conciliar-native-refresh', databaseQueries: 0, networkCalls: 0, verified: ['action-only-after', 'derived-affected-queue', 'legacy-callers-inert', 'no-external-side-effects'] }))

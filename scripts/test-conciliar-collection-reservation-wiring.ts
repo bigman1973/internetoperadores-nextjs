@@ -42,7 +42,10 @@ test('el constructor mantiene la propuesta de revisión visible pero nunca selec
   const constructor = between(db, 'export function collectionProjectionForMovement', 'export async function confirmingProjectionForMovement')
   assert.match(constructor, /reservationReviewOnly = false/)
   assert.match(constructor, /const green = !reservationReviewOnly && status\.green/)
-  assert.match(constructor, /motivo = reservationReviewOnly/)
+  // G7 puede exponer antes el motivo documental de mapa; la fila permanece
+  // visible y no autorizable igual que la revisión genérica.
+  assert.match(constructor, /motivo = remesaProposal && !mapComplete/)
+  assert.match(constructor, /: reservationReviewOnly/)
   assert.match(constructor, /'La propuesta de cobro requiere revisión antes de confirmar\.'/)
 })
 
@@ -88,8 +91,8 @@ test('delta conserva todas las propuestas hermanas y cierra sus dependencias com
   assert.deepEqual(forward, { invoiceIds: ['fi-a', 'fi-b'], movimientoIds: ['movement-a', 'movement-b'] })
   assert.deepEqual(reverse, forward)
   const canonical = canonicalDeltaProposalRows([
-    { propuestaId: 'p-review', movimientoId: 'm', fecha: '2026-01-01', composicion: [{ facturaEmitidaId: 'fi-b' }] },
-    { propuestaId: 'p-exact', movimientoId: 'm', fecha: '2026-01-01', composicion: [{ facturaEmitidaId: 'fi-a' }] },
+    { propuestaId: 'p-review', generacionId: 'generation-synthetic', movimientoId: 'm', fecha: '2026-01-01', metodo: 'REMESA_VENCIMIENTO', lineas: [], composicion: [{ facturaEmitidaId: 'fi-b' }] },
+    { propuestaId: 'p-exact', generacionId: 'generation-synthetic', movimientoId: 'm', fecha: '2026-01-01', metodo: 'REMESA_VENCIMIENTO', lineas: [], composicion: [{ facturaEmitidaId: 'fi-a' }] },
   ])
   assert.deepEqual(canonical?.map(row => row.propuestaId), ['p-exact', 'p-review'])
 })

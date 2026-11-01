@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { readBankInvoicingPopulation, type B7ReadDatabase } from '@/lib/finanzas/bank-invoicing-db'
 import { readConciliarConfirmingCandidates } from './conciliar-confirming'
+import { readArea3RemittanceMapPreflightsTx } from './area3-remittance-map-db'
 import {
   applyConciliarDocumentLifecycleGuardToRebuildRowsTx,
   collectionReservationResolution,
@@ -9,6 +10,7 @@ import {
   currentRemittanceInvoices,
   emittedProjection,
   insertProjectionBatches,
+  sealConciliarProjectionRowsTx,
   proposalCompositionInvoiceIds,
   readLiveCollectionDocumentReservations,
   readCollectionClientIdentityProfiles,
@@ -114,7 +116,7 @@ export function closeDeltaProposalDependencies(
 
 type ReceiptDescriptor = Readonly<{ receiptId: string; remesaId: number; movementId: string }>
 type Scope = Readonly<{ kind: DeltaKind; invoiceIds: readonly string[] }>
-type ProposalRow = Record<string, any>
+type ProposalRow = Record<string, any> & { propuestaId: string; generacionId: string; metodo: string; lineas: unknown; composicion: unknown }
 type Candidate = Readonly<{ movementId: string; color: ConciliarColor; rowId: string; propuestaId: string | null }>
 type ClosedProposalScope = Readonly<{ invoiceIds: readonly string[]; proposals: readonly ProposalRow[] }>
 
@@ -267,7 +269,7 @@ async function proposalsTouchingInvoices(tx: Tx, invoiceIds: readonly string[]):
   if (!invoiceIds.length) return []
   const rows = await tx.$queryRaw<ProposalRow[]>(Prisma.sql`
     WITH current_generation AS (SELECT id FROM modo_facil_generaciones_cobro ORDER BY creada_at DESC,id DESC LIMIT 1)
-    SELECT p.id::text AS "propuestaId",p.movimiento_id AS "movimientoId",p.movimiento_par_id AS "movimientoParId",p.fingerprint,p.metodo,p.nivel,
+    SELECT p.id::text AS "propuestaId",p.generacion_id::text AS "generacionId",p.movimiento_id AS "movimientoId",p.movimiento_par_id AS "movimientoParId",p.fingerprint,p.metodo,p.nivel,
       p.estado_propuesto AS "estadoPropuesto",p.composicion,p.explicacion,p.lineas,p.importe_movimiento_centimos AS "importeCentimos",p.motivo_no_requiere AS "motivoNoRequiere",
       m.fecha_operacion::date::text AS fecha,m.concepto,m.referencia,m.info_adicional AS "info_adicional",m.tercero,
       b4_importe_bancario_centimos(m.importe) AS "importeCentimosMovimiento",c.id AS "cuentaId",c.banco,c.alias AS cuenta,COALESCE(e.version,1) AS "versionB4"
@@ -435,11 +437,13 @@ async function rebuildClosedCobros(
     return null
   }
   let collectionReservations
+  let remittanceMapPreflights: Awaited<ReturnType<typeof readArea3RemittanceMapPreflightsTx>>
   try {
+    remittanceMapPreflights = await readArea3RemittanceMapPreflightsTx(tx, proposals)
     collectionReservations = collectionReservationResolution({
       proposals, movements: [...uniqueMovements.values()], invoiceDates, issuedReferences,
       clientIdentityByProposal, reservations,
-      remittanceCurrentInvoices,
+      remittanceCurrentInvoices, remittanceMapPreflights,
     })
   } catch {
     return null
@@ -456,7 +460,8 @@ async function rebuildClosedCobros(
       const reservationReviewOnly = !selectedProposal && !!reviewProposal
       row = confirmingCandidate
         ? await confirmingProjectionForMovement(tx, movement, confirmingCandidate)
-        : collectionProjectionForMovement(movement, proposal, invoiceDates, issuedReferences, proposal ? clientIdentityByProposal.get(String(proposal.propuestaId)) : undefined, reservationReviewOnly)
+        : collectionProjectionForMovement(movement, proposal, invoiceDates, issuedReferences, proposal ? clientIdentityByProposal.get(String(proposal.propuestaId)) : undefined, reservationReviewOnly,
+          proposal ? remittanceMapPreflights.get(String(proposal.propuestaId)) : undefined)
     } catch {
       return null
     }
@@ -536,6 +541,8 @@ export async function applyConciliarProjectionDeltaTx(base: Prisma.TransactionCl
   // and returns rebuilt source fingerprints, so decision hashes remain derived
   // from the sealed server lifecycle state rather than from C11 sourceHash.
   const guardedProjectionRows = await applyConciliarDocumentLifecycleGuardToRebuildRowsTx(tx, [...emitted, ...cobros!.rows])
+  // Finish G7 reads over the same transactional picture before projection DML.
+  const sealedProjectionRows = await sealConciliarProjectionRowsTx(tx, guardedProjectionRows)
   const dirty = await tx.$queryRaw<Array<{ dirty: boolean }>>(Prisma.sql`
     SELECT dirty_at IS NOT NULL AS dirty FROM estado_proyeccion_conciliar WHERE singleton=true LIMIT 1 FOR UPDATE
   `)
@@ -552,7 +559,7 @@ export async function applyConciliarProjectionDeltaTx(base: Prisma.TransactionCl
   await tx.$executeRaw(Prisma.sql`
     DELETE FROM conciliar_proyecciones WHERE tab='COBROS' AND movimiento_id IN (${Prisma.join(cobroMovementIds.map(id => Prisma.sql`${id}`))})
   `)
-  await insertProjectionBatches(tx, guardedProjectionRows)
+  await insertProjectionBatches(tx, sealedProjectionRows)
   const state = await tx.$queryRaw<Array<{ projectionVersion: bigint | number }>>(Prisma.sql`
     UPDATE estado_proyeccion_conciliar
     SET dirty_at=NULL,dirty_reason=NULL,rebuilt_at=CURRENT_TIMESTAMP,projection_version=projection_version+1

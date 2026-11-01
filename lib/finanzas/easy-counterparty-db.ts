@@ -1,3 +1,4 @@
+import { conciliarTransactionReadOnce } from '@/lib/prisma'
 import { Prisma, PrismaClient } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { assertFinanceEasyRuntime, assertPrototypeStaging, FinanceEasyRuntimeError, PrototypeStagingError } from '@/lib/finanzas/prototype-staging'
@@ -244,6 +245,9 @@ function rowView(row: any): MovementRow {
 }
 
 async function tableReady(tx: QueryDb, table: string): Promise<boolean> {
+  return conciliarTransactionReadOnce(tx, `catalog:${table}`, () => readTableReady(tx, table))
+}
+async function readTableReady(tx: QueryDb, table: string): Promise<boolean> {
   const rows = await tx.$queryRaw<Array<{ ready: boolean }>>(Prisma.sql`SELECT to_regclass(${`public.${table}`}) IS NOT NULL AS ready`)
   return rows[0]?.ready === true
 }

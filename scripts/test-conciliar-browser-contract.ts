@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import { isUuid, parseConciliarActionResponse, parseConciliarUndoResponse, parseConciliarHistoryResponse, parseConciliarReadResponse, safeDocumentHref, escapeSpreadsheet } from '../components/finanzas/conciliar/conciliar-contract'
+import { formatConciliarConfirmationNotice } from '../components/finanzas/conciliar/conciliar-confirmation-notice'
 
 // Identificadores sintéticos: ninguna prueba consulta ni modifica una BD.
 const operationId='00000000-0000-4000-8000-000000000001'
@@ -24,11 +25,21 @@ test('una respuesta 2xx incompleta no se transforma en éxito',()=>{
   assert.throws(()=>parseConciliarActionResponse({operationId,outcomes:[{id:rowId,ok:true}],refreshedAt:at}))
 })
 test('sólo las confirmaciones aplicadas del historial permiten deshacer',()=>{
-  const parsed=parseConciliarHistoryResponse({operations:[
-    {id:operationId,action:'CONFIRMAR',state:'APLICADA',reversible:true,result:{outcomes:[{id:rowId}]},createdAt:at},
-    {id:rowId,action:'PEDIR',state:'APLICADA',reversible:false,result:{outcomes:[]},createdAt:at},
+  const parsed=parseConciliarHistoryResponse({view:'historial',total:1,limit:20,offset:0,operations:[
+    {operationId,state:'APLICADA',reversible:true,scope:'single',count:1,detailsAvailable:true,confirmedAt:at,revertedAt:null,actorEffectiveDisplay:'Lorena',actorRealDisplay:'Lorena',actorRealStatus:'IGUAL_AL_EFECTIVO',legs:[{ordinal:1,confirmedAt:at,fecha:'2026-10-26',concepto:'Cobro sintético',importeCentimos:1200,documento:'F-1'}]},
   ]})
-  assert.equal(parsed.length,1);assert.equal(parsed[0].reversible,true)
+  assert.equal(parsed.operations.length,1);assert.equal(parsed.operations[0].reversible,true)
+})
+test('el historial durable conserva detalle de pata y declara actor real histórico no disponible',()=>{
+  const parsed=parseConciliarHistoryResponse({view:'hoy',total:2,limit:20,offset:0,operations:[
+    {operationId,state:'APLICADA',reversible:true,scope:'single',count:1,detailsAvailable:true,confirmedAt:at,revertedAt:null,actorEffectiveDisplay:'Lorena',actorRealDisplay:null,actorRealStatus:'NO_DISPONIBLE_HISTORICO',legs:[{ordinal:1,confirmedAt:at,fecha:'2026-10-26',concepto:'Cobro sintético',importeCentimos:1200,documento:'F-1'}]},
+    {operationId:rowId,state:'REVERTIDA',reversible:false,scope:'batch',count:2,detailsAvailable:false,confirmedAt:at,revertedAt:at,actorEffectiveDisplay:null,actorRealDisplay:null,actorRealStatus:'NO_DISPONIBLE_HISTORICO',legs:[]},
+  ]})
+  assert.equal(parsed.operations[0].legs[0].concepto,'Cobro sintético')
+  assert.equal(parsed.operations[0].actorRealStatus,'NO_DISPONIBLE_HISTORICO')
+  assert.equal(parsed.operations[1].scope,'batch')
+  assert.equal(parsed.operations[1].detailsAvailable,false)
+  assert.throws(()=>parseConciliarHistoryResponse({view:'historial',total:1,limit:20,offset:0,operations:[{operationId,state:'APLICADA',reversible:true,scope:'batch',count:2,detailsAvailable:true,confirmedAt:at,revertedAt:null,actorEffectiveDisplay:'Lorena',actorRealDisplay:'Lorena',actorRealStatus:'IGUAL_AL_EFECTIVO',legs:[]}]}))
 })
 test('archivo opaco interno sí; URLs externas y archivos genéricos no',()=>{
   assert.equal(safeDocumentHref('/api/admin/finanzas/conciliar/archivo/'+rowId),'/api/admin/finanzas/conciliar/archivo/'+rowId)
@@ -39,6 +50,11 @@ test('archivo opaco interno sí; URLs externas y archivos genéricos no',()=>{
 test('la exportación no convierte textos bancarios en fórmulas de Excel',()=>{
   assert.equal(escapeSpreadsheet('=1+1'),"'=1+1")
   assert.equal(escapeSpreadsheet('Proveedor de prueba'),'Proveedor de prueba')
+})
+test('el aviso posterior al recibo es específico y no expone tokens internos',()=>{
+  assert.equal(formatConciliarConfirmationNotice({action:'confirmar',succeeded:1,failed:0,labels:['Factura F-1']}),'Confirmado: Factura F-1.')
+  assert.equal(formatConciliarConfirmationNotice({action:'confirmar',succeeded:2,failed:0,labels:['F-1','F-2']}),'Confirmadas 2 filas. Abre Confirmados hoy para el detalle.')
+  assert.equal(formatConciliarConfirmationNotice({action:'pedir',succeeded:1,failed:0,labels:[operationId]}),'Añadido a Para pedir. No se ha enviado ningún aviso.')
 })
 
 function readFixture(emitidasGroups: unknown) {
@@ -69,4 +85,24 @@ test('el resumen Emitidas incompleto, duplicado o inseguro se rechaza sin invent
   assert.throws(()=>parseConciliarReadResponse(readFixture([{group:'AJENO',count:1,amountCentimos:1},{group:'PARA_REVISAR',count:0,amountCentimos:0},{group:'SIN_PROPUESTA',count:0,amountCentimos:0}])))
   assert.throws(()=>parseConciliarReadResponse(readFixture([{group:'CON_PROPUESTA',count:-1,amountCentimos:1},{group:'PARA_REVISAR',count:0,amountCentimos:0},{group:'SIN_PROPUESTA',count:0,amountCentimos:0}])))
   assert.throws(()=>parseConciliarReadResponse(readFixture([{group:'CON_PROPUESTA',count:1.5,amountCentimos:1},{group:'PARA_REVISAR',count:0,amountCentimos:0},{group:'SIN_PROPUESTA',count:0,amountCentimos:0}])))
+})
+
+test('una pareja propia verde recibe capacidad humana sellada sin entrar en la selección genérica',()=>{
+  const response=readFixture([]) as any
+  response.emitidasGroups=[
+    {group:'CON_PROPUESTA',count:0,amountCentimos:0},
+    {group:'PARA_REVISAR',count:0,amountCentimos:0},
+    {group:'SIN_PROPUESTA',count:0,amountCentimos:0},
+  ]
+  response.rows=[{
+    id:'synthetic-manual-own-row',movimientoId:'synthetic-manual-own-leg',fecha:'2026-10-30',concepto:'Traspaso sintético',banco:'Banco sintético',cuenta:'Cuenta sintética',
+    importeCentimos:-12345,pendienteCentimos:-12345,color:'VERDE',grupo:'TRASPASOS_PROPIOS',motivo:'Pareja propia comprobable.',documento:null,propuesta:null,
+    seleccionable:false,diferenciaCentimos:0,linksMovimiento:[],detail:null,decisionHash:'a'.repeat(64),
+    accionHumana:{kind:'CONFIRMAR_PAREJA_PROPIA',pairId:'b'.repeat(64)},
+  }]
+  const parsed=parseConciliarReadResponse(response)
+  assert.equal(parsed.rows[0]?.seleccionable,false)
+  assert.deepEqual(parsed.rows[0]?.accionHumana,{kind:'CONFIRMAR_PAREJA_PROPIA',pairId:'b'.repeat(64)})
+  response.rows[0].accionHumana={kind:'OTRA',pairId:'b'.repeat(64)}
+  assert.throws(()=>parseConciliarReadResponse(response))
 })

@@ -13,6 +13,7 @@ import {
   type GlobalRuleId,
   type StagingReadonlyQueryClient,
 } from '../lib/finanzas/conciliar-release-regression-global'
+import { classifyG3HistoricalProviderEvidence } from '../lib/finanzas/conciliar-g3-historical-evidence'
 
 type DeepMutable<T> = T extends readonly (infer Item)[]
   ? DeepMutable<Item>[]
@@ -129,6 +130,34 @@ test('G3 success: canonical own and exact supplier citations are permitted; exte
 test('G3 fail: an external customer locator cannot be used as invoice evidence', () => {
   const dataset = mutate(validDataset(), rows => { rows.find(item => item.movementKey === 'g3-external-plus-own')!.referenceEvidence!.citations[0].usedForDecision = true })
   assert.ok(rule(dataset, 'G3').codes.includes('G3_INVALID_CITATION_USED'))
+})
+test('G3 histórico aprobado aporta sólo la prueba documental de proveedor y no altera filas, G2 ni totales', () => {
+  const dataset = validDataset()
+  dataset.rows = dataset.rows.filter(item => item.movementKey !== 'g3-supplier')
+  const historical = classifyG3HistoricalProviderEvidence({
+    movementKey: 'private-historical-movement', invoiceKey: 'private-historical-invoice',
+    bankDate: '2026-09-04', bankCents: -102_000, bankText: 'TRASPAS A BUTPO 2000, S.L. FACTURA F260009', bankReference: null,
+    supplier: 'BUTPO 2000, S.L.', invoiceReference: 'F260009', invoiceDate: '2026-09-01', invoiceCents: 102_000,
+    linkCents: -102_000, linkActive: true, documentActive: true, documentKind: 'FACTURA_RECIBIDA',
+    operationState: 'APLICADA', operationReverted: false, movementState: 'JUSTIFICADO', movementVersion: 2,
+    controlledFile: true, absentFromCurrentProjection: true,
+  })
+  assert.ok(historical)
+  const rowsBefore = dataset.rows.length
+  const totalsBefore = JSON.stringify(dataset.totals)
+  dataset.historicalG3Evidence = historical
+  assert.deepEqual(rule(dataset, 'G3'), { id: 'G3', passed: true, codes: [] })
+  assert.equal(dataset.rows.length, rowsBefore)
+  assert.equal(JSON.stringify(dataset.totals), totalsBefore)
+  assert.deepEqual(rule(dataset, 'G2'), { id: 'G2', passed: true, codes: [] })
+})
+test('G3 histórico solicitado sin prueba activa falla cerrado y no se sustituye por una cita actual', () => {
+  const missing = validDataset()
+  missing.historicalG3Evidence = null
+  assert.ok(rule(missing, 'G3').codes.includes('G3_HISTORICAL_EVIDENCE_MISSING'))
+  const invalid = validDataset() as Omit<MutableGlobalRegressionDataset, 'historicalG3Evidence'> & { historicalG3Evidence?: unknown }
+  invalid.historicalG3Evidence = { source: 'UI_FLAG' }
+  assert.ok(rule(invalid as GlobalRegressionDataset, 'G3').codes.includes('G3_HISTORICAL_EVIDENCE_INVALID'))
 })
 test('G4 success: all four tabs and three colours exactly equal canonical group sums', () => {
   assert.deepEqual(rule(validDataset(), 'G4'), { id: 'G4', passed: true, codes: [] })

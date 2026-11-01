@@ -6,9 +6,6 @@ import { requireB4FinanceAccess } from '@/lib/finanzas/reconciliation-auth';
 import { requireAuth } from '@/lib/middleware/auth';
 import { CONCILIAR_DEFAULT_CUTOFF, parseConciliarGetInput } from '@/lib/finanzas/conciliar-contract';
 import { readConciliarProjection } from '@/lib/finanzas/conciliar-projection-read';
-import prisma from '@/lib/prisma';
-import { resolveFinanceConfirmingReadingAccess } from '@/lib/finanzas/finance-confirming-reading-access';
-import { readPersistedFinanceConfirmingReadingQueue } from '@/lib/finanzas/finance-confirming-reading-persisted';
 
 export const dynamic = 'force-dynamic';
 export const preferredRegion = 'sfo1';
@@ -54,13 +51,11 @@ export default async function ConciliarPage({ searchParams }: { searchParams: Pr
       limit: '20',
       offset: '0',
     });
-    const [initialData, confirmingReadingQueue] = await Promise.all([
-      readConciliarProjection(input),
-      readPersistedFinanceConfirmingReadingQueue(prisma),
-    ]);
+    // The frozen documentary reading pipeline is not part of this candidate.
+    // Documentary availability is already sealed in each row's live precheck.
+    const initialData = await readConciliarProjection(input);
     timing('projection');
-    const confirmingReadingAccess = resolveFinanceConfirmingReadingAccess({ puedeConciliar: true, puedeParaPedir: false });
-    return <><link rel="preload" href="/fonts/RobotoLatin-VF.woff2" as="font" type="font/woff2" crossOrigin="anonymous" /><ConciliarWorkspace key={`${initialTab}:${initialQuery}:${initialCutoff}:${initialOrden}:${initialDireccion}:${initialGlobalOrder}`} initialTab={initialTab} initialQuery={initialQuery} initialCutoff={initialCutoff} initialOrden={initialOrden} initialDireccion={initialDireccion} initialGlobalOrder={initialGlobalOrder} initialData={initialData} confirmingReadingQueue={confirmingReadingQueue} confirmingReadingAccess={confirmingReadingAccess} /></>;
+    return <><link rel="preload" href="/fonts/RobotoLatin-VF.woff2" as="font" type="font/woff2" crossOrigin="anonymous" /><ConciliarWorkspace key={`${initialTab}:${initialQuery}:${initialCutoff}:${initialOrden}:${initialDireccion}:${initialGlobalOrder}`} initialTab={initialTab} initialQuery={initialQuery} initialCutoff={initialCutoff} initialOrden={initialOrden} initialDireccion={initialDireccion} initialGlobalOrder={initialGlobalOrder} initialData={initialData} /></>;
   } catch (error) {
     if (error instanceof ConciliarRuntimeError) notFound();
     throw error;
