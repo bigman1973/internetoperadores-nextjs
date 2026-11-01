@@ -70,7 +70,8 @@ test('derivative comparison restores C1/P1 exact expectations from original and 
   const production = deriveAuthorizedProductionGolden(golden)!
   const stage = deriveAuthorizedStageProfile(golden, production)!
   assert.equal(stageProfileIsExactDerivative(golden, production, stage), true)
-  assert.deepEqual(stage.cases?.slice(0, 2), golden.cases.slice(0, 2))
+  assert.ok(Array.isArray(stage.cases), 'el derivado debe conservar la colección de casos')
+  assert.deepEqual(stage.cases.slice(0, 2), golden.cases.slice(0, 2))
   for (const mutate of [
     (value: any) => { value.cases[0].expect.color = 'AMBAR' },
     (value: any) => { value.cases[1].expect.color = 'ROJO' },

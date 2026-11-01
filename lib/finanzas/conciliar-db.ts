@@ -7,7 +7,7 @@ import type { InvoiceSettlement } from '@/lib/finanzas/bank-invoicing-core'
 import { archivoRecibidaControlado, bibliotecaFinancieraConfigurada } from '@/lib/finanzas/archivo-fuente-controlada'
 import { driveItemDesdeArchivoUrlNominaControlada } from '@/lib/finanzas/nominas-propuestas-db'
 import { facturaEconomicaSQL } from '@/lib/finanzas/invoice-economic-filter'
-import { readConciliarConfirmingCandidates, resolveConfirmedInterestPdf, resolveStoredConfirmingFile, type ConfirmingQueryClient } from '@/lib/finanzas/conciliar-confirming'
+import { readConciliarConfirmingCandidates, resolveConfirmedInterestPdf, resolveStoredConfirmingFile, type ConfirmingQueryClient, type ReadConciliarConfirmingCandidatesResult } from '@/lib/finanzas/conciliar-confirming'
 import { centsFromExactSqlText, proveLocalBalanceNeighborhoods, selectBilateralTransfers, type EasyAutoBalanceRow, type EasyAutoMovement } from '@/lib/finanzas/easy-auto-core'
 import {
   CONCILIAR_COLORS,
