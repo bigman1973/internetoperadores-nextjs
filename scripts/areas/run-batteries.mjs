@@ -46,6 +46,12 @@ function productionRestoreGate(config, output) {
   let evidence; try { evidence = JSON.parse(result.stdout); } catch { return { pass: false, reason: 'NEW_PROD_RESTORE_RESULT_INVALID' }; }
   return { pass: Boolean(result.ok && evidence?.ok && evidence?.profile === 'PROD_NEW_RESTORE' && evidence?.writeOperations === false && evidence?.g7Rebuilt === false), evidence };
 }
+function stageProfilePathFromManifest(manifestFile) {
+  const manifest = privateFile(manifestFile);
+  const path = manifest?.derivative?.path;
+  if (manifest?.schema !== 'CONCILIAR_RELEASE_REGRESSION_STAGING_PROFILE_MANIFEST_V2' || manifest?.profile !== 'STAGE' || typeof path !== 'string' || !path) throw Error('STAGE_PROFILE_MANIFEST_PATH_REQUIRED');
+  return path;
+}
 export function main(argv = process.argv.slice(2)) {
   const args = parseArguments(argv), registry = validateRegistry(JSON.parse(readFileSync(join(ROOT, 'config/areas.json'), 'utf8')));
   const output = mkdtempSync(join(tmpdir(), 'io-area-batteries-')); chmodSync(output, 0o700);
@@ -62,13 +68,18 @@ export function main(argv = process.argv.slice(2)) {
     else if (!prodGate.pass) result.reasons.push('NEW_PROD_RESTORE_GOLDEN_REQUIRED');
     else {
       const entry = config?.batteries?.[battery.id];
-      if (!entry?.snapshotFile || !entry?.caseFile || !entry?.manifestFile || !entry?.envFile) result.reasons.push('LIVE_API_INPUTS_REQUIRED');
+      if (!entry?.snapshotFile || !entry?.manifestFile || !entry?.envFile) result.reasons.push('LIVE_API_INPUTS_REQUIRED');
       else {
-        const api = run([join(ROOT, 'node_modules/.bin/tsx'), battery.apiRunner, '--profile', 'STAGE', '--snapshot-file', entry.snapshotFile, '--input-file', entry.caseFile, '--manifest-file', entry.manifestFile, '--env-file', entry.envFile], output, `${battery.id}-live-api`);
-        let evidence; try { evidence = JSON.parse(api.stdout); } catch { result.reasons.push('LIVE_API_RESULT_INVALID'); }
-        result.apiPass = Boolean(api.ok && evidence?.ok && evidence.apiGate?.pass && evidence.total === battery.minimumCases && evidence.passing === battery.minimumCases && evidence.supplemental?.length === battery.minimumSupplementalCases && evidence.supplemental.every(x => x.pass));
-        if (!result.apiPass) result.reasons.push('LIVE_API_BATTERY_FAILED');
-        if (evidence) result.api = evidence;
+        let caseFile;
+        try { caseFile = stageProfilePathFromManifest(entry.manifestFile); }
+        catch { result.reasons.push('STAGE_PROFILE_MANIFEST_PATH_REQUIRED'); }
+        if (caseFile) {
+          const api = run([join(ROOT, 'node_modules/.bin/tsx'), battery.apiRunner, '--profile', 'STAGE', '--snapshot-file', entry.snapshotFile, '--input-file', caseFile, '--manifest-file', entry.manifestFile, '--env-file', entry.envFile], output, `${battery.id}-live-api`);
+          let evidence; try { evidence = JSON.parse(api.stdout); } catch { result.reasons.push('LIVE_API_RESULT_INVALID'); }
+          result.apiPass = Boolean(api.ok && evidence?.ok && evidence.apiGate?.pass && evidence.total === battery.minimumCases && evidence.passing === battery.minimumCases && evidence.supplemental?.length === battery.minimumSupplementalCases && evidence.supplemental.every(x => x.pass));
+          if (!result.apiPass) result.reasons.push('LIVE_API_BATTERY_FAILED');
+          if (evidence) result.api = evidence;
+        }
       }
     }
     result.ok = !result.pureFailures.length && result.apiPass;

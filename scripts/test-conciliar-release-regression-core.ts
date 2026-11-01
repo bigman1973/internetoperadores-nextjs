@@ -28,6 +28,18 @@ test('C/P core returns only static safe codes and validates a simple exact row',
   assert(SAFE_STATIC_CODES.every(code => /^[A-Z][A-Z0-9_]+$/.test(code)))
 })
 
+test('C1/P1 exact green cases retain required expectations and do not become colour-free pending cases', () => {
+  for (const [caseId, tab, reference] of [['C1', 'COBROS', 'SYN/C1'], ['P1', 'PAGOS', 'SYN/P1']] as const) {
+    const input: ConciliarReleaseRegressionCase = {
+      ...exact({ tab, color: 'VERDE', group: 'CLIENTES', documentReference: reference }), caseId,
+    }
+    const row = projection({ tab, color: 'VERDE', documentReference: reference })
+    assert.equal(evaluateCase(input, { bankRows: [source()], projectionRows: [row] }).pass, true)
+    assert(evaluateCase(input, { bankRows: [source()], projectionRows: [{ ...row, color: 'AMBAR' }] }).reasons.includes('COLOR_MISMATCH'))
+    assert(evaluateCase(input, { bankRows: [source()], projectionRows: [{ ...row, documentReference: null }] }).reasons.includes('DOCUMENT_REFERENCE_MISSING'))
+  }
+})
+
 test('exact lookup fails closed for zero and multiple sources', () => {
   const missing = evaluateCase(exact(), { bankRows: [], projectionRows: [] })
   assert.deepEqual(missing.reasons, ['SOURCE_MISSING'])

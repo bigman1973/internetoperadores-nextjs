@@ -139,7 +139,7 @@ function readCaseSpec(file: string, manifestFile: string): PrivateCaseSpec {
     production = JSON.parse(productionBytes.toString('utf8'))
   } catch { fail('CASE_SPEC_UNREADABLE') }
   if (!productionGoldenIsAuthorizedDerivative(original, production)) fail('PRODUCTION_GOLDEN_NOT_AUTHORIZED_DERIVATIVE')
-  if (!stageProfileIsExactDerivative(production, parsed)) fail('STAGE_PROFILE_NOT_EXACT_DERIVATIVE')
+  if (!stageProfileIsExactDerivative(original, production, parsed)) fail('STAGE_PROFILE_NOT_EXACT_DERIVATIVE')
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) fail('CASE_SPEC_INVALID')
   const spec = parsed as PrivateCaseSpec
   if (spec.schema !== 'CONCILIAR_RELEASE_REGRESSION_V1' || !Array.isArray(spec.cases)) fail('CASE_SPEC_INVALID')
@@ -149,8 +149,11 @@ function readCaseSpec(file: string, manifestFile: string): PrivateCaseSpec {
   if (!Array.isArray(supplemental) || supplemental.length !== SUPPLEMENTAL_IDS.size
     || new Set(supplemental.map(item => item.caseId)).size !== SUPPLEMENTAL_IDS.size
     || supplemental.some(item => !item || typeof item !== 'object' || !SUPPLEMENTAL_IDS.has(item.caseId))) fail('SUPPLEMENTAL_CASE_COVERAGE_INVALID')
+  // C1/P1 are checked only by the exact original→PROD→STAGE derivation above.
+  // Do not restate generic EXACT fields here: their full private expectations,
+  // including any references and numbers, must come only from the original.
   const expectedModes: Readonly<Record<string, string>> = {
-    C1: 'PENDING_VISIBLE', P1: 'PENDING_VISIBLE', C2: 'ABSENT_CONFIRMED', C3: 'PENDING_VISIBLE', C7: 'PENDING_VISIBLE', C8: 'PENDING_VISIBLE', P7: 'PENDING_VISIBLE',
+    C2: 'ABSENT_CONFIRMED', C3: 'PENDING_VISIBLE', C7: 'PENDING_VISIBLE', C8: 'PENDING_VISIBLE', P7: 'PENDING_VISIBLE',
   }
   for (const [caseId, mode] of Object.entries(expectedModes)) {
     const item = spec.cases.find(row => row.caseId === caseId)

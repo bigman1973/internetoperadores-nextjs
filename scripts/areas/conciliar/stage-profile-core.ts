@@ -34,6 +34,11 @@ function one(items: RecordValue[], caseId: string): RecordValue | null {
   const found = items.filter(item => item.caseId === caseId)
   return found.length === 1 ? found[0]! : null
 }
+function originalExactCase(items: RecordValue[], caseId: 'C1' | 'P1'): RecordValue | null {
+  const item = one(items, caseId)
+  if (!item || item.mode !== 'EXACT' || !item.expect || typeof item.expect !== 'object' || Array.isArray(item.expect)) return null
+  return item
+}
 function absentExpectation(): RecordValue { return { b4Confirmed: true, absentAllTabs: true } }
 function pendingExpectation(): RecordValue { return { b4Confirmed: false, visible: true } }
 function same(left: unknown, right: unknown): boolean { return canonicalProfileValue(left) === canonicalProfileValue(right) }
@@ -72,17 +77,30 @@ export function productionGoldenIsAuthorizedDerivative(original: unknown, derive
 }
 
 /**
- * Derives STAGE from the new production Golden. C1/P1 remain pending in STAGE,
- * with no colour assertion. The former six deltas remain exactly scoped.
+ * Derives STAGE only from the immutable original and its authorized production
+ * successor. C1/P1 restore their complete original EXACT expectations; they
+ * are not relaxed to a colour-free pending condition. The former six deltas
+ * remain exactly scoped, preserving selectors, collection order and globals.
  */
-export function deriveAuthorizedStageProfile(productionGolden: unknown): Profile | null {
-  const source = profile(productionGolden)
-  if (!source) return null
-  const result = clone(source)
+export function deriveAuthorizedStageProfile(originalGolden: unknown, productionGolden: unknown): Profile | null {
+  const original = profile(originalGolden)
+  const production = profile(productionGolden)
+  if (!original || !production || !productionGoldenIsAuthorizedDerivative(original, production)) return null
+
+  const result = clone(production)
+  const originalCases = collection(original, 'cases')
   const cases = collection(result, 'cases')
   const supplemental = collection(result, 'supplementalCases')
-  if (!cases || !supplemental) return null
-  for (const caseId of ['C1', 'P1', 'C3', 'C7', 'C8', 'P7'] as const) {
+  if (!originalCases || !cases || !supplemental) return null
+
+  for (const caseId of ['C1', 'P1'] as const) {
+    const originalItem = originalExactCase(originalCases, caseId)
+    const stageItem = one(cases, caseId)
+    if (!originalItem || !stageItem) return null
+    stageItem.mode = originalItem.mode
+    stageItem.expect = clone(originalItem.expect)
+  }
+  for (const caseId of ['C3', 'C7', 'C8', 'P7'] as const) {
     const item = one(cases, caseId)
     if (!item) return null
     item.mode = 'PENDING_VISIBLE'
@@ -100,8 +118,8 @@ export function deriveAuthorizedStageProfile(productionGolden: unknown): Profile
 }
 
 /** Exact STAGE derivative: only the eight listed state changes are tolerated. */
-export function stageProfileIsExactDerivative(productionGolden: unknown, stage: unknown): boolean {
-  const expected = deriveAuthorizedStageProfile(productionGolden)
+export function stageProfileIsExactDerivative(originalGolden: unknown, productionGolden: unknown, stage: unknown): boolean {
+  const expected = deriveAuthorizedStageProfile(originalGolden, productionGolden)
   return expected !== null && same(expected, stage)
 }
 
