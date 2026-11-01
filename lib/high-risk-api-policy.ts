@@ -91,7 +91,9 @@ export function highRiskApiRequirement(pathname, method) {
   if (pathname === '/api/sync-facturas') return access('admin.facturacion', method, LEGACY.facturacion, 'escritura')
   if (pathname === '/api/sync-tarifas') return access('admin.tarifas', method, LEGACY.tarifas, 'escritura')
 
-  if (pathname === '/api/admin/facturacion') return access('admin.facturacion', method, LEGACY.facturacion)
+  if (['/api/admin/facturacion', '/api/admin/facturacion-banco', '/api/admin/facturacion/resumen'].includes(pathname)) {
+    return access('admin.facturacion', method, LEGACY.facturacion)
+  }
   if (/^\/api\/admin\/clientes\/[^/]+\/facturas$/.test(pathname)) return access('admin.clientes', method, LEGACY.clientes)
   if (pathname === '/api/admin/configuracion/estrategias' || /^\/api\/admin\/configuracion\/estrategias\/[^/]+$/.test(pathname)) {
     return access('admin.configuracion.estrategias', method)
@@ -120,6 +122,8 @@ export const HIGH_RISK_API_MANIFEST = Object.freeze([
   ['/api/sync-facturas', 'POST', 'admin.facturacion', 'escritura'],
   ['/api/sync-tarifas', 'POST', 'admin.tarifas', 'escritura'],
   ['/api/admin/facturacion', 'GET', 'admin.facturacion', 'lectura'],
+  ['/api/admin/facturacion-banco', 'GET', 'admin.facturacion', 'lectura'],
+  ['/api/admin/facturacion/resumen', 'GET', 'admin.facturacion', 'lectura'],
   ['/api/admin/clientes/999/facturas', 'GET', 'admin.clientes', 'lectura'],
   ['/api/admin/configuracion/estrategias', 'POST', 'admin.configuracion.estrategias', 'escritura'],
   ['/api/admin/configuracion/estrategias/999', 'PATCH', 'admin.configuracion.estrategias', 'escritura'],
