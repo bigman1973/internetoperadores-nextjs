@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { sendEmail } from '@/lib/email'
+import { altaContractPublicUrl } from '@/lib/altas/contrato-access'
 
 export async function POST(
   request: Request,
@@ -26,7 +27,7 @@ export async function POST(
 
     const baseUrl = process.env.NEXTAUTH_URL || 'https://www.internetoperadores.com'
     const documentacionUrl = `${baseUrl}/alta-servicio/documentacion?token=${alta.token}`
-    const contratoUrl = `${baseUrl}/api/altas/contrato?altaId=${alta.id}&format=html`
+    const contratoUrl = altaContractPublicUrl(baseUrl, alta.id, alta.token)
 
     const nombreCliente = alta.tipoCliente === 'EMPRESA'
       ? alta.razonSocial || 'Cliente'

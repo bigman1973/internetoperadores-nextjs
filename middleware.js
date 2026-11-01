@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { ADMIN_RENDER_SURFACE_HEADER, adminRenderSurface } from './lib/admin-render-surface';
 import { conciliarRuntimeConfigured } from './lib/finanzas/conciliar-runtime';
 import { highRiskApiRequirement } from './lib/high-risk-api-policy';
+import { hasAltaContractCapability } from './lib/altas/contrato-access';
 
 const SAFE_API_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const IMPERSONATION_HEADER = 'x-io-impersonation-context';
@@ -375,6 +376,17 @@ function financeAreas(pathname) {
  * pero tanto su actividad como su rol y su ACL se vuelven a leer de la BD antes
  * de permitir que el manejador consulte datos, lea documentos o llame a terceros.
  */
+async function hasPublicAltaContractAccess(request, prisma) {
+  if (request.nextUrl.pathname !== '/api/altas/contrato' || request.method !== 'GET') return false;
+  const altaId = request.nextUrl.searchParams.get('altaId');
+  const suppliedToken = request.nextUrl.searchParams.get('token');
+  if (!altaId || !suppliedToken) return false;
+  const alta = await prisma.altaServicio.findUnique({
+    where: { id: altaId }, select: { token: true },
+  });
+  return hasAltaContractCapability(alta?.token, suppliedToken);
+}
+
 async function highRiskApiBoundary(request) {
   const requirement = highRiskApiRequirement(request.nextUrl.pathname, request.method);
   if (!requirement) return null;
@@ -382,6 +394,10 @@ async function highRiskApiBoundary(request) {
     const [{ getToken }, { default: prisma }, { verificarPermisoServer }] = await Promise.all([
       import('next-auth/jwt'), import('@/lib/prisma'), import('@/lib/permisos'),
     ]);
+    // El contrato contiene PII y sólo conserva una vía pública si presenta la
+    // capacidad opaca asociada a esa misma alta. Sin ella, sigue el mismo
+    // control vivo de cuenta y permiso que las demás APIs de alto riesgo.
+    if (await hasPublicAltaContractAccess(request, prisma)) return null;
     const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET, cookieName: configuredSessionCookieName() });
     if (token?.userType !== 'admin') return privateBoundary({ error: 'No autorizado' }, 401);
     const userId = Number(token.id);
