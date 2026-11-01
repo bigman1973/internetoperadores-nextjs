@@ -25,6 +25,8 @@ import { fileURLToPath } from 'node:url'
 import { evaluateCase, type ConciliarReleaseRegressionCase } from './areas/conciliar/case-core'
 import { evaluateGlobalRegression } from './areas/conciliar/global-core'
 import { readReleaseRegressionAdapter } from './areas/conciliar/adapter'
+import { readPrivateG3HistoricalProviderSelector } from './areas/conciliar/g3-historical-selector-file'
+import type { G3HistoricalProviderSelector } from './areas/conciliar/g3-historical-reader'
 import { ORIGINAL_PRODUCTION_GOLDEN_SHA256, productionGoldenIsAuthorizedDerivative } from './areas/conciliar/stage-profile-core'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -39,7 +41,7 @@ const CP_CASE_IDS = new Set<string>(EXPECTED_CASE_IDS.filter(id => id.startsWith
 const G_CASE_IDS = new Set(EXPECTED_CASE_IDS.filter(id => id.startsWith('G')))
 const SUPPLEMENTAL_IDS = new Set(['C30', 'P31', 'P32', 'P33', 'P34', 'P35'])
 
-type Cli = Readonly<{ profile: typeof PROFILE; inputFile: string; originalGoldenFile: string; clientFile: string; restoreReceipt: string; cloneReceipt: string; candidateRebuildReceipt: string }>
+type Cli = Readonly<{ profile: typeof PROFILE; inputFile: string; originalGoldenFile: string; clientFile: string; restoreReceipt: string; cloneReceipt: string; candidateRebuildReceipt: string; g3HistoricalSelectorFile: string }>
 type PrivateCaseSpec = Readonly<{ schema: string; cases: readonly Record<string, unknown>[]; supplementalCases?: readonly ConciliarReleaseRegressionCase[] }>
 type FixtureReceipt = Readonly<{ allVerified?: unknown; backupComplete?: unknown; restoreExecuted?: unknown; dataMatch?: unknown; columnsMatch?: unknown; constraintsMatch?: unknown; indexesMatch?: unknown; triggersMatch?: unknown; viewsMatch?: unknown; functionsMatch?: unknown; enumsMatch?: unknown; extensionsMatch?: unknown; sequencesMatch?: unknown; mismatchedTableCount?: unknown; productionWrites?: unknown; sha256?: unknown }>
 type CloneReceipt = Readonly<{ ok?: unknown; source?: unknown; localOnly?: unknown; allSourceDataHashesMatch?: unknown; readOnlyVerification?: unknown; remoteWrites?: unknown; financialDataChanges?: unknown; freshBackupSha256?: unknown }>
@@ -65,10 +67,10 @@ function parseCli(argv: readonly string[]): Cli {
   const values = new Map<string, string>()
   for (let index = 0; index < argv.length; index += 2) {
     const key = argv[index], value = argv[index + 1]
-    if (!['--profile', '--input-file', '--original-golden-file', '--client-file', '--restore-receipt', '--clone-receipt', '--candidate-rebuild-receipt'].includes(String(key)) || typeof value !== 'string' || values.has(key!)) fail('PROD_RESTORE_ARGUMENTS_INVALID')
+    if (!['--profile', '--input-file', '--original-golden-file', '--client-file', '--restore-receipt', '--clone-receipt', '--candidate-rebuild-receipt', '--g3-historical-selector-file'].includes(String(key)) || typeof value !== 'string' || values.has(key!)) fail('PROD_RESTORE_ARGUMENTS_INVALID')
     values.set(key!, value)
   }
-  if (argv.length !== 14 || values.get('--profile') !== PROFILE || !values.get('--input-file') || !values.get('--original-golden-file') || !values.get('--client-file') || !values.get('--restore-receipt') || !values.get('--clone-receipt') || !values.get('--candidate-rebuild-receipt')) fail('PROD_RESTORE_PROFILE_REQUIRED')
+  if (argv.length !== 16 || values.get('--profile') !== PROFILE || !values.get('--input-file') || !values.get('--original-golden-file') || !values.get('--client-file') || !values.get('--restore-receipt') || !values.get('--clone-receipt') || !values.get('--candidate-rebuild-receipt') || !values.get('--g3-historical-selector-file')) fail('PROD_RESTORE_PROFILE_REQUIRED')
   return {
     profile: PROFILE,
     inputFile: privateFile(values.get('--input-file')!, MAX_PRIVATE_BYTES),
@@ -77,6 +79,7 @@ function parseCli(argv: readonly string[]): Cli {
     restoreReceipt: privateFile(values.get('--restore-receipt')!, 64 * 1024),
     cloneReceipt: privateFile(values.get('--clone-receipt')!, 64 * 1024),
     candidateRebuildReceipt: privateFile(values.get('--candidate-rebuild-receipt')!, 64 * 1024),
+    g3HistoricalSelectorFile: privateFile(values.get('--g3-historical-selector-file')!, 8 * 1024),
   }
 }
 function sha256(value: Buffer): string { return createHash('sha256').update(value).digest('hex') }
@@ -163,7 +166,7 @@ function globalOutcomes(dataset: Parameters<typeof evaluateGlobalRegression>[0])
     return [...G_CASE_IDS].map(caseId => ({ caseId, pass: false, reasons: ['GLOBAL_MODULE_UNAVAILABLE'] }))
   }
 }
-async function readAndEvaluate(connection: LocalPgClient, spec: PrivateCaseSpec, projectionRebuiltAt: string): Promise<Readonly<{ outcomes: SafeOutcome[]; supplemental: SafeOutcome[] }>> {
+async function readAndEvaluate(connection: LocalPgClient, spec: PrivateCaseSpec, projectionRebuiltAt: string, historicalG3Selector: G3HistoricalProviderSelector): Promise<Readonly<{ outcomes: SafeOutcome[]; supplemental: SafeOutcome[] }>> {
   const client = new Client({ ...connection, statement_timeout: 120_000, query_timeout: 120_000 })
   await client.connect()
   try {
@@ -178,7 +181,7 @@ async function readAndEvaluate(connection: LocalPgClient, spec: PrivateCaseSpec,
         return task
       },
     }
-    const adapter = await readReleaseRegressionAdapter(readonlyAdapterClient)
+    const adapter = await readReleaseRegressionAdapter(readonlyAdapterClient, { historicalG3Selector })
     if (adapter.apiProjectionCoverage.updatedAt !== projectionRebuiltAt) fail('CANDIDATE_PROJECTION_REBUILD_STALE')
     const outcomes: SafeOutcome[] = cpCases(spec).map(item => evaluateCase(item, adapter.cpDataset))
     const supplemental: SafeOutcome[] = (spec.supplementalCases ?? []).map(item => evaluateCase(item, adapter.cpDataset))
@@ -202,7 +205,8 @@ async function main(): Promise<void> {
   if (cloneBackupSha256 !== restoreBackupSha256) fail('NEW_PROD_CLONE_BACKUP_MISMATCH')
   const commit = candidateCommit()
   const projectionRebuiltAt = candidateRebuildReceipt(cli.candidateRebuildReceipt, commit)
-  const { outcomes, supplemental } = await readAndEvaluate(privateClient(cli.clientFile), spec, projectionRebuiltAt)
+  const historicalG3Selector = readPrivateG3HistoricalProviderSelector(cli.g3HistoricalSelectorFile, ROOT)
+  const { outcomes, supplemental } = await readAndEvaluate(privateClient(cli.clientFile), spec, projectionRebuiltAt, historicalG3Selector)
   const failures = outcomes.filter(item => !item.pass)
   const c4 = failures.find(item => item.caseId === 'C4')
   const legacyC4Conflict = Boolean(c4?.reasons.includes('REMESA_COMPOSITION_MISMATCH'))

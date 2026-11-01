@@ -12,6 +12,7 @@ import { readManualOwnAccountProofTx } from '../../../lib/finanzas/conciliar-own
 import { projectionRow } from '../../../lib/finanzas/conciliar-projection-read'
 import { readCurrentArea3RemittanceMapPreflightsTx } from '../../../lib/finanzas/area3-remittance-map-db'
 import { selectorSearchableText, type CanonicalRemittanceSelectorLink } from './selector-evidence'
+import { readG3HistoricalProviderEvidence, type G3HistoricalProviderSelector } from './g3-historical-reader'
 import type { ApiProjectionComparableRow, ApiProjectionCoverage } from './api-core'
 import type { Prisma } from '@prisma/client'
 import {
@@ -461,7 +462,12 @@ export type ReleaseRegressionAdapterResult = Readonly<{
   apiProjectionCoverage: ApiProjectionCoverage
 }>
 
-export async function readReleaseRegressionAdapter(client: ReadonlyPgClient): Promise<ReleaseRegressionAdapterResult> {
+/** Private opaque selector for the separately approved historical G3 source. */
+export type ReleaseRegressionAdapterOptions = Readonly<{
+  historicalG3Selector?: G3HistoricalProviderSelector
+}>
+
+export async function readReleaseRegressionAdapter(client: ReadonlyPgClient, options: ReleaseRegressionAdapterOptions = {}): Promise<ReleaseRegressionAdapterResult> {
   // node-postgres permits only one in-flight query per client. Read every
   // bounded source serially inside the already-open read-only transaction.
   const projectionRaw = await paged<ProjectionSqlRow>(client, PROJECTION_COUNT_SQL, PROJECTION_PAGE_SQL)
@@ -474,6 +480,12 @@ export async function readReleaseRegressionAdapter(client: ReadonlyPgClient): Pr
   const c11Lines = await paged<C11LineSqlRow>(client, C11_LINE_COUNT_SQL, C11_LINE_PAGE_SQL)
   const c11Documents = await paged<C11DocumentSqlRow>(client, C11_DOCUMENT_COUNT_SQL, C11_DOCUMENT_PAGE_SQL)
   const remittanceSelectorLinks = await paged<CanonicalRemittanceSelectorLink & { movementKey: string }>(client, REMITTANCE_SELECTOR_COUNT_SQL, REMITTANCE_SELECTOR_PAGE_SQL)
+  // This source intentionally remains separate from the persisted projection.
+  // It can certify only approved G3 historical supplier evidence and is unable
+  // to create a visible row, change G2/G4, reserve a document or enqueue action.
+  const historicalG3Evidence = options.historicalG3Selector === undefined ? undefined : await readG3HistoricalProviderEvidence({
+    query: async <T extends Record<string, unknown>>(sql: string, values?: readonly unknown[]) => query<T>(client, sql, values),
+  }, options.historicalG3Selector)
   const linkedByMovement = new Map<string, CanonicalRemittanceSelectorLink[]>()
   for (const link of remittanceSelectorLinks) linkedByMovement.set(link.movementKey, [...(linkedByMovement.get(link.movementKey) ?? []), link])
   // This is the existing canonical active-financial-settlement reader. It does
@@ -714,6 +726,7 @@ export async function readReleaseRegressionAdapter(client: ReadonlyPgClient): Pr
   const totalVisibleRows = projections.length
   const globalDataset: GlobalRegressionDataset = {
     rows: globalRows, collectionReservations, collectionSourcePopulation,
+    ...(historicalG3Evidence === undefined ? {} : { historicalG3Evidence }),
     totals: { allPagesRead: totalsComplete, totalVisibleRows, rowsRead: projectionRaw.length, pageSize: PAGE_SIZE, pagesRead: totalVisibleRows ? Math.ceil(totalVisibleRows / PAGE_SIZE) : 0, tabColorTotals, groupTotals },
   }
   return {

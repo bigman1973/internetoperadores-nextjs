@@ -81,6 +81,7 @@
         "scripts/test-conciliar-c4-remittance-preflight-contract.ts",
         "scripts/test-conciliar-c4-adapter-preflight-static.ts",
         "scripts/test-conciliar-release-regression-global.ts",
+        "scripts/test-conciliar-g3-historical-evidence.ts",
         "scripts/test-area3-remittance-map-preflight.ts",
         "scripts/test-area3-g7-runner-static.ts",
         "scripts/test-conciliar-ui-selection-filters-sort-xlsx.ts",

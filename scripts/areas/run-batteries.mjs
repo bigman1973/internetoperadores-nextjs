@@ -37,11 +37,12 @@ function run(argv, output, name) {
 }
 function productionRestoreGate(config, output) {
   const entry = config?.productionRestore;
-  if (!entry?.inputFile || !entry?.originalGoldenFile || !entry?.clientFile || !entry?.restoreReceipt || !entry?.cloneReceipt || !entry?.candidateRebuildReceipt) return { pass: false, reason: 'NEW_PROD_RESTORE_INPUTS_REQUIRED' };
+  if (!entry?.inputFile || !entry?.originalGoldenFile || !entry?.clientFile || !entry?.restoreReceipt || !entry?.cloneReceipt || !entry?.candidateRebuildReceipt || !entry?.g3HistoricalSelectorFile) return { pass: false, reason: 'NEW_PROD_RESTORE_INPUTS_REQUIRED' };
   const result = run([
     join(ROOT, 'node_modules/.bin/tsx'), 'scripts/test-conciliar-production-restore-regression.ts',
     '--profile', 'PROD_NEW_RESTORE', '--input-file', entry.inputFile, '--original-golden-file', entry.originalGoldenFile, '--client-file', entry.clientFile,
     '--restore-receipt', entry.restoreReceipt, '--clone-receipt', entry.cloneReceipt, '--candidate-rebuild-receipt', entry.candidateRebuildReceipt,
+    '--g3-historical-selector-file', entry.g3HistoricalSelectorFile,
   ], output, 'production-restore-golden');
   let evidence; try { evidence = JSON.parse(result.stdout); } catch { return { pass: false, reason: 'NEW_PROD_RESTORE_RESULT_INVALID' }; }
   return { pass: Boolean(result.ok && evidence?.ok && evidence?.profile === 'PROD_NEW_RESTORE' && evidence?.writeOperations === false && evidence?.g7Rebuilt === false), evidence };
@@ -68,13 +69,13 @@ export function main(argv = process.argv.slice(2)) {
     else if (!prodGate.pass) result.reasons.push('NEW_PROD_RESTORE_GOLDEN_REQUIRED');
     else {
       const entry = config?.batteries?.[battery.id];
-      if (!entry?.snapshotFile || !entry?.manifestFile || !entry?.envFile) result.reasons.push('LIVE_API_INPUTS_REQUIRED');
+      if (!entry?.snapshotFile || !entry?.manifestFile || !entry?.envFile || !entry?.g3HistoricalSelectorFile) result.reasons.push('LIVE_API_INPUTS_REQUIRED');
       else {
         let caseFile;
         try { caseFile = stageProfilePathFromManifest(entry.manifestFile); }
         catch { result.reasons.push('STAGE_PROFILE_MANIFEST_PATH_REQUIRED'); }
         if (caseFile) {
-          const api = run([join(ROOT, 'node_modules/.bin/tsx'), battery.apiRunner, '--profile', 'STAGE', '--snapshot-file', entry.snapshotFile, '--input-file', caseFile, '--manifest-file', entry.manifestFile, '--env-file', entry.envFile], output, `${battery.id}-live-api`);
+          const api = run([join(ROOT, 'node_modules/.bin/tsx'), battery.apiRunner, '--profile', 'STAGE', '--snapshot-file', entry.snapshotFile, '--input-file', caseFile, '--manifest-file', entry.manifestFile, '--env-file', entry.envFile, '--g3-historical-selector-file', entry.g3HistoricalSelectorFile], output, `${battery.id}-live-api`);
           let evidence; try { evidence = JSON.parse(api.stdout); } catch { result.reasons.push('LIVE_API_RESULT_INVALID'); }
           result.apiPass = Boolean(api.ok && evidence?.ok && evidence.apiGate?.pass && evidence.total === battery.minimumCases && evidence.passing === battery.minimumCases && evidence.supplemental?.length === battery.minimumSupplementalCases && evidence.supplemental.every(x => x.pass));
           if (!result.apiPass) result.reasons.push('LIVE_API_BATTERY_FAILED');

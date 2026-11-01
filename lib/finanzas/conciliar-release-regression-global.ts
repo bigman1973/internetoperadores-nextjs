@@ -6,6 +6,10 @@
  * IDs, importes ni referencias productivas. El colector opcional al final es
  * una frontera genérica, explícitamente staging/read-only, para el runner.
  */
+import {
+  isG3HistoricalProviderEvidence,
+  type G3HistoricalProviderEvidence,
+} from './conciliar-g3-historical-evidence'
 
 /** Must remain equal to the four persisted Conciliar tabs. */
 export const GLOBAL_TABS = ['COBROS', 'EMITIDAS', 'PAGOS', 'RECIBIDAS'] as const
@@ -34,6 +38,8 @@ export type GlobalStaticCode =
   | 'G3_INVALID_CITATION_USED'
   | 'G3_EXTERNAL_REFERENCE_BLOCKED_OWN_REFERENCE'
   | 'G3_REFERENCE_EVIDENCE_SHAPE_INVALID'
+  | 'G3_HISTORICAL_EVIDENCE_MISSING'
+  | 'G3_HISTORICAL_EVIDENCE_INVALID'
   | 'G4_EVIDENCE_MISSING'
   | 'G4_INCOMPLETE_PAGINATION'
   | 'G4_TAB_COLOR_MISSING'
@@ -229,8 +235,18 @@ export type GlobalRegressionDataset = Readonly<{
    * Complete classified current source read; source-only records remain
    * coverage, never offers. It is required by the release adapter. Optional
    * only to retain pre-existing pure fixtures which do not model raw sources.
-   */
+  */
   collectionSourcePopulation?: GlobalCollectionSourcePopulation | null
+  /**
+   * Historical B4 proof for the supplier side of G3. It is deliberately outside
+   * `rows`: it cannot affect the persisted projection, G2, G4 totals, G1
+   * capacity, action queues or any UI-visible classification.
+   *
+   * When a reader supplies this property, null/invalid evidence fails G3 closed.
+   * Omission is retained only for older pure fixtures that model the former G3
+   * surface and have no historical reader.
+   */
+  historicalG3Evidence?: G3HistoricalProviderEvidence | null
   totals: GlobalTotalsEvidence | null
 }>
 
@@ -448,14 +464,23 @@ function evaluateG2(rows: readonly GlobalProjectionRow[]): { result: GlobalRuleR
   return { result: result('G2', codes), coverage: relevant.length }
 }
 
-function evaluateG3(rows: readonly GlobalProjectionRow[]): { result: GlobalRuleResult; coverage: number } {
+function evaluateG3(dataset: GlobalRegressionDataset, rows: readonly GlobalProjectionRow[]): { result: GlobalRuleResult; coverage: number } {
   const codes: GlobalStaticCode[] = []
   const evidence = rows.map(row => row.referenceEvidence).filter((item): item is GlobalReferenceEvidence => item !== null)
   const allCitations = evidence.flatMap(item => item.citations)
   const own = allCitations.filter(item => item.origin === 'OWN_CANONICAL')
-  const supplier = allCitations.filter(item => item.origin === 'SUPPLIER_EXACT')
+  const currentSupplier = allCitations.filter(item => item.origin === 'SUPPLIER_EXACT')
   const externalWithOwn = evidence.filter(item => item.externalReferencePresent && item.ownReferenceCompatible)
-  if (!evidence.length || !own.length || !supplier.length || !externalWithOwn.length) codes.push('G3_EVIDENCE_MISSING')
+  const historicalSupplied = Object.prototype.hasOwnProperty.call(dataset, 'historicalG3Evidence')
+  const historical = dataset.historicalG3Evidence
+  const historicalValid = historical !== null && historical !== undefined && isG3HistoricalProviderEvidence(historical)
+  if (historicalSupplied && historical === null) codes.push('G3_HISTORICAL_EVIDENCE_MISSING')
+  else if (historicalSupplied && !historicalValid) codes.push('G3_HISTORICAL_EVIDENCE_INVALID')
+  // Own/external protection remains evidence from current projection rows. A
+  // verified historic B4 source can supply only the supplier-side classifier
+  // proof, never a current proposal, citation, reservation or visible row.
+  const supplierCount = currentSupplier.length + (historicalValid ? 1 : 0)
+  if (!evidence.length || !own.length || !supplierCount || !externalWithOwn.length) codes.push('G3_EVIDENCE_MISSING')
   for (const item of evidence) {
     if (!Array.isArray(item.citations) || item.citations.some(citation => !['OWN_CANONICAL', 'SUPPLIER_EXACT', 'EXTERNAL_CUSTOMER', 'UNVERIFIED'].includes(citation.origin) || typeof citation.usedForDecision !== 'boolean')) {
       codes.push('G3_REFERENCE_EVIDENCE_SHAPE_INVALID')
@@ -464,7 +489,7 @@ function evaluateG3(rows: readonly GlobalProjectionRow[]): { result: GlobalRuleR
     if (item.citations.some(citation => citation.usedForDecision && citation.origin !== 'OWN_CANONICAL' && citation.origin !== 'SUPPLIER_EXACT')) codes.push('G3_INVALID_CITATION_USED')
     if (item.externalReferencePresent && item.ownReferenceCompatible && item.ownProposalBlockedByReference) codes.push('G3_EXTERNAL_REFERENCE_BLOCKED_OWN_REFERENCE')
   }
-  return { result: result('G3', codes), coverage: evidence.length }
+  return { result: result('G3', codes), coverage: evidence.length + (historicalValid ? 1 : 0) }
 }
 
 function evaluateG4(totals: GlobalTotalsEvidence | null): { result: GlobalRuleResult; coverage: number } {
@@ -578,7 +603,7 @@ export function evaluateGlobalRegression(dataset: GlobalRegressionDataset): Glob
   const rows = Array.isArray(dataset?.rows) ? dataset.rows : []
   const g1 = evaluateG1({ ...dataset, rows })
   const g2 = evaluateG2(rows)
-  const g3 = evaluateG3(rows)
+  const g3 = evaluateG3(dataset, rows)
   const g4 = evaluateG4(dataset?.totals ?? null)
   const g5 = evaluateG5(rows)
   const g6 = evaluateG6(rows)

@@ -4,7 +4,8 @@
  * Usage (private files stay outside this repository):
  *   set -a; source /path/regression-db.env; set +a
  *   npx tsx scripts/test-conciliar-release-regression.ts \
- *     --input-file /path/cases.json --env-file /path/regression-db.env
+ *     --input-file /path/cases.json --env-file /path/regression-db.env \
+ *     --g3-historical-selector-file /path/g3-historical-selector.json
  *
  * The fixture receipt is checked before opening PostgreSQL. The runner begins a
  * single READ ONLY transaction, verifies the local isolated role/database, and
@@ -17,6 +18,8 @@ import { resolve } from 'node:path'
 import { evaluateCase, type ConciliarReleaseRegressionCase } from '../lib/finanzas/conciliar-release-regression-core'
 import { evaluateGlobalRegression } from '../lib/finanzas/conciliar-release-regression-global'
 import { readReleaseRegressionAdapter } from './tests/conciliar-release-regression-adapter'
+import { readPrivateG3HistoricalProviderSelector } from './areas/conciliar/g3-historical-selector-file'
+import type { G3HistoricalProviderSelector } from './areas/conciliar/g3-historical-reader'
 
 const ROOT = '/home/ubuntu/internetoperadores-nextjs-margin'
 const RECEIPT = '/home/ubuntu/conciliar-cierre-20261029/pruebas/fixture-verificado.json'
@@ -32,7 +35,7 @@ const EXPECTED_CASE_IDS = [
 const CP_CASE_IDS = new Set<string>(EXPECTED_CASE_IDS.filter(id => id.startsWith('C') || id.startsWith('P')))
 const G_CASE_IDS = new Set(EXPECTED_CASE_IDS.filter(id => id.startsWith('G')))
 
-type Cli = Readonly<{ inputFile: string; envFile: string }>
+type Cli = Readonly<{ inputFile: string; envFile: string; g3HistoricalSelectorFile: string }>
 type PrivateCaseSpec = Readonly<{ schema: string; cases: readonly Record<string, unknown>[]; supplementalCases?: readonly ConciliarReleaseRegressionCase[] }>
 type SafeOutcome = Readonly<{ caseId: string; pass: boolean; reasons: readonly string[] }>
 type FixtureReceipt = Readonly<{ restoreVerified?: unknown; isolatedLocal?: unknown; fixtureUsable?: unknown; noProductionWrites?: unknown; allTablesMatch?: unknown }>
@@ -51,11 +54,14 @@ function parseCli(argv: readonly string[]): Cli {
   const values = new Map<string, string>()
   for (let index = 0; index < argv.length; index += 2) {
     const key = argv[index], value = argv[index + 1]
-    if ((key !== '--input-file' && key !== '--env-file') || typeof value !== 'string' || values.has(key)) fail('RUNNER_ARGUMENTS_INVALID')
+    if ((key !== '--input-file' && key !== '--env-file' && key !== '--g3-historical-selector-file') || typeof value !== 'string' || values.has(key)) fail('RUNNER_ARGUMENTS_INVALID')
     values.set(key, value)
   }
-  if (argv.length !== 4 || !values.get('--input-file') || !values.get('--env-file')) fail('RUNNER_ARGUMENTS_REQUIRED')
-  return { inputFile: privateFile(values.get('--input-file')!), envFile: privateFile(values.get('--env-file')!) }
+  if (argv.length !== 6 || !values.get('--input-file') || !values.get('--env-file') || !values.get('--g3-historical-selector-file')) fail('RUNNER_ARGUMENTS_REQUIRED')
+  return {
+    inputFile: privateFile(values.get('--input-file')!), envFile: privateFile(values.get('--env-file')!),
+    g3HistoricalSelectorFile: privateFile(values.get('--g3-historical-selector-file')!),
+  }
 }
 function verifiedFixtureReceipt(): void {
   let value: FixtureReceipt
@@ -123,7 +129,7 @@ function emit(outcomes: readonly SafeOutcome[], supplemental: readonly SafeOutco
   const passing = ordered.filter(item => item.pass).length
   console.log(JSON.stringify({ ok: passing === EXPECTED_CASE_IDS.length&&supplemental.every(item=>item.pass), total: EXPECTED_CASE_IDS.length, passing, failures: ordered.filter(item => !item.pass), supplemental }))
 }
-async function readAndEvaluate(databaseUrl: string, spec: PrivateCaseSpec): Promise<{outcomes:SafeOutcome[];supplemental:SafeOutcome[]}> {
+async function readAndEvaluate(databaseUrl: string, spec: PrivateCaseSpec, historicalG3Selector: G3HistoricalProviderSelector): Promise<{outcomes:SafeOutcome[];supplemental:SafeOutcome[]}> {
   const client = new Client({ connectionString: databaseUrl, statement_timeout: 120_000, query_timeout: 120_000 })
   await client.connect()
   try {
@@ -141,7 +147,7 @@ async function readAndEvaluate(databaseUrl: string, spec: PrivateCaseSpec): Prom
         return task
       },
     }
-    const adapter = await readReleaseRegressionAdapter(readonlyAdapterClient)
+    const adapter = await readReleaseRegressionAdapter(readonlyAdapterClient, { historicalG3Selector })
     const outcomes: SafeOutcome[] = cpCases(spec).map(item => evaluateCase(item, adapter.cpDataset))
     const supplemental:SafeOutcome[]=(spec.supplementalCases??[]).map(item=>evaluateCase(item,adapter.cpDataset))
     if(supplemental.some(item=>item.caseId === 'C30' && !item.pass)){
@@ -163,7 +169,8 @@ async function main(): Promise<void> {
   verifiedFixtureReceipt()
   const env = privateEnv(cli.envFile)
   const spec = readCaseSpec(cli.inputFile)
-  const {outcomes,supplemental} = await readAndEvaluate(env.DATABASE_URL!, spec)
+  const historicalG3Selector = readPrivateG3HistoricalProviderSelector(cli.g3HistoricalSelectorFile, ROOT)
+  const {outcomes,supplemental} = await readAndEvaluate(env.DATABASE_URL!, spec, historicalG3Selector)
   emit(outcomes,supplemental)
   if (outcomes.some(item => !item.pass)) process.exitCode = 1
 }

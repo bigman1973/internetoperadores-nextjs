@@ -10,7 +10,8 @@
  * FINANCE_STAGING_SANDBOX=1 npx tsx scripts/test-conciliar-staging-api-regression.ts \
  *   --profile STAGE \
  *   --snapshot-file /private/api-snapshot.json --input-file /private/cases.json \
- *   --env-file /private/staging-readonly.env
+ *   --env-file /private/staging-readonly.env \
+ *   --g3-historical-selector-file /private/g3-historical-selector.json
  */
 import { Client } from 'pg'
 import { parse as parseDotenv } from 'dotenv'
@@ -21,6 +22,8 @@ import { evaluateCase, type ConciliarReleaseRegressionCase } from './case-core'
 import { evaluateGlobalRegression } from './global-core'
 import { readReleaseRegressionAdapter } from './adapter'
 import { evaluateConciliarStagingApiSnapshot, type ApiGateStaticCode } from './api-core'
+import { readPrivateG3HistoricalProviderSelector } from './g3-historical-selector-file'
+import type { G3HistoricalProviderSelector } from './g3-historical-reader'
 import {
   C4_REMITTANCE_MODE,
   ORIGINAL_PRODUCTION_GOLDEN_SHA256,
@@ -44,7 +47,7 @@ const MAX_CASE_SPEC_BYTES = 256 * 1024
 const MAX_ENV_BYTES = 32 * 1024
 const PROFILE = 'STAGE'
 
-type Cli = Readonly<{ profile: typeof PROFILE; snapshotFile: string; inputFile: string; manifestFile: string; envFile: string }>
+type Cli = Readonly<{ profile: typeof PROFILE; snapshotFile: string; inputFile: string; manifestFile: string; envFile: string; g3HistoricalSelectorFile: string }>
 type PrivateCaseSpec = Readonly<{ schema: string; cases: readonly Record<string, unknown>[]; supplementalCases?: readonly ConciliarReleaseRegressionCase[] }>
 type StageProfileManifest = Readonly<{ schema?: unknown; profile?: unknown; originalGolden?: unknown; productionGolden?: unknown; derivative?: unknown; authorization?: unknown }>
 type SafeOutcome = Readonly<{ caseId: string; pass: boolean; reasons: readonly string[] }>
@@ -77,15 +80,16 @@ function parseCli(argv: readonly string[]): Cli {
   const values = new Map<string, string>()
   for (let index = 0; index < argv.length; index += 2) {
     const key = argv[index], value = argv[index + 1]
-    if (!['--profile', '--snapshot-file', '--input-file', '--manifest-file', '--env-file'].includes(String(key)) || typeof value !== 'string' || values.has(key!)) fail('API_GATE_ARGUMENTS_INVALID')
+    if (!['--profile', '--snapshot-file', '--input-file', '--manifest-file', '--env-file', '--g3-historical-selector-file'].includes(String(key)) || typeof value !== 'string' || values.has(key!)) fail('API_GATE_ARGUMENTS_INVALID')
     values.set(key!, value)
   }
-  if (argv.length !== 10 || values.get('--profile') !== PROFILE || !values.get('--snapshot-file') || !values.get('--input-file') || !values.get('--manifest-file') || !values.get('--env-file')) fail('API_GATE_STAGE_PROFILE_REQUIRED')
+  if (argv.length !== 12 || values.get('--profile') !== PROFILE || !values.get('--snapshot-file') || !values.get('--input-file') || !values.get('--manifest-file') || !values.get('--env-file') || !values.get('--g3-historical-selector-file')) fail('API_GATE_STAGE_PROFILE_REQUIRED')
   return {
     profile: PROFILE,
     snapshotFile: privateFile(values.get('--snapshot-file')!, MAX_SNAPSHOT_BYTES), inputFile: privateFile(values.get('--input-file')!, MAX_CASE_SPEC_BYTES),
     manifestFile: privateFile(values.get('--manifest-file')!, MAX_CASE_SPEC_BYTES),
     envFile: privateFile(values.get('--env-file')!, MAX_ENV_BYTES),
+    g3HistoricalSelectorFile: privateFile(values.get('--g3-historical-selector-file')!, 8 * 1024),
   }
 }
 function privateEnv(file: string): Record<string, string> {
@@ -188,7 +192,7 @@ function globalOutcomes(dataset: Parameters<typeof evaluateGlobalRegression>[0])
 }
 function emit(value: RunOutput): void { console.log(JSON.stringify(value)) }
 
-async function readAndEvaluate(databaseUrl: string, snapshot: unknown, spec: PrivateCaseSpec): Promise<RunOutput> {
+async function readAndEvaluate(databaseUrl: string, snapshot: unknown, spec: PrivateCaseSpec, historicalG3Selector: G3HistoricalProviderSelector): Promise<RunOutput> {
   const client = new Client({ connectionString: databaseUrl, statement_timeout: 120_000, query_timeout: 120_000 })
   await client.connect()
   try {
@@ -207,7 +211,7 @@ async function readAndEvaluate(databaseUrl: string, snapshot: unknown, spec: Pri
         return task
       },
     }
-    const adapter = await readReleaseRegressionAdapter(readonlyAdapterClient)
+    const adapter = await readReleaseRegressionAdapter(readonlyAdapterClient, { historicalG3Selector })
     const gate = evaluateConciliarStagingApiSnapshot(snapshot, adapter.apiProjectionCoverage)
     if (!gate.ok) {
       await client.query('ROLLBACK')
@@ -238,7 +242,8 @@ async function main(): Promise<void> {
   const env = privateEnv(cli.envFile)
   const snapshot = readJson(cli.snapshotFile, 'API_SNAPSHOT_UNREADABLE')
   const spec = readCaseSpec(cli.inputFile, cli.manifestFile)
-  const result = await readAndEvaluate(env.DATABASE_URL!, snapshot, spec)
+  const historicalG3Selector = readPrivateG3HistoricalProviderSelector(cli.g3HistoricalSelectorFile, ROOT)
+  const result = await readAndEvaluate(env.DATABASE_URL!, snapshot, spec, historicalG3Selector)
   emit(result)
   if (!result.ok) process.exitCode = 1
 }
