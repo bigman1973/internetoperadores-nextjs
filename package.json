@@ -7,7 +7,9 @@
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "test:security:alta-contract": "tsx scripts/test-alta-contract-access.ts",
+    "test:security:high-risk": "tsx scripts/test-high-risk-api-middleware.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
