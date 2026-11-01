@@ -6,6 +6,7 @@ import test from 'node:test'
 const reconciliation = readFileSync('lib/finanzas/reconciliation-db.ts', 'utf8')
 const precheck = readFileSync('lib/finanzas/conciliar-precheck.ts', 'utf8')
 const collections = readFileSync('lib/finanzas/easy-collections-db.ts', 'utf8')
+const easyReconciliation = readFileSync('lib/finanzas/easy-reconciliation-db.ts', 'utf8')
 
 function between(source: string, start: string, end: string): string {
   const startAt = source.indexOf(start)
@@ -65,6 +66,17 @@ test('Cobros preflight reutiliza la selección final en modo sin bloqueo ni efec
   assert.match(selected, /currentGenerationTx\(tx,false\)/)
   assert.match(selected, /selectedUnderLockTx\(tx,generation\.id,\[selection\],false\)/)
   assert.doesNotMatch(selected, /confirmarB4Tx|createDocumentoB4Tx|eventoJustificacionB4\.create/)
+})
+
+test('las candidatas fáciles comparten la revalidación con lock sólo para confirmar', () => {
+  const helper = between(easyReconciliation, 'async function lockMovement', 'async function replayReceipt')
+  assert.match(helper, /async function lockMovement\(tx: Tx, movimientoId: string, lock = true\)/)
+  assert.match(helper, /if \(lock\) await tx\.\$queryRaw`SELECT pg_advisory_xact_lock/)
+  assert.match(helper, /WHERE m\.id=\$\{movimientoId\} \$\{lock \? Prisma\.sql`FOR UPDATE OF m` : Prisma\.empty\}/)
+  assert.match(easyReconciliation, /export async function inspectEasyCandidatesTx\(tx: Prisma\.TransactionClient, movimientoId: string, lock = true\)/)
+  assert.match(easyReconciliation, /lockMovement\(asTx\(tx\), movimientoId, lock\)/)
+  assert.match(precheck, /preflightConciliarReceivedInvoiceTx\(tx,row\)/)
+  assert.match(precheck, /preflightConciliarB5TicketTx\(tx,row\)/)
 })
 
 console.log('OK: B4 y Cobros comparten preflights de servidor; importe, evidencia, versión, archivo y bloqueos de confirmación siguen cerrados.')

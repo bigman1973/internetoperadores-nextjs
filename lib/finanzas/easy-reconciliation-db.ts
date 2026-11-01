@@ -311,9 +311,9 @@ async function candidatesForMovementTx(tx: Tx, movement: Movement): Promise<Cand
 /** Test/integration inspection only. It performs no DML and returns the exact
  * current candidate set plus the optional proposal cue; routes use the same
  * `candidatesForMovementTx` implementation through the read projection. */
-export async function inspectEasyCandidatesTx(tx: Prisma.TransactionClient, movimientoId: string) {
+export async function inspectEasyCandidatesTx(tx: Prisma.TransactionClient, movimientoId: string, lock = true) {
   await assertFinanceEasyRuntime(tx)
-  const movement = await lockMovement(asTx(tx), movimientoId)
+  const movement = await lockMovement(asTx(tx), movimientoId, lock)
   return (await candidatesForMovementTx(asTx(tx), movement)).map((candidate) => ({
     reglaAplicadaId: candidate.reglaAplicadaId,
     suggestion: candidateDto(candidate),
@@ -451,8 +451,8 @@ export async function readEasyReconciliation(input: EasyReadInput) {
   } catch (error) { privateError(error) }
 }
 
-async function lockMovement(tx: Tx, movimientoId: string): Promise<Movement> {
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(CAST(${movimientoId} AS text),0))::text AS locked`
+async function lockMovement(tx: Tx, movimientoId: string, lock = true): Promise<Movement> {
+  if (lock) await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(CAST(${movimientoId} AS text),0))::text AS locked`
   const rows = await tx.$queryRaw<Array<any>>(Prisma.sql`
     SELECT m.id,m.fecha_operacion::date::text AS fecha,m.concepto,m.referencia,m.info_adicional,m.tercero,m.nomina_id,m.entrega_a_cuenta_empleado_id,m.entidad_fiscal_id,ef.tipo::text AS entidad_fiscal_tipo,ef.razon_social AS entidad_fiscal_razon,m.importe::text AS importe_text,
       c.id AS cuenta_id,c.banco,c.alias AS cuenta_alias,COALESCE(e.estado::text,'SIN_DOCUMENTO') AS estado_b4,COALESCE(e.version,1) AS version_b4,
@@ -460,7 +460,7 @@ async function lockMovement(tx: Tx, movimientoId: string): Promise<Movement> {
     FROM movimientos_bancarios m JOIN cuentas_bancarias c ON c.id=m.cuenta_id
     LEFT JOIN estado_justificacion_movimientos e ON e.movimiento_id=m.id LEFT JOIN gestiones_pendientes_movimiento_b5 g ON g.movimiento_id=m.id
     LEFT JOIN entidades_fiscales ef ON ef.id=m.entidad_fiscal_id
-    WHERE m.id=${movimientoId} FOR UPDATE OF m
+    WHERE m.id=${movimientoId} ${lock ? Prisma.sql`FOR UPDATE OF m` : Prisma.empty}
   `)
   if (rows.length !== 1) fail(404, 'MOVIMIENTO_NO_ENCONTRADO', 'El movimiento bancario no existe.')
   const row = rows[0]
