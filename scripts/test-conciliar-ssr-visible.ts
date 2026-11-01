@@ -4,6 +4,7 @@ import vm from 'node:vm'
 import ts from 'typescript'
 import { resolve } from 'node:path'
 import { adminRenderSurface, ADMIN_RENDER_SURFACE_HEADER, CONCILIAR_READY_SURFACE } from '../lib/admin-render-surface'
+import { createHash } from 'node:crypto'
 
 async function main() {
   assert.equal(adminRenderSurface('/admin/finanzas/conciliar', true), CONCILIAR_READY_SURFACE)
@@ -17,7 +18,8 @@ async function main() {
   assert(setter < middleware.indexOf('const mustCheckEasyOnlyProfile'))
   assert(middleware.includes('targetHasLiveMatrixPermission(policy, live.target.id, route.permission)'))
   assert(middleware.includes('return continueRequest(trustedHeaders)'))
-  assert(!existsSync(resolve('app/admin/loading.tsx')), 'no inherited automatic Suspense for the ready projection')
+  assert(existsSync(resolve('app/admin/loading.tsx')), 'el candidato no retira el loading global de main')
+  assert.equal(createHash('sha256').update(readFileSync(resolve('app/admin/loading.tsx'))).digest('hex'), '6fcb5e7f3d3d6163d726b3cfa273a04c4afdf31377e9fbed16294866d412ef2f', 'loading global byte-exacto a main')
   assert(existsSync(resolve('components/admin/AdminLoading.tsx')))
   const template = readFileSync(resolve('app/admin/template.tsx'), 'utf8')
   const functionText = template.match(/export default async function AdminTemplate[\s\S]*$/)?.[0]

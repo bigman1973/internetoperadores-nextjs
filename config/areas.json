@@ -11,13 +11,13 @@
   "areas": [
     {
       "id": "area1",
-      "name": "area1",
-      "branch": null,
-      "state": "not_started"
+      "name": "CRM-ventas-leads",
+      "branch": "area1-crm",
+      "state": "diagnostic"
     },
     {
       "id": "area2",
-      "name": "area2",
+      "name": "tarifas-contratos-subidas",
       "branch": null,
       "state": "not_started"
     },
@@ -29,37 +29,37 @@
     },
     {
       "id": "area4",
-      "name": "area4",
-      "branch": null,
-      "state": "not_started"
+      "name": "usuarios-permisos y marco com\u00fan del panel",
+      "branch": "area4-usuarios-permisos",
+      "state": "active"
     },
     {
       "id": "area5",
-      "name": "area5",
+      "name": "personal-portal-empleado",
       "branch": null,
       "state": "not_started"
     },
     {
       "id": "area6",
-      "name": "area6",
+      "name": "proyectos-internos",
       "branch": null,
       "state": "not_started"
     },
     {
       "id": "area7",
-      "name": "area7",
+      "name": "certificaciones",
       "branch": null,
       "state": "not_started"
     },
     {
       "id": "area8",
-      "name": "area8",
+      "name": "peticiones",
       "branch": null,
       "state": "not_started"
     },
     {
       "id": "area9",
-      "name": "area9",
+      "name": "historial-configuracion",
       "branch": null,
       "state": "not_started"
     }

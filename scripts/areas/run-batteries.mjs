@@ -65,12 +65,13 @@ export function main(argv = process.argv.slice(2)) {
     const pure = battery.pureSuites.map((path, i) => ({ suite: path, ...run([join(ROOT, 'node_modules/.bin/tsx'), path], output, `${battery.id}-pure-${i}`) }));
     const result = { id: battery.id, purePassing: pure.filter(x => x.ok).length, pureTotal: pure.length, pureFailures: pure.filter(x => !x.ok).map(x => x.suite), apiPass: false, reasons: [] };
     if (result.pureFailures.length) result.reasons.push('PURE_BATTERY_FAILED');
+    const entry = config?.batteries?.[battery.id];
+    const hasLiveInputs = Boolean(entry?.snapshotFile && entry?.manifestFile && entry?.envFile && entry?.g3HistoricalSelectorFile);
+    if (!args.localOnly && !hasLiveInputs) result.reasons.push('LIVE_API_INPUTS_REQUIRED');
     if (args.localOnly) result.reasons.push('LOCAL_ONLY_NOT_RELEASE_EVIDENCE');
     else if (!prodGate.pass) result.reasons.push('NEW_PROD_RESTORE_GOLDEN_REQUIRED');
     else {
-      const entry = config?.batteries?.[battery.id];
-      if (!entry?.snapshotFile || !entry?.manifestFile || !entry?.envFile || !entry?.g3HistoricalSelectorFile) result.reasons.push('LIVE_API_INPUTS_REQUIRED');
-      else {
+      if (hasLiveInputs) {
         let caseFile;
         try { caseFile = stageProfilePathFromManifest(entry.manifestFile); }
         catch { result.reasons.push('STAGE_PROFILE_MANIFEST_PATH_REQUIRED'); }
@@ -83,10 +84,12 @@ export function main(argv = process.argv.slice(2)) {
         }
       }
     }
-    result.ok = !result.pureFailures.length && result.apiPass;
+    // El CI local conserva su contrato publicado, pero jamás es evidencia de release.
+    result.ok = !result.pureFailures.length && (args.localOnly || result.apiPass);
     delete result.stdout; results.push(result);
   }
-  const report = { schema: 'io.areas.battery-report.v1', commit: sha, capturedAt: new Date().toISOString(), ok: migrations.ok && prodGate.pass && results.every(x => x.ok), publishAllowed: !args.localOnly && migrations.ok && prodGate.pass && results.every(x => x.ok), migrationGate: migrations.ok, productionRestoreGate: prodGate, localOnly: args.localOnly, registryHash: createHash('sha256').update(readFileSync(join(ROOT, 'config/areas.json'))).digest('hex'), results };
+  const allChecksPassed = migrations.ok && (args.localOnly || prodGate.pass) && results.every(x => x.ok);
+  const report = { schema: 'io.areas.battery-report.v1', commit: sha, capturedAt: new Date().toISOString(), ok: allChecksPassed, publishAllowed: !args.localOnly && allChecksPassed, migrationGate: migrations.ok, productionRestoreGate: prodGate, localOnly: args.localOnly, registryHash: createHash('sha256').update(readFileSync(join(ROOT, 'config/areas.json'))).digest('hex'), results };
   writeFileSync(join(output, 'report.json'), JSON.stringify(report, null, 2) + '\n', { mode: 0o600 });
   console.log(JSON.stringify({ ...report, reportFile: join(output, 'report.json') }));
   return report.ok ? 0 : 1;
