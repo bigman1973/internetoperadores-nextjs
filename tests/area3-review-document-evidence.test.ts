@@ -1,19 +1,20 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import test from 'node:test'
 import { classifyPrisma5RawSqlStatement } from '../lib/prisma'
 import { readArea3ReviewDocumentEvidenceTx } from '../lib/finanzas/area3-review-document-evidence'
+import { readConciliarDocumentSourceEligibilityTx } from '../lib/finanzas/conciliar-document-source-guard'
 
 const DRIVE = 'drive-sintetico'
 const ITEM = 'item-sintetico'
 const INVOICE = 'factura-sintetica'
-const LIFECYCLE = '11111111-1111-4111-8111-111111111111'
-const SNAPSHOT = '22222222-2222-4222-8222-222222222222'
-const HASH = 'a'.repeat(64)
+const UPDATED_AT = '2026-10-29 12:00:00+00'
+const ARCHIVO = '2. Contabilidad y finanzas/2. Facturas recibidas/1. Facturas recibidas- Internet Operadores/2026/factura.pdf'
 
 type Fixture = Readonly<{
-  lifecycleRows?: readonly unknown[]
-  snapshotRows?: readonly unknown[]
-  legacyRows?: readonly unknown[]
+  sourceTables?: boolean
+  sourceRows?: readonly unknown[]
 }>
 
 function sqlText(statement: unknown): string {
@@ -31,65 +32,95 @@ function transaction(fixture: Fixture = {}) {
         const sql = sqlText(statement)
         statements.push(sql)
         assert.notEqual(classifyPrisma5RawSqlStatement([statement]), 'rejected', 'el lector no debe emitir DML ni SQL no permitido')
-        if (sql.includes('FROM facturas_recibidas fr')) return [{ driveId: DRIVE, itemId: ITEM }] as T
-        if (sql.includes('LEFT JOIN document_version_snapshots s')) return (fixture.lifecycleRows ?? []) as T
-        if (sql.includes('JOIN document_version_snapshots s')) return (fixture.snapshotRows ?? []) as T
-        if (sql.includes('FROM area3_received_document_hashes h')) return (fixture.legacyRows ?? []) as T
-        if (sql.includes('FROM document_version_tombstones t') || sql.includes('FROM document_version_incidents i')) return [] as T
+        if (sql.includes("to_regclass('public.facturas_recibidas')")) {
+          const available = fixture.sourceTables ?? true
+          return [{ facturasRecibidas: available, nominas: available, nominaDocumentos: available, adjuntosB5: available }] as T
+        }
+        if (sql.includes('FROM facturas_recibidas fr')) return (fixture.sourceRows ?? []) as T
         throw new Error('AREA3_REVIEW_EVIDENCE_SQL_UNRECOGNIZED')
       },
     },
   }
 }
 
-function source() {
+function source(projectionSource: Record<string, unknown> = {}) {
   return {
-    source: { invoiceId: INVOICE, driveId: DRIVE, itemId: ITEM, archivo: null },
-    projectionSource: { kind: 'PAGO_FACTURA_RECIBIDA' as const, facturaRecibidaId: INVOICE },
+    source: { invoiceId: INVOICE, driveId: DRIVE, itemId: ITEM, archivo: ARCHIVO },
+    projectionSource: { kind: 'PAGO_FACTURA_RECIBIDA' as const, facturaRecibidaId: INVOICE, movimientoId: 'movimiento-sintetico', versionB4: 1, ...projectionSource },
   }
 }
 
-test('una huella legacy append-only exacta permite sólo la revisión humana de un lifecycle histórico', async () => {
-  const mock = transaction({ legacyRows: [{ contentSha256: HASH }] })
-  const result = await readArea3ReviewDocumentEvidenceTx(mock.tx as any, { ...source(), lock: false })
-  assert.deepEqual(result, { eligible: true, hash: HASH, kind: 'LEGACY_CONTROLLED_FINGERPRINT' })
-  const legacy = mock.statements.find(sql => sql.includes('FROM area3_received_document_hashes h'))
-  assert.ok(legacy)
-  for (const predicate of ['h.factura_recibida_id=?', 'h.source_item_id=?', 'h.source_drive_id IS NOT DISTINCT FROM f.onedrive_drive_id', 'h.source_updated_at=f.updated_at', 'f.onedrive_item_id=?', "h.source_kind=?", "h.source_observation=?"]) {
-    assert.ok(legacy!.includes(predicate), predicate)
+async function withControlledDrive<T>(work: () => Promise<T>): Promise<T> {
+  const previousSharepoint = process.env.SHAREPOINT_DRIVE_ID
+  const previousDrive = process.env.DRIVE_ID
+  process.env.SHAREPOINT_DRIVE_ID = DRIVE
+  delete process.env.DRIVE_ID
+  try {
+    return await work()
+  } finally {
+    if (previousSharepoint === undefined) delete process.env.SHAREPOINT_DRIVE_ID
+    else process.env.SHAREPOINT_DRIVE_ID = previousSharepoint
+    if (previousDrive === undefined) delete process.env.DRIVE_ID
+    else process.env.DRIVE_ID = previousDrive
   }
-})
+}
 
-test('una huella legacy perdida, desajustada, duplicada o inválida no sustituye la prueba documental', async () => {
-  for (const legacyRows of [[], [{ contentSha256: 'x'.repeat(64) }], [{ contentSha256: HASH }, { contentSha256: HASH }]]) {
-    const mock = transaction({ legacyRows })
-    const result = await readArea3ReviewDocumentEvidenceTx(mock.tx as any, { ...source(), lock: true })
-    assert.deepEqual(result, { eligible: false, hash: null, kind: null })
-  }
-})
+const controlledSourceRow = {
+  sourceId: INVOICE,
+  driveId: DRIVE,
+  itemId: ITEM,
+  archivo: ARCHIVO,
+  updatedAt: UPDATED_AT,
+}
 
-test('un lifecycle conocido sin snapshot vigente rechaza la huella legacy y no consulta su tabla', async () => {
-  const mock = transaction({
-    lifecycleRows: [{ lifecycleId: LIFECYCLE, state: 'ACTIVE', currentVersion: 0, snapshotId: null }],
-    legacyRows: [{ contentSha256: HASH }],
+test('una fuente productiva disponible no se convierte en hash de bytes ni autoriza la revisión humana', async () => {
+  await withControlledDrive(async () => {
+    const eligibilityMock = transaction({ sourceRows: [controlledSourceRow] })
+    const projectionSource = source().projectionSource
+    const eligibility = await readConciliarDocumentSourceEligibilityTx(eligibilityMock.tx as any, projectionSource as any)
+    assert.equal(eligibility.elegible, true, 'la fuente controlada actual puede ser legible por la guarda de fuente')
+    assert.match(eligibility.versionEstado, /^[a-f0-9]{64}$/)
+
+    const previewMock = transaction({ sourceRows: [controlledSourceRow] })
+    const preview = await readArea3ReviewDocumentEvidenceTx(previewMock.tx as any, { ...source(), lock: false })
+    assert.deepEqual(preview, { eligible: false, hash: null, kind: null }, 'metadata disponible no es una huella de contenido autenticada')
+
+    const confirmMock = transaction({ sourceRows: [controlledSourceRow] })
+    const locked = await readArea3ReviewDocumentEvidenceTx(confirmMock.tx as any, {
+      ...source({ documentLifecycleVersionState: eligibility.versionEstado }),
+      lock: true,
+    })
+    assert.deepEqual(locked, { eligible: false, hash: null, kind: null }, 'ni la misma fuente bloqueada concede REVIEW_CONFIRM sin observación autenticada')
+    assert.ok(confirmMock.statements.some(sql => /FOR KEY SHARE OF fr/.test(sql)), 'la confirmación vuelve a bloquear la fuente real')
+
+    for (const statement of [...eligibilityMock.statements, ...previewMock.statements, ...confirmMock.statements]) {
+      for (const forbidden of ['document_version_', 'area3_received_document_hashes', 'content_sha256', 'file_sha256', 'payload_hash', 'private_storage_handle']) {
+        assert.equal(statement.includes(forbidden), false, `la lectura de evidencia no depende de ${forbidden}`)
+      }
+    }
   })
-  const result = await readArea3ReviewDocumentEvidenceTx(mock.tx as any, { ...source(), lock: true })
-  assert.deepEqual(result, { eligible: false, hash: null, kind: null })
-  assert.equal(mock.statements.some(sql => sql.includes('FROM area3_received_document_hashes h')), false)
 })
 
-test('un lifecycle vigente conserva el snapshot actual y no puede degradarse a metadata legacy', async () => {
-  const mock = transaction({
-    lifecycleRows: [{ lifecycleId: LIFECYCLE, state: 'ACTIVE', currentVersion: 1, snapshotId: SNAPSHOT }],
-    snapshotRows: [{ contentSha256: HASH }],
-    legacyRows: [{ contentSha256: 'b'.repeat(64) }],
+test('ausencia de esquema o fila productiva permanece ámbar y no hace fallback histórico', async () => {
+  await withControlledDrive(async () => {
+    for (const fixture of [{ sourceTables: false }, { sourceRows: [] }] as const) {
+      const mock = transaction(fixture)
+      const result = await readArea3ReviewDocumentEvidenceTx(mock.tx as any, { ...source(), lock: true })
+      assert.deepEqual(result, { eligible: false, hash: null, kind: null })
+      if (fixture.sourceTables === false) assert.equal(mock.statements.length, 1, 'sin tabla actual no se intenta una ruta histórica')
+      assert.equal(mock.statements.some(sql => /document_version_|area3_received_document_hashes/.test(sql)), false)
+    }
   })
-  // En confirmación el mismo lifecycle además exige el versionEstado sellado
-  // por la proyección. Esta lectura de preflight prueba aquí la selección de
-  // evidencia: un lifecycle conocido nunca cae a la tabla legacy.
-  const result = await readArea3ReviewDocumentEvidenceTx(mock.tx as any, { ...source(), lock: false })
-  assert.deepEqual(result, { eligible: true, hash: HASH, kind: 'LIFECYCLE_CAPTURED' })
-  assert.equal(mock.statements.some(sql => sql.includes('FROM area3_received_document_hashes h')), false)
 })
 
-console.log('OK: evidencia legacy sólo para lifecycle histórico, exacta, controlada y append-only; sin snapshots sintéticos ni DML.')
+test('el lector de evidencia activo no importa lifecycle, recovery ni APIs de archivo', () => {
+  const root = resolve(__dirname, '..')
+  const evidence = readFileSync(resolve(root, 'lib/finanzas/area3-review-document-evidence.ts'), 'utf8')
+  assert.match(evidence, /readConciliarDocumentSourceEligibilityTx/)
+  assert.match(evidence, /lockConciliarDocumentSourceForConfirmationTx/)
+  assert.match(evidence, /void input\.source/)
+  assert.match(evidence, /return unavailable\(\)/)
+  assert.doesNotMatch(evidence, /conciliar-document-lifecycle-guard|conciliar-recovery|document_version_|area3_received_document_hashes|contentSha|fileSha|payloadHash|fetch\(|https?:/i)
+})
+
+console.log('OK: fuente disponible no prueba bytes ni concede revisión; fallback ámbar llano, sin lifecycle, recovery, DML ni llamadas externas.')
