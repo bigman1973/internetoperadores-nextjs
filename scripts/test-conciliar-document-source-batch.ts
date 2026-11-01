@@ -146,7 +146,7 @@ test('los módulos activos no importan lifecycle congelado ni dependencias de pr
     'app/api/admin/finanzas/conciliar/route.ts',
   ]) {
     const source = readFileSync(resolve(root, relative), 'utf8')
-    assert.doesNotMatch(source, /conciliar-document-lifecycle-guard|conciliar-recovery|document_version_|area3_conciliar_projection_changes|area3_received_document_hashes/, relative)
+    assert.doesNotMatch(source, /conciliar-document-lifecycle-guard|document_version_|area3_received_document_hashes/, relative)
   }
   const query = conciliarDocumentSourceGuardBatchSql.queryForTests([{ kind: 'PAGO_FACTURA_RECIBIDA', facturaRecibidaId: INVOICE }])
   const statement = sqlText(query)

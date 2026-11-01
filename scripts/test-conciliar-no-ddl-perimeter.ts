@@ -6,7 +6,7 @@ import { conciliarDocumentSourceGuardBatchSql } from '../lib/finanzas/conciliar-
 
 const root = process.cwd()
 const text = (p: string) => readFileSync(path.join(root, p), 'utf8')
-const forbidden = /document_version_[a-z_]+|area3_conciliar_projection_changes|area3_conciliar_recovery_intents|area3_received_document_hashes|\bread_metadata\b|\bread_accounts\b/
+const forbidden = /document_version_[a-z_]+|area3_received_document_hashes/
 const files = [
   'app/admin/finanzas/conciliar/page.tsx', 'app/api/admin/finanzas/conciliar/route.ts',
   'lib/finanzas/conciliar-actions.ts', 'lib/finanzas/conciliar-db.ts', 'lib/finanzas/conciliar-projection-read.ts',
@@ -16,18 +16,21 @@ const files = [
 ]
 for (const file of files) assert.ok(!forbidden.test(text(file)), file + ': forbidden schema dependency')
 const route = text('app/api/admin/finanzas/conciliar/route.ts')
-assert.match(route, /RECUPERACION_NO_DISPONIBLE/)
-assert.ok(!/import\([^\n]+conciliar-recovery/.test(route))
-assert.ok(!/scheduleConciliarProjectionRefresh/.test(route))
+assert.match(route, /parseConciliarRecoveryLookup/)
+assert.match(route, /readConciliarRecoveryIntent/)
+assert.match(route, /scheduleConciliarActionProjectionRefresh/)
+assert.doesNotMatch(route, /conciliar-document-lifecycle-guard|document_version_|area3_received_document_hashes/)
 const actions = text('lib/finanzas/conciliar-actions.ts')
-assert.ok(!/from ['"]\.\/conciliar-recovery/.test(actions))
-assert.ok(!/prepareConciliarRecoveryIntent|commitConciliarRecoveryIntentTx|assertConciliarRecoveryIntentExecutableTx/.test(actions))
+assert.match(actions, /from ['"]\.\/conciliar-recovery/)
+assert.match(actions, /prepareConciliarRecoveryIntent[\s\S]*commitConciliarRecoveryIntentTx/)
+assert.doesNotMatch(actions, /conciliar-document-lifecycle-guard|document_version_|area3_received_document_hashes/)
 assert.match(actions, /lockOperationOrReplay/)
 assert.match(actions, /requireLiveWrite\(actorId, tx\)/)
 assert.match(actions, /Prisma\.TransactionIsolationLevel\.Serializable/)
 const refresh = text('lib/finanzas/conciliar-refresh.ts')
-assert.ok(!/import\s.*next\/server|\bafter\s*\(/.test(refresh.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')))
-assert.match(refresh, /MANUAL_REBUILD_REQUIRED/)
+assert.match(refresh, /import \{ after \} from 'next\/server'/)
+assert.match(refresh, /scheduleConciliarActionProjectionRefresh/)
+assert.match(refresh, /scheduleConciliarProjectionRefresh\(_actorId: number \| null\): void \{\}/)
 const ddl = /\b(?:CREATE|ALTER|DROP|TRUNCATE)\s+(?:TABLE|TYPE|FUNCTION|INDEX|SCHEMA)\b/i
 for (const file of files) assert.ok(!ddl.test(text(file)), file + ': executable DDL')
 const sqlConstants = (s: string) => [...s.matchAll(/(?:export )?const ([A-Z_]+_SQL) = ([\s\S]*?)(?=\n(?:export )?const |\nfunction |\n\/\*\*|\nexport )/g)].map(m => [m[1], m[2]])

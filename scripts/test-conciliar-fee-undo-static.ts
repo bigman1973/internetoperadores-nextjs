@@ -39,9 +39,12 @@ assert.match(helper, /knownBankFeeUndoMovements\(input\)/, 'la garantía single 
 assert.match(helper, /parsed\.toISOString\(\)\.slice\(0, 10\) === value/, 'la fecha de fuente debe ser civilmente válida, no sólo ISO superficial')
 assert.match(constructor, /isConciliarBankFee\(/, 'la fuente viva vuelve a pasar la regla de comisión')
 assert.match(projection, /const fee = buildBankFeeProjectionSeed\(/, 'el rebuild global comparte el mismo constructor')
-assert.match(command, /SET dirty_at=COALESCE\(dirty_at,CURRENT_TIMESTAMP\)/)
-assert.match(affectedRefresh, /MANUAL_REBUILD_REQUIRED/)
-assert.doesNotMatch(route, /scheduleConciliarProjectionRefresh|conciliar-refresh/, 'el handler no agenda un rebuild implícito')
+assert.match(command, /refreshAffectedConciliarProjectionTx\(tx, actorId\)/, 'las acciones cierran la cola derivada dentro de su transacción')
+assert.match(affectedRefresh, /area3_conciliar_projection_changes/)
+assert.match(affectedRefresh, /rebuildConciliarProjectionTx\(tx, actorId, scope\)/)
+assert.doesNotMatch(affectedRefresh.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, ''), /\b(fetch|https?:|azure|graph|email|correo|webhook|importar|sync)\b/i)
+assert.match(route, /scheduleConciliarActionProjectionRefresh/, 'el handler sólo agenda el cierre afectado posterior a su acción')
+assert.doesNotMatch(route, /scheduleConciliarProjectionRefresh\(/, 'el handler no llama la compatibilidad inerte ni agenda desde GET')
 
 console.log(JSON.stringify({
   test: 'conciliar-fee-undo-static', databaseQueries: 0, networkCalls: 0,
