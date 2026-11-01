@@ -111,7 +111,12 @@ export async function withConciliarSealReadSnapshotTx<T>(
           if (typeof property === 'string' && WRITE_METHODS.has(property)) snapshotWriteDenied()
           if (isCurrentStateDelegate && property === 'findUnique') {
             const movimientoId = cachedCurrentStateId(args[0], knownIds)
-            if (movimientoId !== null) return Promise.resolve(byMovementId.get(movimientoId) ?? null)
+            if (movimientoId !== null) {
+              const state = byMovementId.get(movimientoId)
+              // This model contains only scalar/JSON/date fields; keep the read
+              // photo immutable even if a validator modifies its returned object.
+              return Promise.resolve(state === undefined ? null : structuredClone(state))
+            }
           }
           return Reflect.apply(value, target, args)
         }

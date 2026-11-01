@@ -4,7 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { withConciliarSealReadSnapshotTx } from '../lib/finanzas/conciliar-seal-read-snapshot'
 
 test('snapshot G7 agrupa currentState, conserva receptor Prisma y sólo cachea findUnique exacto', async () => {
-  const fullA = { movimientoId: 'movement-a', estado: 'SIN_DOCUMENTO', version: 1 }
+  const fullA = { movimientoId: 'movement-a', estado: 'SIN_DOCUMENTO', version: 1, updatedAt: new Date('2026-01-01T00:00:00Z'), snapshot: { disponible: false } }
   const fullB = { movimientoId: 'movement-b', estado: 'JUSTIFICADO', version: 7 }
   const findManyCalls: unknown[] = []
   const liveFindUniqueCalls: unknown[] = []
@@ -49,8 +49,14 @@ test('snapshot G7 agrupa currentState, conserva receptor Prisma y sólo cachea f
       // precheck must receive one exact proxy identity, never base then proxy.
       assert.strictEqual(scope.getStore(), snapshotTx)
       stateDelegateReference = (snapshotTx as any).estadoJustificacionMovimientoB4
-      assert.strictEqual(await (snapshotTx as any).estadoJustificacionMovimientoB4.findUnique({ where: { movimientoId: 'movement-a' } }), fullA)
-      assert.strictEqual(await (snapshotTx as any).estadoJustificacionMovimientoB4.findUnique({ where: { movimientoId: 'movement-b' } }), fullB)
+      const first = await (snapshotTx as any).estadoJustificacionMovimientoB4.findUnique({ where: { movimientoId: 'movement-a' } })
+      assert.deepEqual(first, fullA)
+      assert.notStrictEqual(first, fullA)
+      first.version = 99
+      first.updatedAt.setUTCFullYear(2040)
+      first.snapshot.disponible = true
+      assert.deepEqual(await (snapshotTx as any).estadoJustificacionMovimientoB4.findUnique({ where: { movimientoId: 'movement-a' } }), fullA)
+      assert.deepEqual(await (snapshotTx as any).estadoJustificacionMovimientoB4.findUnique({ where: { movimientoId: 'movement-b' } }), fullB)
       // A changed select is not semantically equivalent to B4 currentState;
       // it must never receive a full cached record.
       const selected = await (snapshotTx as any).estadoJustificacionMovimientoB4.findUnique({
