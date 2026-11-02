@@ -14,7 +14,7 @@ const NOW = Date.parse('2026-11-02T00:00:00.000Z');
 const FUTURE = '2026-11-02T01:00:00.000Z';
 const ACTUATION_FUTURE = '2026-11-02T00:30:00.000Z';
 
-function session(overrides: Record<string, unknown> = {}) {
+function session(overrides: Record<string, unknown> = {}): { user: Record<string, unknown>; impersonation?: Record<string, unknown>; expires?: unknown } {
   return {
     user: {
       id: '42',
