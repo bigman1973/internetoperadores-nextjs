@@ -34,6 +34,7 @@ function source(item: ConciliarBankFeeBatchInput['items'][number], index: number
   return {
     movementId: item.movimientoId,
     importeCentimos: item.importeMovimientoCentimos,
+    decimal: (item.importeMovimientoCentimos / 100).toFixed(2),
     concepto: 'COMISIÓN DE MANTENIMIENTO',
     referencia: null,
     infoAdicional: null,

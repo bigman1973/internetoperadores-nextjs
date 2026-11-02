@@ -32,6 +32,7 @@ function source(index: number, overrides: Partial<ConciliarBankFeeLockedSource> 
   return {
     movementId: selected.movimientoId,
     importeCentimos: selected.importeMovimientoCentimos,
+    decimal: (selected.importeMovimientoCentimos / 100).toFixed(2),
     concepto: 'COMISIÓN DE MANTENIMIENTO',
     referencia: null,
     infoAdicional: null,

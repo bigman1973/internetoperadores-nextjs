@@ -173,6 +173,7 @@ export type ConciliarBankFeeBatchResult = Readonly<{
 export type ConciliarBankFeeLockedSource = Readonly<{
   movementId: string
   importeCentimos: number | bigint | null
+  decimal: string | null
   concepto: string | null
   referencia: string | null
   infoAdicional: string | null
@@ -476,7 +477,7 @@ async function lockP1FeeMovementsTx(tx: Tx, movementIds: readonly string[]): Pro
  * selection IDs/hashes have already been verified by the Conciliar projection. */
 async function lockedFeeSourcesTx(tx: Tx, movementIds: readonly string[]): Promise<readonly ConciliarBankFeeLockedSource[]> {
   return tx.$queryRaw<ConciliarBankFeeLockedSource[]>(Prisma.sql`
-    SELECT m.id AS "movementId",b4_importe_bancario_centimos(m.importe) AS "importeCentimos",
+    SELECT m.id AS "movementId",b4_importe_bancario_centimos(m.importe) AS "importeCentimos",m.importe::text AS decimal,
       m.concepto,m.referencia,m.info_adicional AS "infoAdicional",m.tercero,c.banco,
       e.estado::text AS estado,e.motivo_no_requiere::text AS "motivoNoRequiere",e.version,
       ef.id::text AS "entityId",ef.razon_social AS "entityName",ef.nif_cif AS "entityNif",
@@ -727,6 +728,16 @@ async function persistConciliarBankFeeBatchTx(tx: Tx, actorId: number, prepared:
   assertConciliarFeeFinancialPackageCounts(rows,prepared)
 }
 
+/** This private server-only closure is supplied by confirmStandard. Its source
+ * argument is the same locked material that feeds the subsequent B4/B8/P1 DML;
+ * no client value, token, cache or serializable result can cross this boundary. */
+type ValidateLockedFeeG7 = (sources: readonly ConciliarBankFeeLockedSource[]) => Promise<void>
+class ConciliarLockedFeeG7ValidatorMissingError extends Error {
+  constructor() {
+    super('CONCILIAR_G7_LOCKED_VALIDATOR_REQUIRED')
+  }
+}
+
 /**
  * Real set-based provider for a closed homogeneous selection of bank fees. It is
  * invoked inside Conciliar's existing SERIALIZABLE transaction and returns only
@@ -737,8 +748,12 @@ export async function tryConfirmConciliarBankFeeBatchTx(
   base: Prisma.TransactionClient,
   actorId: number,
   input: ConciliarBankFeeBatchInput,
+  validateLockedFeeG7: ValidateLockedFeeG7,
 ): Promise<readonly ConciliarBankFeeBatchResult[]> {
   const tx = base as Tx
+  // TypeScript callers cannot omit this required private seam, but retain a
+  // runtime guard for untyped/internal invocation before it can reach live ACL.
+  if (typeof validateLockedFeeG7 !== 'function') throw new ConciliarLockedFeeG7ValidatorMissingError()
   const items = assertConciliarBankFeeBatchInput(input)
   await requireBatchEffectiveActorTx(tx, actorId)
   await lockB4FeeMovementsTx(tx, items.map(item => item.movimientoId))
@@ -750,6 +765,7 @@ export async function tryConfirmConciliarBankFeeBatchTx(
   const sources = await lockedFeeSourcesTx(tx, [...new Set(items.map(item => item.movimientoId))].sort((left, right) => left.localeCompare(right)))
   const replay = await existingBatchReplayTx(tx, actorId, input, sources)
   if (replay) return replay
+  await validateLockedFeeG7(sources)
   const prepared = prepareConciliarBankFeeBatchRows(input, actorId, sources)
   await persistConciliarBankFeeBatchTx(tx, actorId, prepared)
   return prepared.map(item => ({

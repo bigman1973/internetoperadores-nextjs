@@ -1,4 +1,4 @@
-import { assertConciliarGreenPrecheckTx, assertConciliarGreenPrechecksBatchTx } from './conciliar-precheck'
+import { assertConciliarGreenBankFeesFromLockedSourcesTx, assertConciliarGreenPrecheckTx, assertConciliarGreenPrechecksBatchTx } from './conciliar-precheck'
 import { preflightConciliarBankFeeTx, preflightConciliarReceivedInvoiceTx, preflightConciliarPayrollTx, preflightConciliarConfirmingTx, preflightConciliarB5TicketTx } from './conciliar-confirm-validators'
 import { assertLiveCollectionProjectionForActionTx } from './conciliar-db'
 import { Prisma, type PrismaClient } from '@prisma/client'
@@ -541,16 +541,20 @@ async function confirmStandard(tx: Tx, actorId: number, command: Extract<Concili
   const outcomes: Array<Record<string, unknown>> = []
   const plan = await readConciliarConfirmBatchForActionTx(tx, command.items, fail)
   const selectedRows = plan.rows
-  const g7PrecheckStartedAt = Date.now()
-  await assertConciliarGreenPrechecksBatchTx(tx,selectedRows)
-  // Todas las filas reutilizan los predicados autoritativos. Sólo las comisiones
-  // agrupan sus lecturas G7; el proveedor repite locks/revalidación antes de DML.
-  const g7PrecheckTelemetry = {
-    schema: 'CONCILIAR_G7_PRECHECK_TELEMETRY_V1',
-    selectedRows: selectedRows.length,
-    elapsedMs: Date.now() - g7PrecheckStartedAt,
-    mode: plan.onlyBankFees ? 'COMISIONES_G7_CARGA_LOTE' : 'MIXTO_COMISIONES_LOTE_OTRAS_SERIAL',
-  } as const
+  let g7PrecheckElapsedMs = 0
+  if (!plan.onlyBankFees) {
+    const g7PrecheckStartedAt = Date.now()
+    await assertConciliarGreenPrechecksBatchTx(tx,selectedRows)
+    g7PrecheckElapsedMs = Date.now() - g7PrecheckStartedAt
+  }
+  // La rama homogénea ejecuta el mismo núcleo G7 dentro del proveedor, sólo
+  // después de ACL, locks y la foto final `FOR UPDATE OF m`. La telemetría mide
+  // esa validación final, no ACL/locks/lectura de fuente ni una decisión guardada.
+  const validateLockedFeeG7 = async (sources: Parameters<typeof assertConciliarGreenBankFeesFromLockedSourcesTx>[2]) => {
+    const g7PrecheckStartedAt = Date.now()
+    await assertConciliarGreenBankFeesFromLockedSourcesTx(tx, selectedRows, sources)
+    g7PrecheckElapsedMs = Date.now() - g7PrecheckStartedAt
+  }
   const legs: Array<{
     ordinal: number; rowId: string; movimientoId: string | null; operationB4Id?: string; proposalBlockId?: string; result: Record<string, unknown>
   }> = []
@@ -564,8 +568,14 @@ async function confirmStandard(tx: Tx, actorId: number, command: Extract<Concili
         rowId: row.id, movimientoId: requireMovement(row.source), version: b4Version(row.source.versionB4),
         importeMovimientoCentimos: row.importeCentimos, idempotencyKey: uuidKey('CONCILIAR_FEE', receipt.id, row.id),
       })),
-    })
+    }, validateLockedFeeG7)
     : null
+  const g7PrecheckTelemetry = {
+    schema: 'CONCILIAR_G7_PRECHECK_TELEMETRY_V1',
+    selectedRows: selectedRows.length,
+    elapsedMs: g7PrecheckElapsedMs,
+    mode: plan.onlyBankFees ? 'COMISIONES_G7_CARGA_LOTE' : 'MIXTO_COMISIONES_LOTE_OTRAS_SERIAL',
+  } as const
   const feeByRowId = feeResults ? new Map(feeResults.map(item => [item.rowId, item])) : null
 
   for (let index = 0; index < selectedRows.length; index += 1) {

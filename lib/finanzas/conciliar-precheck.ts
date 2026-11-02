@@ -18,6 +18,7 @@ import { ArchivoFinancieroAssertError } from './archivo-financiero-assert'
 import { conciliarDecisionHash } from './conciliar-core'
 import { readConciliarBankFeePreflightSourcesTx, validateConciliarBankFeeSource, type ConciliarBankFeePreflightSource } from './conciliar-confirm-validators'
 import { preflightB4NoDocumentDraftFromSource } from './reconciliation-db'
+import type { ConciliarBankFeeLockedSource } from './conciliar-batch'
 
 import { CONCILIAR_PRECHECK_KINDS } from './conciliar-precheck-kinds'
 export { CONCILIAR_PRECHECK_KINDS } from './conciliar-precheck-kinds'
@@ -196,6 +197,79 @@ export async function assertConciliarGreenPrecheckTx(tx:Prisma.TransactionClient
   const result=await precheckConciliarRowTx(tx,row)
   if(!result.confirmable) throw new ConciliarDbError(422,result.code,result.motivo)
   return result
+}
+
+/** The homogeneous fee provider supplies this exact post-lock source photo. This
+ * is deliberately an adapter, not a new financial predicate or a cache: its
+ * output never escapes the caller-owned write transaction. */
+function lockedFeeSourceAsPreflightSource(source:ConciliarBankFeeLockedSource):ConciliarBankFeePreflightSource {
+  const virtualState=source.estado===null
+  return {
+    id:source.movementId,
+    // The absent B4 row has virtual version 1; the exact existing preflight
+    // source contract preserves that fallback before its authoritative checks.
+    version:source.version ?? 1,
+    amount:source.importeCentimos,
+    concepto:source.concepto,
+    referencia:source.referencia,
+    info:source.infoAdicional,
+    tercero:source.tercero,
+    banco:source.banco,
+    decimal:source.decimal,
+    previous:virtualState ? null : {
+      estado:source.estado,
+      motivoNoRequiere:source.motivoNoRequiere,
+      version:source.version,
+    },
+  }
+}
+
+/** Final G7 revalidation for an all-fee batch. The provider has already obtained
+ * the live ACL, advisory locks and `FOR UPDATE OF m` source photo. Do not add a
+ * query here: `sources` are the sole financial authority for this invocation. */
+export async function assertConciliarGreenBankFeesFromLockedSourcesTx(
+  tx:Prisma.TransactionClient,
+  rows:readonly ConciliarPrecheckRow[],
+  sources:readonly ConciliarBankFeeLockedSource[],
+):Promise<void> {
+  try {
+    const requested=new Set<string>()
+    for(const row of rows) {
+      // `confirmStandard` calls this only for `onlyBankFees`. Retain a strict
+      // source bijection before delegating all row predicates to G7's existing
+      // core, so no Map can silently mask a duplicate locked result.
+      if(row.source.kind!=='COMISION_BANCARIA') continue
+      const movementId=movementRequired(row)
+      if(requested.has(movementId)) {
+        throw new ConciliarDbError(409,'DECISION_CAMBIADA','El movimiento cambió. Actualiza la lista.')
+      }
+      requested.add(movementId)
+    }
+
+    // A Map would mask a duplicate locked result. Require a strict bijection
+    // before adapting any source, including sources not selected by this call.
+    if(sources.length!==requested.size) {
+      throw new ConciliarDbError(409,'DECISION_CAMBIADA','El movimiento cambió. Actualiza la lista.')
+    }
+    const sourceByMovement=new Map<string,ConciliarBankFeeLockedSource>()
+    for(const source of sources) {
+      if(!requested.has(source.movementId) || sourceByMovement.has(source.movementId)) {
+        throw new ConciliarDbError(409,'DECISION_CAMBIADA','El movimiento cambió. Actualiza la lista.')
+      }
+      sourceByMovement.set(source.movementId,source)
+    }
+
+    const bankFees=new Map<string,ConciliarBankFeePreflightSource>()
+    for(const [movementId,source] of sourceByMovement) bankFees.set(movementId,lockedFeeSourceAsPreflightSource(source))
+    for(const row of rows) {
+      const decision=await precheckConciliarRowWithSourcesTx(tx,row,{}, {bankFees})
+      if(!decision.confirmable) throw new ConciliarDbError(422,decision.code,decision.motivo)
+    }
+  } catch(error:unknown) {
+    if(!knownFinancialFailure(error)) throw error
+    const code=error && typeof error==='object' && 'code' in error ? String(error.code) : 'FUENTE_CAMBIADA'
+    throw new ConciliarDbError(422,code,conciliarPrecheckFailureReason(error))
+  }
 }
 
 /** Bounded live pre-DML load, not a memo or an apply token. Every row executes
