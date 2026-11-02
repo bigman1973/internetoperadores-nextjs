@@ -41,6 +41,11 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
       where: { id, objectTypeId: '0-1' },
       include: {
         clienteWeb: true,
+        captacionesWeb: { orderBy: [{ fechaEnvio: 'desc' }, { id: 'desc' }] },
+        leadsMigracionWeb: { select: { id: true } },
+        leadsSoluciones: { select: { id: true, tipo: true } },
+        leadsPartners: { select: { id: true } },
+        altasServicio: { select: { id: true } },
         empresasCrm: {
           where: { activo: true, empresa: { activo: true } },
           include: { empresa: { select: { id: true, nombre: true, tipo: true, clientes: { select: { clienteId: true }, take: 1 } } } },
@@ -104,7 +109,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
   const jobTitle = effectiveProperties.jobtitle || ''
   const website = effectiveProperties.website || ''
   const city = effectiveProperties.city || ''
-  const contactName = [effectiveProperties.firstname, effectiveProperties.lastname].filter(Boolean).join(' ').trim() || contact.nombre || email || `Contacto #${contact.hubspotId}`
+  const contactName = [effectiveProperties.firstname, effectiveProperties.lastname].filter(Boolean).join(' ').trim() || contact.nombre || email || `Contacto #${contact.hubspotId || contact.id}`
   const units = contact.unidadesNegocio.map((unit) => crmBusinessUnitLabel(unit, businessUnitOptions))
   const lifecycle = formatCrmContactPropertyValue(effectiveProperties.lifecyclestage, definitionsByName.get('lifecyclestage'))
   const leadStatus = formatCrmContactPropertyValue(effectiveProperties.hs_lead_status, definitionsByName.get('hs_lead_status'))
@@ -120,12 +125,18 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
   if (contact.propiedadesCompletasError) qualityIssues.push('La última importación de origen no pudo recuperar toda la información del contacto.')
 
   const statusNotice = isCustomer
-    ? { tone: 'green' as const, title: 'Contacto convertido en cliente.', text: 'Su correo coincide con una persona o empresa que ya ha comprado. Conserva sus listas y su histórico de origen.' }
+    ? { tone: 'green' as const, title: 'Contacto con cliente asociado.', text: 'Conserva la asociación de cliente existente, sus listas y su histórico de origen. Una nueva captación no cambia esa asociación.' }
     : ambiguousMatches > 1
-      ? { tone: 'amber' as const, title: 'Lead pendiente de revisión.', text: `Este correo aparece en ${ambiguousMatches.toLocaleString('es-ES')} clientes distintos. No se ha convertido automáticamente para evitar una asociación equivocada.` }
-      : { tone: 'blue' as const, title: 'Lead.', text: 'Todavía no existe una compra asociada a este correo. Pasará automáticamente a cliente cuando aparezca en la cartera del panel.' }
+      ? { tone: 'amber' as const, title: 'Lead pendiente de revisión.', text: `Este correo aparece en ${ambiguousMatches.toLocaleString('es-ES')} clientes distintos. Recibir una captación no fusiona fichas ni vincula clientes automáticamente.` }
+      : { tone: 'blue' as const, title: 'Lead.', text: 'No hay cliente asociado a esta ficha. Recibir un formulario no acredita una compra ni provoca una asociación por correo o CIF.' }
 
   const definitions = serializeCrmContactPropertyDefinitions(propertyDefinitions)
+  const originalDetails = [
+    ...contact.leadsMigracionWeb.map((lead) => ({ id: lead.id, label: 'Migración web', href: `/admin/leads/${encodeURIComponent(lead.id)}` })),
+    ...contact.leadsSoluciones.map((lead) => ({ id: lead.id, label: lead.tipo === 'MANTENIMIENTO_IT' ? 'Mantenimiento IT' : 'Solución empresarial', href: `/admin/${lead.tipo === 'MANTENIMIENTO_IT' ? 'leads-mantenimiento' : 'leads-soluciones'}/${encodeURIComponent(lead.id)}` })),
+    ...contact.leadsPartners.map((lead) => ({ id: lead.id, label: 'Solicitud Partner', href: `/admin/crm/partners#solicitud-${encodeURIComponent(lead.id)}` })),
+    ...contact.altasServicio.map((alta) => ({ id: alta.id, label: 'Alta de servicio', href: `/admin/altas-pendientes/${encodeURIComponent(alta.id)}` })),
+  ]
 
   return (
     <CrmContactoWorkspace
@@ -146,7 +157,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
         lifecycle,
         leadStatus,
         owner,
-        createdAt: formatDateTime(contact.hubspotCreadoAt),
+        createdAt: formatDateTime(contact.hubspotCreadoAt || contact.createdAt),
         sourceUpdatedAt: formatDateTime(contact.hubspotActualizadoAt || contact.sincronizadoAt),
         fullPropertiesAt: formatDateTime(contact.propiedadesCompletasAt),
         localUpdatedAt: formatDateTime(contact.datosActualizadoAt),
@@ -155,6 +166,22 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
         notes: contact.notasInternas || '',
       }}
       statusNotice={statusNotice}
+      webCaptures={contact.captacionesWeb.map((capture) => ({
+        id: capture.id,
+        formulario: capture.formulario,
+        webOrigen: capture.webOrigen,
+        paginaOrigen: capture.paginaOrigen,
+        fechaEnvio: capture.fechaEnvio.toISOString(),
+        segmentoCrm: capture.segmentoCrm,
+        consentimientoPrivacidad: capture.consentimientoPrivacidad,
+        consentimientoNewsletter: capture.consentimientoNewsletter,
+        consentimientoVersion: capture.consentimientoVersion,
+        referenciaTipo: capture.referenciaTipo,
+        referenciaId: capture.referenciaId,
+        datos: capture.datos,
+        originalHref: originalDetails.find((detail) => detail.id === capture.referenciaId)?.href || null,
+      }))}
+      originalDetails={originalDetails}
       customer={contact.clienteWeb ? {
         id: contact.clienteWeb.id,
         name: contact.clienteWeb.nombre,

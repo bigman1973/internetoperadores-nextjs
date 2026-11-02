@@ -1,10 +1,7 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { guardarCaptacionWeb } from '@/lib/crm-captacion-web';
 
 const BREVO_API_KEY = (process.env.BREVO_API_KEY || '').trim();
-const HUBSPOT_API_KEY = (process.env.HUBSPOT_API_KEY || '').trim();
-const HUBSPOT_LIST_AUDITORIA = '501'; // Lista IO-MIGRACION-WEB
-const HUBSPOT_LIST_NEWSLETTER_EMPRESAS = '489';
 const BREVO_LIST_NEWSLETTER_EMPRESAS = 30;
 
 async function sendBrevoEmail(to: { email: string; name: string }, subject: string, htmlContent: string) {
@@ -20,61 +17,6 @@ async function sendBrevoEmail(to: { email: string; name: string }, subject: stri
       }),
     });
     return res.ok;
-  } catch { return false; }
-}
-
-async function addToHubSpot(email: string, nombre: string, empresa: string, telefono: string, listIds: string[], nota: string) {
-  try {
-    // Buscar contacto existente
-    const searchRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: email }] }] }),
-    });
-    const searchData = await searchRes.json();
-    let contactId: string;
-
-    if (searchData.results && searchData.results.length > 0) {
-      contactId = searchData.results[0].id;
-      // Actualizar
-      await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}`, {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ properties: { firstname: nombre, company: empresa, phone: telefono } }),
-      });
-    } else {
-      // Crear
-      const createRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ properties: { email, firstname: nombre, company: empresa, phone: telefono } }),
-      });
-      const createData = await createRes.json();
-      contactId = createData.id;
-    }
-
-    // Añadir a listas
-    for (const listId of listIds) {
-      await fetch(`https://api.hubapi.com/crm/v3/lists/${listId}/memberships/add`, {
-        method: 'PUT',
-        headers: { 'Authorization': `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify([contactId]),
-      });
-    }
-
-    // Crear nota
-    if (nota) {
-      const noteRes = await fetch('https://api.hubapi.com/crm/v3/objects/notes', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          properties: { hs_note_body: nota, hs_timestamp: new Date().toISOString() },
-          associations: [{ to: { id: contactId }, types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 202 }] }],
-        }),
-      });
-    }
-
-    return true;
   } catch { return false; }
 }
 
@@ -121,7 +63,6 @@ export async function POST(request: Request) {
       presupuesto,
       fechaLimite,
       comoNosConocio,
-      newsletter,
     } = body;
 
     // Validaciones básicas
@@ -143,13 +84,14 @@ export async function POST(request: Request) {
     const necesitaIntegracion = Array.isArray(objetivos) && objetivos.includes('integrar_software');
 
     // Crear el lead en la BD
-    const lead = await prisma.leadMigracionWeb.create({
-      data: {
-        segmentoCrm: 'EMPRESA',
-        nombreEmpresa,
-        contacto,
-        email,
-        telefono: telefono || null,
+    const { contactoId, registro: lead, repetido } = await guardarCaptacionWeb(request, {
+      formulario: '/api/contrata/migracion-web',
+      segmentoCrm: 'EMPRESA',
+      nombre: contacto,
+      email,
+      telefono: telefono || null,
+      empresa: nombreEmpresa,
+      datos: {
         urlWebActual: urlWebActual || null,
         sector: sector || null,
         sectorOtro: sectorOtro || null,
@@ -172,7 +114,44 @@ export async function POST(request: Request) {
         estado: 'NUEVO',
         prioridad: calcularPrioridad(presupuesto, sector),
       },
+      newsletter: body.newsletter === true,
+      privacidad: typeof body.privacidad === 'boolean' ? body.privacidad : null,
+      persistir: async (tx, contactoId) => tx.leadMigracionWeb.create({
+        data: {
+          crmContactoId: contactoId,
+          segmentoCrm: 'EMPRESA',
+          nombreEmpresa,
+          contacto,
+          email,
+          telefono: telefono || null,
+          urlWebActual: urlWebActual || null,
+          sector: sector || null,
+          sectorOtro: sectorOtro || null,
+          numPaginas: numPaginas || null,
+          tieneBlog: tieneBlog || false,
+          tieneTienda: tieneTienda || false,
+          tieneFormularios: tieneFormularios || false,
+          tieneAreaPrivada: tieneAreaPrivada || false,
+          frustracionActual: frustracionActual || null,
+          objetivos: objetivos || [],
+          respuestasSector: respuestasSector || {},
+          necesitaIntegracion,
+          softwareActual: necesitaIntegracion ? (softwareActual || null) : null,
+          tieneApi: necesitaIntegracion ? (tieneApi || null) : null,
+          datosIntegracion: necesitaIntegracion ? (datosIntegracion || null) : null,
+          proveedorActual: necesitaIntegracion ? (proveedorActual || null) : null,
+          presupuesto: presupuesto || null,
+          fechaLimite: fechaLimite || null,
+          comoNosConocio: comoNosConocio || null,
+          estado: 'NUEVO',
+          prioridad: calcularPrioridad(presupuesto, sector),
+        },
+      }),
     });
+
+    if (repetido) {
+      return NextResponse.json({ success: true, id: lead.id, contactoId, repetido: true }, { status: 201 });
+    }
 
     // === EMAILS Y INTEGRACIONES (no bloquean la respuesta) ===
     const sectorLabel = sectorOtro || sector || 'No especificado';
@@ -243,24 +222,13 @@ export async function POST(request: Request) {
       sendBrevoEmail({ email, name: contacto }, `Tu solicitud de auditoría web ha sido recibida - Internet Operadores`, emailInteresadoHtml),
     ];
 
-    // HubSpot: crear contacto + lista Auditoría Web + newsletter si aplica
-    const hubspotLists = [HUBSPOT_LIST_AUDITORIA];
-    if (newsletter) {
-      hubspotLists.push(HUBSPOT_LIST_NEWSLETTER_EMPRESAS);
-    }
-    const notaHubspot = `Solicitud de Auditoría Web\n- Web actual: ${urlWebActual || 'N/A'}\n- Sector: ${sectorLabel}\n- Objetivos: ${objetivosLabel}\n- Presupuesto: ${presupuesto || 'N/A'}\n- Prioridad: ${calcularPrioridad(presupuesto, sector)}`;
+    // La suscripción comercial es opcional y requiere un opt-in explícito.
+    const newsletterPromises = body.newsletter === true
+      ? [addToBrevoNewsletter(email, contacto, nombreEmpresa, telefono || '')]
+      : [];
+    await Promise.allSettled([...emailPromises, ...newsletterPromises]);
 
-    const integrationPromises = [
-      addToHubSpot(email, contacto, nombreEmpresa, telefono || '', hubspotLists, notaHubspot),
-    ];
-
-    // Brevo newsletter (siempre obligatorio para descargar/solicitar)
-    integrationPromises.push(addToBrevoNewsletter(email, contacto, nombreEmpresa, telefono || ''));
-
-    // Ejecutar todo en paralelo sin bloquear
-    await Promise.allSettled([...emailPromises, ...integrationPromises]);
-
-    return NextResponse.json({ success: true, id: lead.id }, { status: 201 });
+    return NextResponse.json({ success: true, id: lead.id, contactoId, repetido: false }, { status: 201 });
   } catch (error: any) {
     console.error('Error al crear lead:', error);
     return NextResponse.json(

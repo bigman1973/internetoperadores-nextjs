@@ -41,7 +41,8 @@ export default function DemoPage() {
           fecha: formData.fecha,
           horario: formData.horario,
           mensaje: formData.mensaje,
-          newsletter: formData.newsletter
+          newsletter: formData.newsletter,
+          acepta: formData.acepta
         })
       });
       if (!response.ok) throw new Error('Error al enviar');

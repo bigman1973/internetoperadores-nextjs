@@ -38,6 +38,7 @@ export default function ContactoPage() {
           motivo: formData.motivo,
           mensaje: formData.mensaje,
           newsletter: formData.newsletter,
+          acepta: formData.acepta,
           origen: 'Formulario de contacto'
         })
       });

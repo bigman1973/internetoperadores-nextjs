@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { initiatePayment, type PaymentMethod } from '@/lib/payments'
+import { guardarCaptacionWeb } from '@/lib/crm-captacion-web'
 
 const BASE_URL = process.env.NEXTAUTH_URL || 'https://www.internetoperadores.com'
 const BREVO_API_KEY = (process.env.BREVO_API_KEY || '').trim()
-const HUBSPOT_TOKEN = (process.env.HUBSPOT_API_KEY || '').trim()
 
 // IDs de listas de newsletter
-const NEWSLETTER_LISTS: Record<string, { hubspot: string; brevo: number }> = {
-  PARTICULAR: { hubspot: '490', brevo: 31 },
-  EMPRESA: { hubspot: '489', brevo: 30 },
+const NEWSLETTER_LISTS: Record<string, number> = {
+  PARTICULAR: 31,
+  EMPRESA: 30,
 }
 
 async function sendEmail({ to, toName, subject, htmlContent }: { to: string; toName: string; subject: string; htmlContent: string }) {
@@ -34,7 +34,7 @@ async function sendEmail({ to, toName, subject, htmlContent }: { to: string; toN
 }
 
 async function subscribeNewsletter({ nombre, email, telefono, tipoCliente }: { nombre: string; email: string; telefono?: string; tipoCliente: string }) {
-  const lists = NEWSLETTER_LISTS[tipoCliente] || NEWSLETTER_LISTS.EMPRESA
+  const listId = NEWSLETTER_LISTS[tipoCliente] || NEWSLETTER_LISTS.EMPRESA
 
   // Brevo
   try {
@@ -43,37 +43,10 @@ async function subscribeNewsletter({ nombre, email, telefono, tipoCliente }: { n
     await fetch('https://api.brevo.com/v3/contacts', {
       method: 'POST',
       headers: { 'api-key': BREVO_API_KEY, 'Content-Type': 'application/json', 'accept': 'application/json' },
-      body: JSON.stringify({ email, attributes, listIds: [lists.brevo], updateEnabled: true }),
+      body: JSON.stringify({ email, attributes, listIds: [listId], updateEnabled: true }),
     })
   } catch (e: any) {
     console.error('[Altas] Error Brevo newsletter:', e.message)
-  }
-
-  // HubSpot
-  try {
-    const properties: Record<string, string> = { email, firstname: nombre, phone: telefono || '', lifecyclestage: 'subscriber' }
-    const createRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${HUBSPOT_TOKEN}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ properties }),
-    })
-    let contactId: string | undefined
-    if (createRes.ok) {
-      const data = await createRes.json()
-      contactId = data.id
-    } else if (createRes.status === 409) {
-      const errData = await createRes.json()
-      contactId = errData?.message?.match(/Existing ID: (\d+)/)?.[1]
-    }
-    if (contactId) {
-      await fetch(`https://api.hubapi.com/crm/v3/lists/${lists.hubspot}/memberships/add`, {
-        method: 'PUT',
-        headers: { 'Authorization': `Bearer ${HUBSPOT_TOKEN}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify([contactId]),
-      })
-    }
-  } catch (e: any) {
-    console.error('[Altas] Error HubSpot newsletter:', e.message)
   }
 }
 
@@ -181,42 +154,80 @@ export async function POST(request: NextRequest) {
     const importeCuota = Number(tarifa.precioConIva)
     const importeAlta = tarifa.cuotaAlta ? Number(tarifa.cuotaAlta) : null
 
-    // Crear el alta
-    const alta = await prisma.altaServicio.create({
-      data: {
+    // Guardar captación y alta atómicamente. El CRM sólo recibe un resumen comercial;
+    // documentos de identidad, apoderado, IBAN y direcciones permanecen en el detalle.
+    const { contactoId, registro: alta, repetido } = await guardarCaptacionWeb(request, {
+      formulario: '/api/altas/crear',
+      segmentoCrm: tipoCliente === 'PARTICULAR' ? 'PARTICULAR' : 'EMPRESA',
+      nombre: tipoCliente === 'EMPRESA' ? razonSocial : `${nombre || ''} ${apellidos || ''}`.trim(),
+      email,
+      telefono: telefono || null,
+      empresa: tipoCliente === 'EMPRESA' ? razonSocial : null,
+      datosIdempotencia: body,
+      datos: {
         tipoCliente,
-        nombre: nombre || null,
-        apellidos: apellidos || null,
-        dni: dni || null,
-        razonSocial: razonSocial || null,
-        cif: cif || null,
-        nombreApoderado: nombreApoderado || null,
-        dniApoderado: dniApoderado || null,
-        email,
-        telefono: telefono || null,
-        direccionFacturacion,
-        localidadFacturacion,
-        provinciaFacturacion,
-        cpFacturacion,
-        direccionInstalacion: direccionInstalacion || null,
-        localidadInstalacion: localidadInstalacion || null,
-        provinciaInstalacion: provinciaInstalacion || null,
-        cpInstalacion: cpInstalacion || null,
-        metodoPago,
-        iban: iban ? iban.replace(/\s/g, '').toUpperCase() : null,
         tarifaId: tarifa.id,
         tarifaNombre: tarifa.nombreComercial || tarifa.nombre,
         importeCuota,
         importeAlta,
         permanencia: tarifa.permanencia || null,
+        metodoPago,
         esPortabilidad: esPortabilidad || false,
-        numeroPortar: numeroPortar || null,
         operadorActual: operadorActual || null,
-        titularLineaDiferente: titularLineaDiferente || false,
-        observaciones: observaciones || null,
-        estado: 'FORMULARIO_COMPLETADO',
       },
+      newsletter: body.newsletter === true,
+      privacidad: typeof body.privacidad === 'boolean' ? body.privacidad : null,
+      persistir: async (tx, contactoId) => tx.altaServicio.create({
+        data: {
+          crmContactoId: contactoId,
+          tipoCliente,
+          nombre: nombre || null,
+          apellidos: apellidos || null,
+          dni: dni || null,
+          razonSocial: razonSocial || null,
+          cif: cif || null,
+          nombreApoderado: nombreApoderado || null,
+          dniApoderado: dniApoderado || null,
+          email,
+          telefono: telefono || null,
+          direccionFacturacion,
+          localidadFacturacion,
+          provinciaFacturacion,
+          cpFacturacion,
+          direccionInstalacion: direccionInstalacion || null,
+          localidadInstalacion: localidadInstalacion || null,
+          provinciaInstalacion: provinciaInstalacion || null,
+          cpInstalacion: cpInstalacion || null,
+          metodoPago,
+          iban: iban ? iban.replace(/\s/g, '').toUpperCase() : null,
+          tarifaId: tarifa.id,
+          tarifaNombre: tarifa.nombreComercial || tarifa.nombre,
+          importeCuota,
+          importeAlta,
+          permanencia: tarifa.permanencia || null,
+          esPortabilidad: esPortabilidad || false,
+          numeroPortar: numeroPortar || null,
+          operadorActual: operadorActual || null,
+          titularLineaDiferente: titularLineaDiferente || false,
+          observaciones: observaciones || null,
+          estado: 'FORMULARIO_COMPLETADO',
+        },
+      }),
     })
+
+    // El reintento conserva identidad y enlaces existentes, sin iniciar otro pago.
+    if (repetido) {
+      return NextResponse.json({
+        success: true,
+        altaId: alta.id,
+        contactoId,
+        token: alta.token,
+        estado: alta.estado,
+        pagoUrl: alta.pagoAltaUrl || null,
+        documentacionUrl: `${BASE_URL}/alta-servicio/documentacion?token=${alta.token}`,
+        repetido: true,
+      })
+    }
 
     // Si hay cuota de alta y el método es tarjeta/crypto, iniciar pago inmediato
     let pagoUrl: string | null = null
@@ -311,7 +322,7 @@ export async function POST(request: NextRequest) {
     })
 
     // Newsletter opt-in
-    if (body.newsletter) {
+    if (body.newsletter === true) {
       subscribeNewsletter({
         nombre: clienteNombre,
         email,
@@ -323,11 +334,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       altaId: alta.id,
+      contactoId,
       token: alta.token,
       estado: alta.estado,
       pagoUrl,
       // URL para completar documentación
       documentacionUrl: `${BASE_URL}/alta-servicio/documentacion?token=${alta.token}`,
+      repetido: false,
     })
   } catch (error: any) {
     console.error('Error creando alta:', error)

@@ -42,6 +42,17 @@ export default async function CrmPage() {
     registrarArea('admin.crm.listas', 'CRM > Listas y segmentos', 'admin.crm'),
   ])
 
+  const visibleContactScope = {
+    objectTypeId: '0-1',
+    OR: [
+      { hubspotId: null },
+      { hubspotId: { startsWith: 'local:' } },
+      { empresasCrm: { some: { activo: true } } },
+      { listas: { some: { activo: true, lista: { activo: true } } } },
+      { negocios: { some: { negocio: { activo: true } } } },
+    ],
+  }
+
   const [clientesPorSegmento, leadsMigracion, leadsPorProducto, leadsPartner, totalClientes, clientesSinClasificar, listasCrm, listasActivas, membresiasListas, contactosCrm, contactosConvertidos] = await Promise.all([
     prisma.clienteWeb.groupBy({
       by: ['segmentoCrm'],
@@ -64,8 +75,8 @@ export default async function CrmPage() {
     prisma.crmLista.count({ where: { activo: true } }),
     prisma.crmLista.count({ where: { activo: true, processingType: 'DYNAMIC' } }),
     prisma.crmLista.aggregate({ where: { activo: true }, _sum: { tamanoHubspot: true } }),
-    prisma.crmRegistroHubspot.count({ where: { objectTypeId: '0-1', listas: { some: { activo: true, lista: { activo: true } } } } }),
-    prisma.crmRegistroHubspot.count({ where: { objectTypeId: '0-1', clienteWebId: { not: null }, listas: { some: { activo: true, lista: { activo: true } } } } }),
+    prisma.crmRegistroHubspot.count({ where: visibleContactScope }),
+    prisma.crmRegistroHubspot.count({ where: { ...visibleContactScope, clienteWebId: { not: null } } }),
   ])
 
   const clientesCount = new Map<SegmentoCrmValue, number>(
