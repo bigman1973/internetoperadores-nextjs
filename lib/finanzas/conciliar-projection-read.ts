@@ -275,13 +275,14 @@ async function readProjectionBundle(input: ConciliarGetInput, shared: Prisma.Sql
     ), effective_projection AS (
       SELECT p.id,p.tab,p.movimiento_id,p.cuenta_id,p.fecha,p.concepto,p.banco,p.cuenta,
         p.importe_centimos,p.pendiente_centimos,
-        CASE WHEN p.color='VERDE' AND (NOT (p.source->>'g7Precheck' IS NOT DISTINCT FROM ${CONCILIAR_GREEN_PRECHECK_STAMP}) OR EXISTS(SELECT 1 FROM projection_state WHERE dirty_at IS NOT NULL)) THEN 'AMBAR' ELSE p.color END AS color,
-        p.grupo,
-        CASE WHEN p.color='VERDE' AND (NOT (p.source->>'g7Precheck' IS NOT DISTINCT FROM ${CONCILIAR_GREEN_PRECHECK_STAMP}) OR EXISTS(SELECT 1 FROM projection_state WHERE dirty_at IS NOT NULL)) THEN ${CONCILIAR_GREEN_PENDING_REASON} ELSE p.motivo END AS motivo,
-        p.documento,p.propuesta,
-        CASE WHEN p.color='VERDE' AND (NOT (p.source->>'g7Precheck' IS NOT DISTINCT FROM ${CONCILIAR_GREEN_PRECHECK_STAMP}) OR EXISTS(SELECT 1 FROM projection_state WHERE dirty_at IS NOT NULL)) THEN false ELSE p.seleccionable END AS seleccionable,
-        p.diferencia_centimos,p.links_movimiento,p.detail,p.source,p.source_fingerprint,p.updated_at,p.read_metadata
-      FROM conciliar_proyecciones p
+        CASE WHEN p.needs_g7_review THEN 'AMBAR' ELSE p.color END AS color,
+        p.grupo,p.documento,p.propuesta,p.needs_g7_review
+      FROM (
+        SELECT p.id,p.tab,p.movimiento_id,p.cuenta_id,p.fecha,p.concepto,p.banco,p.cuenta,
+          p.importe_centimos,p.pendiente_centimos,p.color,p.grupo,p.documento,p.propuesta,
+          CASE WHEN p.color='VERDE' AND (NOT (p.source->>'g7Precheck' IS NOT DISTINCT FROM ${CONCILIAR_GREEN_PRECHECK_STAMP}) OR EXISTS(SELECT 1 FROM projection_state WHERE dirty_at IS NOT NULL)) THEN true ELSE false END AS needs_g7_review
+        FROM conciliar_proyecciones p
+      ) p
     ), filtered AS (
       SELECT p.id,p.tab,p.fecha,p.cuenta_id,p.importe_centimos,p.pendiente_centimos,p.color,p.propuesta
       FROM effective_projection p WHERE ${shared}
@@ -298,13 +299,23 @@ async function readProjectionBundle(input: ConciliarGetInput, shared: Prisma.Sql
       FROM active p WHERE p.tab='EMITIDAS'
     ), scoped AS (
       ${scopedRows}
-    ), page AS (
-      SELECT p.* FROM effective_projection p JOIN scoped scope ON scope.id=p.id
+    ), page_ids AS (
+      SELECT p.id FROM effective_projection p JOIN scoped scope ON scope.id=p.id
       ORDER BY ${sort}
       LIMIT ${input.limit} OFFSET ${input.offset}
+    ), page AS (
+      SELECT p.id,p.tab,p.movimiento_id,p.cuenta_id,p.fecha,p.concepto,p.banco,p.cuenta,
+        p.importe_centimos,p.pendiente_centimos,g7.color,p.grupo,
+        CASE WHEN g7.needs_g7_review THEN ${CONCILIAR_GREEN_PENDING_REASON} ELSE p.motivo END AS motivo,
+        p.documento,p.propuesta,
+        CASE WHEN g7.needs_g7_review THEN false ELSE p.seleccionable END AS seleccionable,
+        p.diferencia_centimos,p.links_movimiento,p.detail,p.source,p.source_fingerprint,p.updated_at,p.read_metadata
+      FROM conciliar_proyecciones p
+      JOIN page_ids selected ON selected.id=p.id
+      JOIN effective_projection g7 ON g7.id=p.id
     ), document_requests AS (
       SELECT p.movimiento_id,p.read_metadata->>'gestion_estado' AS gestion_estado,
-        p.read_metadata->>'pedido_fecha' AS pedido_fecha,p.read_metadata->>'actor_visible' AS actor_visible,
+      p.read_metadata->>'pedido_fecha' AS pedido_fecha,p.read_metadata->>'actor_visible' AS actor_visible,
         COALESCE((p.read_metadata->>'soporte_b5_completo')::boolean,false) AS soporte_b5_completo,
         COALESCE((p.read_metadata->>'ticket_b5_completo')::boolean,false) AS ticket_b5_completo,
         p.read_metadata->>'archivo_b5_id' AS archivo_b5_id
