@@ -144,7 +144,9 @@ export async function GET(request: NextRequest) {
 
 /** POST accepts only an exact closed JSON command. No browser fields select sources, amounts or file locators. */
 export async function POST(request: NextRequest) {
-  const phase = (name: string) => { if (process.env.FINANCE_STAGING_SANDBOX === '1') console.info('CONCILIAR_POST_PHASE', name) }
+  const postStartedAt = Date.now()
+  // Staging-only durations. Never log actors, session IDs, request bodies or keys.
+  const phase = (name: string) => { if (process.env.FINANCE_STAGING_SANDBOX === '1') console.info('CONCILIAR_POST_PHASE', name, JSON.stringify({ elapsedMs: Date.now() - postStartedAt })) }
   try {
     phase('handler-start')
     await assertConciliarRuntime()
@@ -174,6 +176,7 @@ export async function POST(request: NextRequest) {
         total: parsed.items.length,
         execute: async onProgress => {
           const result = await runConciliarAction(access.actor.id, parsed, { onProgress })
+          phase('action-finished')
           if ((result as { projectionSynchronized?: unknown }).projectionSynchronized !== true) {
             scheduleConciliarActionProjectionRefresh(access.actor.id)
           }
