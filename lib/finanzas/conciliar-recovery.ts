@@ -91,36 +91,75 @@ function recoveryLockKey(actorEffectiveId: number, idempotencyKey: string): stri
   return `conciliar:${actorEffectiveId}:${idempotencyKey}`
 }
 
-async function lockRecoveryKeyTx(tx: Tx, actorEffectiveId: number, idempotencyKey: string): Promise<void> {
-  await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${recoveryLockKey(actorEffectiveId, idempotencyKey)},0))::text AS locked`)
+const RECOVERY_INTENT_COLUMNS = [
+  'idempotencyKey', 'action', 'resolution', 'commandHash', 'bodyHash', 'requestHash',
+  'actorRealId', 'actorEffectiveId', 'actingSessionId', 'selectionCount', 'selectionHash',
+  'receiptOperationId', 'targetConfirmationOperationId', 'legCount',
+] as const
+
+function isNullRecoveryIntentSentinel(row: Record<string, unknown>): boolean {
+  return RECOVERY_INTENT_COLUMNS.every(column => row[column] === null)
 }
 
 async function readIntentForUpdateTx(tx: Tx, actorEffectiveId: number, idempotencyKey: string, checkLegacyReceipt = false): Promise<ConciliarRecoveryRecord | null> {
-  const rows = await tx.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
-    WITH intent AS (
-    SELECT idempotency_key::text AS "idempotencyKey",action,resolution,
-      command_hash AS "commandHash",body_hash AS "bodyHash",request_hash AS "requestHash",
-      actor_real_id AS "actorRealId",actor_effective_id AS "actorEffectiveId",
-      acting_session_id::text AS "actingSessionId",selection_count AS "selectionCount",
-      selection_hash AS "selectionHash",receipt_operation_id::text AS "receiptOperationId",
-      target_confirmation_operation_id::text AS "targetConfirmationOperationId",leg_count AS "legCount"
-    FROM area3_conciliar_recovery_intents
-    WHERE actor_effective_id=${actorEffectiveId} AND idempotency_key=CAST(${idempotencyKey} AS uuid)
-    LIMIT 1 FOR UPDATE
-    )
-    ${checkLegacyReceipt ? Prisma.sql`, legacy_receipt AS (
-      SELECT id FROM operaciones_conciliar
-      WHERE actor_id=${actorEffectiveId} AND idempotency_key=CAST(${idempotencyKey} AS uuid)
-      LIMIT 1 FOR UPDATE
-    )` : Prisma.empty}
-    SELECT * FROM intent
-    ${checkLegacyReceipt ? Prisma.sql`UNION ALL SELECT NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL
-      WHERE NOT EXISTS (SELECT 1 FROM intent) AND EXISTS (SELECT 1 FROM legacy_receipt)` : Prisma.empty}
-  `)
-  if (rows.length > 1) fail(503,'RECOVERY_INTENT_CORRUPTO','El intent durable no conserva una forma verificable.')
-  if (!rows[0]) return null
-  if (checkLegacyReceipt && rows[0].idempotencyKey === null) fail(409, 'RECOVERY_RECIBO_LEGADO_NO_VERIFICABLE', 'La clave ya tiene un recibo sin correlación durable de recuperación.')
-  const record = rowToRecord(rows[0])
+  // These are the only two advisory/row-lock CTE shapes admitted by the
+  // impersonation classifier. `barrier` remains the materialized root even if
+  // both relations are empty, and every relation lock depends on it.
+  const rows = checkLegacyReceipt
+    ? await tx.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+      WITH barrier AS MATERIALIZED (
+        SELECT pg_advisory_xact_lock(hashtextextended(CAST(${recoveryLockKey(actorEffectiveId, idempotencyKey)} AS text),0))::text AS locked
+      ), intent AS MATERIALIZED (
+        SELECT i.idempotency_key::text AS "idempotencyKey",i.action,i.resolution,
+          i.command_hash AS "commandHash",i.body_hash AS "bodyHash",i.request_hash AS "requestHash",
+          i.actor_real_id AS "actorRealId",i.actor_effective_id AS "actorEffectiveId",
+          i.acting_session_id::text AS "actingSessionId",i.selection_count AS "selectionCount",
+          i.selection_hash AS "selectionHash",i.receipt_operation_id::text AS "receiptOperationId",
+          i.target_confirmation_operation_id::text AS "targetConfirmationOperationId",i.leg_count AS "legCount"
+        FROM area3_conciliar_recovery_intents i CROSS JOIN barrier
+        WHERE barrier.locked IS NOT NULL AND i.actor_effective_id=${actorEffectiveId} AND i.idempotency_key=CAST(${idempotencyKey} AS uuid)
+        ORDER BY i.idempotency_key ASC LIMIT 1 FOR UPDATE OF i
+      ), legacy_receipt AS MATERIALIZED (
+        SELECT o.id FROM operaciones_conciliar o CROSS JOIN barrier
+        WHERE barrier.locked IS NOT NULL AND o.actor_id=${actorEffectiveId} AND o.idempotency_key=CAST(${idempotencyKey} AS uuid)
+        ORDER BY o.id ASC LIMIT 1 FOR UPDATE OF o
+      ), legacy_flags AS MATERIALIZED (
+        SELECT EXISTS (SELECT 1 FROM legacy_receipt) AS "hasLegacyReceipt" FROM barrier
+      )
+      SELECT i."idempotencyKey",i.action,i.resolution,i."commandHash",i."bodyHash",i."requestHash",
+        i."actorRealId",i."actorEffectiveId",i."actingSessionId",i."selectionCount",i."selectionHash",
+        i."receiptOperationId",i."targetConfirmationOperationId",i."legCount",legacy_flags."hasLegacyReceipt"
+      FROM barrier LEFT JOIN intent i ON true LEFT JOIN legacy_flags ON true
+    `)
+    : await tx.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+      WITH barrier AS MATERIALIZED (
+        SELECT pg_advisory_xact_lock(hashtextextended(CAST(${recoveryLockKey(actorEffectiveId, idempotencyKey)} AS text),0))::text AS locked
+      ), intent AS MATERIALIZED (
+        SELECT i.idempotency_key::text AS "idempotencyKey",i.action,i.resolution,
+          i.command_hash AS "commandHash",i.body_hash AS "bodyHash",i.request_hash AS "requestHash",
+          i.actor_real_id AS "actorRealId",i.actor_effective_id AS "actorEffectiveId",
+          i.acting_session_id::text AS "actingSessionId",i.selection_count AS "selectionCount",
+          i.selection_hash AS "selectionHash",i.receipt_operation_id::text AS "receiptOperationId",
+          i.target_confirmation_operation_id::text AS "targetConfirmationOperationId",i.leg_count AS "legCount"
+        FROM area3_conciliar_recovery_intents i CROSS JOIN barrier
+        WHERE barrier.locked IS NOT NULL AND i.actor_effective_id=${actorEffectiveId} AND i.idempotency_key=CAST(${idempotencyKey} AS uuid)
+        ORDER BY i.idempotency_key ASC LIMIT 1 FOR UPDATE OF i
+      )
+      SELECT i."idempotencyKey",i.action,i.resolution,i."commandHash",i."bodyHash",i."requestHash",
+        i."actorRealId",i."actorEffectiveId",i."actingSessionId",i."selectionCount",i."selectionHash",
+        i."receiptOperationId",i."targetConfirmationOperationId",i."legCount"
+      FROM barrier LEFT JOIN intent i ON true
+    `)
+  if (rows.length !== 1 || !rows[0]) fail(503,'RECOVERY_INTENT_CORRUPTO','El intent durable no conserva una forma verificable.')
+  const row = rows[0]
+  if (row.idempotencyKey === null) {
+    if (!isNullRecoveryIntentSentinel(row)) fail(503,'RECOVERY_INTENT_CORRUPTO','El intent durable no conserva una forma verificable.')
+    if (!checkLegacyReceipt) return null
+    if (row.hasLegacyReceipt === true) fail(409, 'RECOVERY_RECIBO_LEGADO_NO_VERIFICABLE', 'La clave ya tiene un recibo sin correlación durable de recuperación.')
+    if (row.hasLegacyReceipt === false) return null
+    fail(503,'RECOVERY_INTENT_CORRUPTO','El intent durable no conserva una forma verificable.')
+  }
+  const record = rowToRecord(row)
   if (!record) fail(503, 'RECOVERY_INTENT_CORRUPTO', 'El intent durable no conserva una forma verificable.')
   return record
 }
@@ -187,7 +226,6 @@ export async function prepareConciliarRecoveryIntent(
       fail(403, 'CONTEXTO_ACTUACION_CONCILIAR_INVALIDO', 'La identidad de recuperación cambió antes de preparar el intent.')
     }
     await assertRecoveryWriteAccessTx(tx, actorEffectiveId)
-    await lockRecoveryKeyTx(tx, actorEffectiveId, intent.idempotencyKey)
     const existing = await readIntentForUpdateTx(tx, actorEffectiveId, intent.idempotencyKey, true)
     if (existing) {
       assertMatchingIntent(existing, context)
@@ -212,12 +250,14 @@ export async function prepareConciliarRecoveryIntent(
 }
 
 /** Locks the already durable exact intent inside the financial transaction. */
-export async function assertConciliarRecoveryIntentExecutableTx(tx: Tx, context: ConciliarRecoveryWriteContext | null): Promise<void> {
-  if (!context) return
-  await lockRecoveryKeyTx(tx, context.identity.actorEffectiveId, context.intent.idempotencyKey)
+export async function assertConciliarRecoveryIntentExecutableTx(tx: Tx, context: ConciliarRecoveryWriteContext | null): Promise<string | undefined> {
+  if (!context) return undefined
   const existing = await readIntentForUpdateTx(tx, context.identity.actorEffectiveId, context.intent.idempotencyKey)
   if (!existing) fail(503, 'RECOVERY_INTENT_AUSENTE', 'No se encontró el intent durable de recuperación.')
   assertMatchingIntent(existing, context)
+  // Only this private post-validation value permits the exact in-transaction
+  // operation helper to reuse the barrier already taken by the CTE.
+  return context.intent.idempotencyKey
 }
 
 /**

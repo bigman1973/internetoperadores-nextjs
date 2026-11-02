@@ -825,8 +825,8 @@ async function ask(tx: Tx, actorId: number, command: Extract<ConciliarCommand, {
   return { operationId: receipt.id, idempotent: false, ...result }
 }
 
-async function undo(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'deshacer' }>) {
-  const receipt = await lockOperationOrReplay(tx, actorId, 'DESHACER', command.idempotencyKey, conciliarRequestHash(actorId, command), command.operationId)
+async function undo(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'deshacer' }>, lockedRecoveryKey?: string) {
+  const receipt = await lockOperationOrReplay(tx, actorId, 'DESHACER', command.idempotencyKey, conciliarRequestHash(actorId, command), command.operationId, lockedRecoveryKey)
   if (receipt.replay) return { operationId: command.operationId, recoveryReceiptOperationId: receipt.id, idempotent: true, ...receipt.result }
   const original = await tx.$queryRaw<Array<{ id: string; actorId: number; action: string; state: string }>>(Prisma.sql`
     SELECT id::text,actor_id AS "actorId",accion::text AS action,estado::text AS state FROM operaciones_conciliar WHERE id=CAST(${command.operationId} AS uuid) LIMIT 1 FOR UPDATE
@@ -903,12 +903,12 @@ export async function runConciliarTransactionCommand(tx: Tx, actorId: number, ra
   // The PENDING record is durable before business DML. Re-taking the shared
   // receipt lock inside this callback prevents late replay/commit races.
   if (recoveryContext && recoveryContext.identity.actorEffectiveId!==actorId) fail(403,'RECOVERY_ACTOR_INVALIDO','La identidad efectiva de recuperación no coincide.')
-  await assertConciliarRecoveryIntentExecutableTx(tx, recoveryContext)
+  const lockedRecoveryKey = await assertConciliarRecoveryIntentExecutableTx(tx, recoveryContext)
   let result: Record<string, any>
   if (command.action === 'confirmar') result = await confirm(tx, actorId, command, actors, onProgress,recoveryContext?.intent.idempotencyKey)
   else if (command.action === 'confirmar_traspasos_propios_manual') result = await confirmHumanOwnTransfers(tx, actorId, command, actors)
   else if (command.action === 'pedir') result = await ask(tx, actorId, command)
-  else result = await undo(tx, actorId, command)
+  else result = await undo(tx, actorId, command, lockedRecoveryKey)
   // Fresh snapshot after all selective DML, never persist it in the idempotency
   // receipt. Replays receive today's view rather than the original stale page.
   if (result.projectionSynchronized !== true || result.idempotent === true) {

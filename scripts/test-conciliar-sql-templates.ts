@@ -2,11 +2,16 @@ import fs from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
 import assert from 'node:assert/strict'
+import { Prisma } from '@prisma/client'
 import { classifyPrisma5RawSqlStatement } from '../lib/prisma'
 
 // Sólo clasifica plantillas de código: las interpolaciones nunca se evalúan.
 const files=[...fs.readdirSync('lib/finanzas').filter(name=>name.startsWith('conciliar-')&&name.endsWith('.ts')).map(name=>path.join('lib/finanzas',name)), 'lib/finanzas/easy-reconciliation-db.ts', 'lib/finanzas/reconciliation-db.ts', 'lib/finanzas/easy-counterparty-db.ts']
 let reviewed=0,unknown=0
+function sqlTemplate(strings: readonly string[]) {
+ const parts=Object.assign([...strings],{raw:[...strings]}) as unknown as TemplateStringsArray
+ return Prisma.sql(parts,...strings.slice(1).map((_,index)=>`template-${index}`))
+}
 for(const file of files){
  const source=ts.createSourceFile(file,fs.readFileSync(file,'utf8'),ts.ScriptTarget.Latest,true)
  const visit=(node:ts.Node)=>{
@@ -28,7 +33,7 @@ for(const file of files){
      // con Prisma.sql REAL en test-conciliar-batch-lock-classifier.ts.
      classificationStrings=[strings[0]+'(CAST(', ' AS text))'+strings[1]]
     }
-    const result=classifyPrisma5RawSqlStatement([{strings:classificationStrings}])
+    const result=classifyPrisma5RawSqlStatement([sqlTemplate(classificationStrings)])
     reviewed++
     if(result==='unknown'){
      unknown++
