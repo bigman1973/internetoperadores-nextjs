@@ -1,62 +1,87 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
+import { guardarCaptacionWeb } from '@/lib/crm-captacion-web';
 
-const HUBSPOT_TOKEN = process.env.HUBSPOT_API_KEY;
 const BREVO_API_KEY = process.env.BREVO_API_KEY;
 
 // IDs de listas
-const HUBSPOT_LIST_NEWSLETTER_EMPRESAS = 489;
-const HUBSPOT_LIST_DESCARGAS_GUIAS = 498;
 const BREVO_LIST_NEWSLETTER_EMPRESAS = 30;
 
 export async function POST(request) {
   try {
     const body = await request.json();
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return NextResponse.json({ error: 'El formulario debe ser un objeto válido' }, { status: 400 });
+    }
     const { nombre, email, empresa, telefono, cargo, guia } = body;
 
-    console.log('📚 NUEVA DESCARGA DE GUÍA:', { nombre, email, empresa, guia });
+    if (![nombre, email, empresa, telefono, cargo, guia].every(value => value == null || typeof value === 'string')) {
+      return NextResponse.json({ error: 'Los campos del formulario deben ser texto' }, { status: 400 });
+    }
 
     // Validación
-    if (!nombre || !email) {
+    if (!nombre?.trim() || !email?.trim()) {
       return NextResponse.json(
         { error: 'Faltan campos obligatorios (nombre, email)' },
         { status: 400 }
       );
     }
 
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      return NextResponse.json({ error: 'El email no es válido' }, { status: 400 });
+    }
+
+    const newsletterOptIn = body.newsletter === true;
+    const privacidad = typeof body.privacidad === 'boolean'
+      ? body.privacidad
+      : typeof body.acepta === 'boolean' ? body.acepta : null;
+    const captacion = await guardarCaptacionWeb(request, {
+      formulario: '/api/guias-lead',
+      segmentoCrm: 'EMPRESA',
+      nombre, email, telefono, empresa,
+      datos: {
+        nombre, email, empresa: empresa || null, telefono: telefono || null,
+        cargo: cargo || null, guia: guia || 'Guía no especificada',
+      },
+      newsletter: newsletterOptIn,
+      privacidad,
+    });
+    const resultadoLocal = {
+      success: true,
+      contactoId: captacion.contactoId,
+      captacionId: captacion.captacionId,
+      repetido: captacion.repetido,
+    };
+    if (captacion.repetido) {
+      return NextResponse.json({ ...resultadoLocal, emailComercial: false, emailInteresado: false, brevo: false });
+    }
+
     const brevoApiKey = (BREVO_API_KEY || '').trim();
-    const hubspotToken = (HUBSPOT_TOKEN || '').trim();
     const guiaNombre = guia || 'Guía no especificada';
 
     // Ejecutar todas las acciones en paralelo
     const results = await Promise.allSettled([
       // 1. Email de notificación a comercial
-      sendEmailComercial(brevoApiKey, { nombre, email, empresa, telefono, cargo, guiaNombre }),
+      sendEmailComercial(brevoApiKey, { nombre, email, empresa, telefono, cargo, guiaNombre, newsletter: newsletterOptIn }),
       // 2. Email de confirmación al interesado
-      sendEmailInteresado(brevoApiKey, { nombre, email, guiaNombre }),
-      // 3. Crear/actualizar contacto en Brevo + lista Newsletter Empresas
-      addToBrevo(brevoApiKey, { nombre, email, empresa, telefono, cargo, guiaNombre }),
-      // 4. Crear/actualizar contacto en HubSpot + listas
-      addToHubSpot(hubspotToken, { nombre, email, empresa, telefono, cargo, guiaNombre }),
+      sendEmailInteresado(brevoApiKey, { nombre, email, guiaNombre, newsletter: newsletterOptIn }),
+      // 3. Newsletter opcional, nunca implícito por descargar una guía
+      newsletterOptIn ? addToBrevo(brevoApiKey, { nombre, email, empresa, telefono, guiaNombre }) : Promise.resolve(false),
     ]);
 
     const emailComercial = results[0].status === 'fulfilled' && results[0].value;
     const emailInteresado = results[1].status === 'fulfilled' && results[1].value;
     const brevo = results[2].status === 'fulfilled' && results[2].value;
-    const hubspot = results[3].status === 'fulfilled' && results[3].value;
-
-    console.log('📚 Resultados:', { emailComercial, emailInteresado, brevo, hubspot });
 
     return NextResponse.json({
-      success: true,
+      ...resultadoLocal,
       emailComercial,
       emailInteresado,
       brevo,
-      hubspot,
     });
 
-  } catch (error) {
-    console.error('❌ Error procesando descarga de guía:', error);
+  } catch {
+    console.error('[guias-lead] No se pudo completar la operación');
     return NextResponse.json(
       { error: 'Error al procesar la solicitud' },
       { status: 500 }
@@ -65,7 +90,7 @@ export async function POST(request) {
 }
 
 // --- Email a comercial ---
-async function sendEmailComercial(apiKey, { nombre, email, empresa, telefono, cargo, guiaNombre }) {
+async function sendEmailComercial(apiKey, { nombre, email, empresa, telefono, cargo, guiaNombre, newsletter }) {
   if (!apiKey) return false;
 
   const res = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -99,7 +124,7 @@ async function sendEmailComercial(apiKey, { nombre, email, empresa, telefono, ca
             </table>
             <div style="margin-top: 24px; padding: 16px; background: #FFF7ED; border-radius: 8px;">
               <p style="margin: 0; color: #9A3412; font-size: 14px;">
-                <strong>💡 Sugerencia:</strong> Este lead se ha suscrito al newsletter y ha descargado ${guiaNombre}. Contactar en 24-48h para ofrecer asesoramiento personalizado.
+                <strong>💡 Sugerencia:</strong> Este contacto ha descargado ${guiaNombre}.${newsletter ? " También se ha suscrito al newsletter." : " No ha solicitado suscribirse al newsletter."} Contactar en 24-48h para ofrecer asesoramiento personalizado.
               </p>
             </div>
           </div>
@@ -117,7 +142,7 @@ async function sendEmailComercial(apiKey, { nombre, email, empresa, telefono, ca
 }
 
 // --- Email de confirmación al interesado ---
-async function sendEmailInteresado(apiKey, { nombre, email, guiaNombre }) {
+async function sendEmailInteresado(apiKey, { nombre, email, guiaNombre, newsletter }) {
   if (!apiKey) return false;
 
   const res = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -139,9 +164,9 @@ async function sendEmailInteresado(apiKey, { nombre, email, guiaNombre }) {
             <p style="color: #374151; font-size: 16px; line-height: 1.6;">
               Gracias por descargar <strong>"${guiaNombre}"</strong>. Esperamos que te sea de gran utilidad para tu empresa.
             </p>
-            <p style="color: #374151; font-size: 16px; line-height: 1.6;">
+            ${newsletter ? `<p style="color: #374151; font-size: 16px; line-height: 1.6;">
               Te has suscrito a nuestro newsletter de empresas. Recibirás periódicamente contenido exclusivo sobre soluciones IT y telecomunicaciones.
-            </p>
+            </p>` : ''}
             <div style="margin: 30px 0; padding: 20px; background: #FFF7ED; border-radius: 8px; border-left: 4px solid #F97316;">
               <p style="margin: 0; color: #9A3412; font-size: 14px;">
                 <strong>¿Necesitas asesoramiento personalizado?</strong><br>
@@ -153,9 +178,9 @@ async function sendEmailInteresado(apiKey, { nombre, email, guiaNombre }) {
             <p style="color: #9CA3AF; font-size: 12px; margin: 0;">
               Internet Operadores · 900 730 034 · <a href="https://www.internetoperadores.com" style="color: #F97316;">internetoperadores.com</a>
             </p>
-            <p style="color: #9CA3AF; font-size: 11px; margin: 8px 0 0 0;">
+            ${newsletter ? `<p style="color: #9CA3AF; font-size: 11px; margin: 8px 0 0 0;">
               Puedes darte de baja en cualquier momento desde el enlace de nuestros emails.
-            </p>
+            </p>` : ''}
           </div>
         </div>
       `
@@ -166,7 +191,7 @@ async function sendEmailInteresado(apiKey, { nombre, email, guiaNombre }) {
 }
 
 // --- Brevo: crear contacto + lista Newsletter Empresas ---
-async function addToBrevo(apiKey, { nombre, email, empresa, telefono, cargo, guiaNombre }) {
+async function addToBrevo(apiKey, { nombre, email, empresa, telefono, guiaNombre }) {
   if (!apiKey) return false;
 
   try {
@@ -189,12 +214,11 @@ async function addToBrevo(apiKey, { nombre, email, empresa, telefono, cargo, gui
     });
 
     if (res.ok || res.status === 204) {
-      console.log('✅ Contacto creado/actualizado en Brevo + Newsletter Empresas');
       return true;
     }
 
     // Si ya existe, actualizar listas
-    if (res.status === 400) {
+    if (res.status === 400 && (await res.json()).code === 'duplicate_parameter') {
       const addToList = await fetch(`https://api.brevo.com/v3/contacts/lists/${BREVO_LIST_NEWSLETTER_EMPRESAS}/contacts/add`, {
         method: 'POST',
         headers: { 'accept': 'application/json', 'api-key': apiKey, 'content-type': 'application/json' },
@@ -204,89 +228,8 @@ async function addToBrevo(apiKey, { nombre, email, empresa, telefono, cargo, gui
     }
 
     return false;
-  } catch (err) {
-    console.error('Error Brevo:', err);
-    return false;
-  }
-}
-
-// --- HubSpot: crear contacto + listas Newsletter Empresas + Descargas Guías ---
-async function addToHubSpot(token, { nombre, email, empresa, telefono, cargo, guiaNombre }) {
-  if (!token) return false;
-
-  try {
-    // 1. Crear o actualizar contacto
-    let contactId;
-
-    const createRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        properties: {
-          email,
-          firstname: nombre.split(' ')[0],
-          lastname: nombre.split(' ').slice(1).join(' ') || '',
-          company: empresa || '',
-          phone: telefono || '',
-          jobtitle: cargo || '',
-          hs_lead_status: 'NEW',
-        }
-      })
-    });
-
-    if (createRes.ok) {
-      const data = await createRes.json();
-      contactId = data.id;
-    } else if (createRes.status === 409) {
-      // Contacto ya existe, buscar por email
-      const searchRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: email }] }]
-        })
-      });
-      if (searchRes.ok) {
-        const searchData = await searchRes.json();
-        if (searchData.results && searchData.results.length > 0) {
-          contactId = searchData.results[0].id;
-        }
-      }
-    }
-
-    if (!contactId) return false;
-
-    // 2. Añadir a lista Newsletter Empresas + Descargas de Guías
-    const listPromises = [HUBSPOT_LIST_NEWSLETTER_EMPRESAS, HUBSPOT_LIST_DESCARGAS_GUIAS].map(listId =>
-      fetch(`https://api.hubapi.com/crm/v3/lists/${listId}/memberships/add`, {
-        method: 'PUT',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify([contactId])
-      })
-    );
-
-    await Promise.allSettled(listPromises);
-
-    // 3. Crear nota con la guía descargada
-    await fetch('https://api.hubapi.com/crm/v3/objects/notes', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        properties: {
-          hs_note_body: `📚 Descarga de guía: ${guiaNombre}\nFecha: ${new Date().toLocaleDateString('es-ES')}\nSuscrito a Newsletter Empresas (obligatorio para descarga)`,
-          hs_timestamp: new Date().toISOString()
-        },
-        associations: [{
-          to: { id: contactId },
-          types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 202 }]
-        }]
-      })
-    });
-
-    console.log('✅ HubSpot: contacto + listas + nota OK');
-    return true;
-  } catch (err) {
-    console.error('Error HubSpot:', err);
+  } catch {
+    console.error('[guias-lead] No se pudo completar la operación');
     return false;
   }
 }

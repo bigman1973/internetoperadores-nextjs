@@ -1,10 +1,7 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { guardarCaptacionWeb } from '@/lib/crm-captacion-web';
 
 const BREVO_API_KEY = (process.env.BREVO_API_KEY || '').trim();
-const HUBSPOT_API_KEY = (process.env.HUBSPOT_API_KEY || '').trim();
-const HUBSPOT_LIST_MANTENIMIENTO = '502'; // Lista "IO-MANTENIMIENTO-IT"
-const HUBSPOT_LIST_NEWSLETTER_EMPRESAS = '489';
 const BREVO_LIST_NEWSLETTER_EMPRESAS = 30;
 
 async function sendBrevoEmail(to: { email: string; name: string }, subject: string, htmlContent: string) {
@@ -21,131 +18,6 @@ async function sendBrevoEmail(to: { email: string; name: string }, subject: stri
     });
     return res.ok;
   } catch { return false; }
-}
-
-async function addToHubSpot(email: string, nombre: string, empresa: string, telefono: string, listIds: string[], nota: string) {
-  if (!HUBSPOT_API_KEY) {
-    console.warn('[MANTENIMIENTO-IT] HUBSPOT_API_KEY no configurada');
-    return false;
-  }
-
-  try {
-    const properties: Record<string, string> = {
-      email,
-      firstname: nombre,
-      company: empresa,
-      lifecyclestage: 'subscriber',
-      hs_lead_status: 'NEW',
-    };
-    if (telefono && telefono.trim()) {
-      properties.phone = telefono.trim();
-    }
-
-    console.log('[MANTENIMIENTO-IT] Creando contacto en HubSpot:', email);
-
-    const contactRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ properties }),
-    });
-
-    let contactId: string = '';
-
-    if (contactRes.status === 409) {
-      const conflictData = await contactRes.json();
-      contactId = conflictData.message?.match(/Existing ID: (\d+)/)?.[1] || '';
-
-      if (!contactId) {
-        const idMatch = JSON.stringify(conflictData).match(/(\d{8,})/);
-        contactId = idMatch?.[1] || '';
-      }
-
-      if (!contactId) {
-        const searchRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: email }] }] }),
-        });
-        const searchData = await searchRes.json();
-        contactId = searchData.results?.[0]?.id || '';
-      }
-
-      if (contactId) {
-        const updateProps: Record<string, string> = { firstname: nombre, company: empresa };
-        if (telefono && telefono.trim()) updateProps.phone = telefono.trim();
-        await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}`, {
-          method: 'PATCH',
-          headers: { Authorization: `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ properties: updateProps }),
-        });
-      }
-      console.log('[MANTENIMIENTO-IT] Contacto existente encontrado:', contactId);
-    } else if (contactRes.ok) {
-      const contactData = await contactRes.json();
-      contactId = contactData.id;
-      console.log('[MANTENIMIENTO-IT] Contacto creado con ID:', contactId);
-    } else {
-      const errText = await contactRes.text();
-      console.error('[MANTENIMIENTO-IT] Error HubSpot creando contacto:', contactRes.status, errText);
-
-      if (contactRes.status === 400) {
-        const simpleProps: Record<string, string> = { email, firstname: nombre, company: empresa };
-        if (telefono && telefono.trim()) simpleProps.phone = telefono.trim();
-
-        const retryRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ properties: simpleProps }),
-        });
-
-        if (retryRes.status === 409) {
-          const searchRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: email }] }] }),
-          });
-          const searchData = await searchRes.json();
-          contactId = searchData.results?.[0]?.id || '';
-        } else if (retryRes.ok) {
-          const retryData = await retryRes.json();
-          contactId = retryData.id;
-        }
-      }
-    }
-
-    if (!contactId) {
-      console.error('[MANTENIMIENTO-IT] No se pudo obtener contactId para:', email);
-      return false;
-    }
-
-    // Añadir a listas
-    for (const listId of listIds) {
-      const listRes = await fetch(`https://api.hubapi.com/crm/v3/lists/${listId}/memberships/add`, {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify([contactId]),
-      });
-      const listText = await listRes.text();
-      console.log(`[MANTENIMIENTO-IT] Lista ${listId} response: ${listRes.status} - ${listText}`);
-    }
-
-    // Crear nota
-    if (nota) {
-      await fetch('https://api.hubapi.com/crm/v3/objects/notes', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          properties: { hs_note_body: nota, hs_timestamp: new Date().toISOString() },
-          associations: [{ to: { id: contactId }, types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 202 }] }],
-        }),
-      });
-    }
-
-    return true;
-  } catch (error) {
-    console.error('[MANTENIMIENTO-IT] Error HubSpot:', error);
-    return false;
-  }
 }
 
 async function addToBrevoNewsletter(email: string, nombre: string, empresa: string, telefono: string) {
@@ -211,6 +83,62 @@ export async function POST(request: Request) {
     // Normalizar servicios de interés
     const serviciosTexto = Array.isArray(serviciosInteres) ? serviciosInteres.join(', ') : (serviciosInteres || 'No indicado');
     const softwareTexto = Array.isArray(softwareEspecifico) ? softwareEspecifico.join(', ') : (softwareEspecifico || 'No indicado');
+
+    // Persistir contacto, captación y detalle en una única transacción antes de enviar emails.
+    const datosSolicitud = {
+      tipoNegocio: tipoNegocio || null,
+      numEquipos: numEquipos || null,
+      coberturaHoraria: coberturaHoraria || null,
+      // Campos Farmacia/HORECA
+      ...(tipoNegocio === 'FARMACIA' || tipoNegocio === 'HORECA' ? {
+        softwareEspecifico: softwareEspecifico || [],
+        produccion24h: produccion24h || null,
+      } : {}),
+      // Campos PYME
+      ...(tipoNegocio === 'PYME' ? {
+        numServidores: numServidores || null,
+        serviciosInteres: serviciosInteres || [],
+        backupCiberseguridad: backupCiberseguridad || null,
+      } : {}),
+      // Campos Mediana/Grande
+      ...(tipoNegocio === 'MEDIANA_GRANDE' ? {
+        numServidores: numServidores || null,
+        numSedes: numSedes || null,
+        equipoITInterno: equipoITInterno || null,
+        sistemasCriticos: sistemasCriticos || null,
+        presupuestoOrientativo: presupuestoOrientativo || null,
+        serviciosInteres: serviciosInteres || [],
+      } : {}),
+      comentarios: comentarios || null,
+    };
+    const { contactoId, registro: lead, repetido } = await guardarCaptacionWeb(request, {
+      formulario: '/api/contrata/mantenimiento-it',
+      segmentoCrm: 'EMPRESA',
+      nombre,
+      email,
+      telefono: telefono || null,
+      empresa,
+      datos: datosSolicitud,
+      newsletter: body.newsletter === true,
+      privacidad: typeof body.privacidad === 'boolean' ? body.privacidad : null,
+      persistir: async (tx, contactoId) => tx.leadSolucion.create({
+        data: {
+          crmContactoId: contactoId,
+          tipo: 'MANTENIMIENTO_IT',
+          segmentoCrm: 'EMPRESA',
+          nombre,
+          email,
+          empresa,
+          telefono: telefono || null,
+          datos: datosSolicitud,
+        },
+      }),
+    });
+
+    // Un reintento devuelve el mismo detalle, sin repetir emails ni suscripciones.
+    if (repetido) {
+      return NextResponse.json({ success: true, leadId: lead.id, contactoId, repetido: true }, { status: 201 });
+    }
 
     // === EMAILS ===
     const emailComercialHtml = `
@@ -309,56 +237,13 @@ export async function POST(request: Request) {
       sendBrevoEmail({ email, name: nombre }, `Tu solicitud de Servicios IT ha sido recibida - Internet Operadores`, emailInteresadoHtml),
     ];
 
-    // HubSpot: lista Mantenimiento IT + Newsletter Empresas
-    const notaHubspot = `Solicitud de Servicios IT Gestionados\nTipo de negocio: ${tipoNegocioLabel}\n- Equipos/PCs: ${numEquipos || 'No indicado'}\n- Cobertura horaria: ${coberturaHoraria || 'No indicado'}\n${numServidores ? `- Servidores: ${numServidores}\n` : ''}${softwareTexto !== 'No indicado' ? `- Software específico: ${softwareTexto}\n` : ''}${produccion24h ? `- Producción/servicio: ${produccion24h}\n` : ''}${backupCiberseguridad ? `- Backup/Ciberseguridad: ${backupCiberseguridad}\n` : ''}${numSedes ? `- Nº sedes: ${numSedes}\n` : ''}${equipoITInterno ? `- Equipo IT interno: ${equipoITInterno}\n` : ''}${sistemasCriticos ? `- Sistemas críticos: ${sistemasCriticos}\n` : ''}${presupuestoOrientativo ? `- Presupuesto orientativo: ${presupuestoOrientativo}\n` : ''}- Servicios de interés: ${serviciosTexto}\n- Comentarios: ${comentarios || 'Sin comentarios'}\n\nFecha: ${new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })}`;
+    // La suscripción comercial es opcional y requiere un opt-in explícito.
+    const newsletterPromises = body.newsletter === true
+      ? [addToBrevoNewsletter(email, nombre, empresa, telefono || '')]
+      : [];
+    await Promise.allSettled([...emailPromises, ...newsletterPromises]);
 
-    const hubspotPromise = addToHubSpot(email, nombre, empresa, telefono, [HUBSPOT_LIST_MANTENIMIENTO, HUBSPOT_LIST_NEWSLETTER_EMPRESAS], notaHubspot);
-
-    // Brevo: newsletter empresas
-    const brevoPromise = addToBrevoNewsletter(email, nombre, empresa, telefono);
-
-    // Guardar en BD
-    const dbPromise = prisma.leadSolucion.create({
-      data: {
-        tipo: 'MANTENIMIENTO_IT',
-        segmentoCrm: 'EMPRESA',
-        nombre,
-        email,
-        empresa,
-        telefono: telefono || null,
-        datos: {
-          tipoNegocio: tipoNegocio || null,
-          numEquipos: numEquipos || null,
-          coberturaHoraria: coberturaHoraria || null,
-          // Campos Farmacia/HORECA
-          ...(tipoNegocio === 'FARMACIA' || tipoNegocio === 'HORECA' ? {
-            softwareEspecifico: softwareEspecifico || [],
-            produccion24h: produccion24h || null,
-          } : {}),
-          // Campos PYME
-          ...(tipoNegocio === 'PYME' ? {
-            numServidores: numServidores || null,
-            serviciosInteres: serviciosInteres || [],
-            backupCiberseguridad: backupCiberseguridad || null,
-          } : {}),
-          // Campos Mediana/Grande
-          ...(tipoNegocio === 'MEDIANA_GRANDE' ? {
-            numServidores: numServidores || null,
-            numSedes: numSedes || null,
-            equipoITInterno: equipoITInterno || null,
-            sistemasCriticos: sistemasCriticos || null,
-            presupuestoOrientativo: presupuestoOrientativo || null,
-            serviciosInteres: serviciosInteres || [],
-          } : {}),
-          comentarios: comentarios || null,
-        },
-      },
-    }).catch(err => console.error('[MANTENIMIENTO-IT] Error guardando en BD:', err));
-
-    // Ejecutar todo en paralelo y esperar
-    await Promise.allSettled([...emailPromises, hubspotPromise, brevoPromise, dbPromise]);
-
-    return NextResponse.json({ success: true }, { status: 201 });
+    return NextResponse.json({ success: true, leadId: lead.id, contactoId, repetido: false }, { status: 201 });
   } catch (error) {
     console.error('[MANTENIMIENTO-IT] Error general:', error);
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });

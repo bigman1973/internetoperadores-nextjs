@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 
@@ -13,6 +13,7 @@ interface FormData {
   telefono: string;
   urlWebActual: string;
   newsletter: boolean;
+  privacidad: boolean;
   // Paso 2
   sector: string;
   sectorOtro: string;
@@ -45,7 +46,8 @@ const initialFormData: FormData = {
   email: '',
   telefono: '',
   urlWebActual: '',
-  newsletter: true,
+  newsletter: false,
+  privacidad: false,
   sector: '',
   sectorOtro: '',
   numPaginas: '',
@@ -164,6 +166,7 @@ function MigracionWebFormularioContent() {
   const [formData, setFormData] = useState<FormData>(initialFormData);
   const [enviando, setEnviando] = useState(false);
   const [enviado, setEnviado] = useState(false);
+  const envioRef = useRef<{ payload: string; key: string } | null>(null);
   const [error, setError] = useState('');
 
   // Pre-rellenar datos desde parámetros URL (viene del formulario rápido)
@@ -274,13 +277,21 @@ function MigracionWebFormularioContent() {
   }
 
   async function enviarFormulario() {
+    if (!formData.privacidad) {
+      setError('Debes aceptar la política de privacidad para enviar la solicitud.');
+      return;
+    }
     setEnviando(true);
     setError('');
     try {
+      const payload = JSON.stringify(formData);
+      if (!envioRef.current || envioRef.current.payload !== payload) {
+        envioRef.current = { payload, key: crypto.randomUUID() };
+      }
       const res = await fetch('/api/contrata/migracion-web', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': envioRef.current.key },
+        body: payload,
       });
       if (!res.ok) {
         const data = await res.json();
@@ -769,7 +780,7 @@ function MigracionWebFormularioContent() {
               </div>
               <div className="mt-6 space-y-3">
                 <label className="flex items-start gap-2 cursor-pointer">
-                  <input type="checkbox" className="mt-1 w-4 h-4 text-orange-500 rounded focus:ring-orange-500" required />
+                  <input type="checkbox" checked={formData.privacidad} onChange={e => updateField('privacidad', e.target.checked)} className="mt-1 w-4 h-4 text-orange-500 rounded focus:ring-orange-500" required />
                   <span className="text-sm text-gray-600">
                     Acepto la <a href="/privacidad" className="text-orange-500 underline">política de privacidad</a> y consiento el tratamiento de mis datos para recibir la propuesta solicitada. *
                   </span>
@@ -780,10 +791,9 @@ function MigracionWebFormularioContent() {
                     checked={formData.newsletter}
                     onChange={(e) => updateField('newsletter', e.target.checked)}
                     className="mt-1 w-4 h-4 text-orange-500 rounded focus:ring-orange-500"
-                    required
                   />
                   <span className="text-sm text-gray-600">
-                    Suscribirme al newsletter de empresas para recibir novedades y ofertas. *
+                    Suscribirme al newsletter de empresas para recibir novedades y ofertas (opcional).
                   </span>
                 </label>
               </div>

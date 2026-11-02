@@ -3,7 +3,7 @@ import Link from 'next/link';
 import EmpresaNav from '../../../components/EmpresaNav';
 import EmpresaFooter from '../../../components/EmpresaFooter';
 import ProductosSolucionDynamic from '../../../components/public/ProductosSolucionDynamic';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 
 const partners = [
   {
@@ -95,6 +95,7 @@ export default function ComunicacionesUnificadasPage() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const envioRef = useRef<{ payload: string; key: string } | null>(null);
   const [error, setError] = useState('');
 
   const handleFuncionalidadChange = (func: string) => {
@@ -111,21 +112,26 @@ export default function ComunicacionesUnificadasPage() {
     setIsSubmitting(true);
     setError('');
     try {
+      const payload = JSON.stringify({
+        nombre: formData.nombre,
+        email: formData.email,
+        empresa: formData.empresa,
+        telefono: formData.telefono,
+        numEmpleados: formData.numEmpleados,
+        centralitaActual: formData.centralitaActual,
+        funcionalidades: formData.funcionalidades,
+        modalidadTrabajo: formData.modalidadTrabajo,
+        operadorActual: formData.operadorActual,
+        comentarios: formData.comentarios,
+        newsletter: formData.newsletter,
+      });
+      if (!envioRef.current || envioRef.current.payload !== payload) {
+        envioRef.current = { payload, key: crypto.randomUUID() };
+      }
       const response = await fetch('/api/contrata/comunicaciones-unificadas', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          nombre: formData.nombre,
-          email: formData.email,
-          empresa: formData.empresa,
-          telefono: formData.telefono,
-          numEmpleados: formData.numEmpleados,
-          centralitaActual: formData.centralitaActual,
-          funcionalidades: formData.funcionalidades,
-          modalidadTrabajo: formData.modalidadTrabajo,
-          operadorActual: formData.operadorActual,
-          comentarios: formData.comentarios,
-        }),
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': envioRef.current.key },
+        body: payload,
       });
       if (response.ok) {
         setIsSubmitted(true);
@@ -420,8 +426,8 @@ export default function ComunicacionesUnificadasPage() {
                     </div>
 
                     <div className="flex items-start gap-2">
-                      <input type="checkbox" required checked={formData.newsletter} onChange={(e) => setFormData({...formData, newsletter: e.target.checked})} className="mt-1 rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
-                      <label className="text-xs text-gray-500">Acepto recibir la propuesta personalizada y suscribirme al newsletter de Internet Operadores con novedades y consejos para empresas. Puedo darme de baja en cualquier momento.</label>
+                      <input type="checkbox" checked={formData.newsletter} onChange={(e) => setFormData({...formData, newsletter: e.target.checked})} className="mt-1 rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
+                      <label className="text-xs text-gray-500">Quiero suscribirme al newsletter de Internet Operadores con novedades y consejos para empresas. Puedo darme de baja en cualquier momento.</label>
                     </div>
                     {error && <p className="text-red-600 text-sm">{error}</p>}
                     <button type="submit" disabled={isSubmitting} className="w-full px-6 py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-lg disabled:opacity-50 disabled:cursor-not-allowed">

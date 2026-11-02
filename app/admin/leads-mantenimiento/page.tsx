@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import LeadCrmLink from '@/components/crm/LeadCrmLink';
 
 interface Lead {
   id: string;
+  crmContactoId: string | null;
   nombre: string;
   email: string;
   empresa: string;
@@ -385,6 +387,7 @@ export default function LeadsMantenimientoPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
+                          <LeadCrmLink tipo="SOLUCION" id={lead.id} contactoId={lead.crmContactoId} className="text-xs" />
                           <Link
                             href={`/admin/leads-mantenimiento/${lead.id}`}
                             className="inline-flex min-h-11 items-center gap-1 px-3 py-1.5 bg-orange-50 text-orange-700 rounded-lg text-xs font-medium hover:bg-orange-100 transition-all"

@@ -1,10 +1,8 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
-import { prisma } from '../../../lib/prisma';
+import { guardarCaptacionWeb } from '@/lib/crm-captacion-web';
 
 // IDs de listas
-const HUBSPOT_LISTA_SOLICITUDES_PARTNER = '496';
-const HUBSPOT_LISTA_NEWSLETTER_PARTNERS = '495';
 const BREVO_LISTA_NEWSLETTER_PARTNERS = 32;
 
 // Mapa de sectores
@@ -21,42 +19,71 @@ const SECTORES_MAP = {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { nombre, empresa, email, telefono, sector, numClientes, mensaje, newsletter } = body;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return NextResponse.json({ error: 'El formulario debe ser un objeto válido' }, { status: 400 });
+    }
+    const { nombre, empresa, email, telefono, sector, numClientes, mensaje } = body;
 
-    console.log('🤝 NUEVA SOLICITUD DE PARTNER:');
-    console.log('Nombre:', nombre, '| Empresa:', empresa);
-    console.log('Email:', email, '| Tel:', telefono);
-    console.log('Sector:', sector, '| Clientes:', numClientes);
-    console.log('Newsletter:', newsletter);
+    if (![nombre, empresa, email, telefono, sector, numClientes, mensaje].every(value => value == null || typeof value === 'string')) {
+      return NextResponse.json({ error: 'Los campos del formulario deben ser texto' }, { status: 400 });
+    }
 
     // Validación
-    if (!nombre || !email || !telefono || !sector) {
+    if (!nombre?.trim() || !email?.trim() || !telefono?.trim() || !sector?.trim()) {
       return NextResponse.json(
         { error: 'Faltan campos obligatorios' },
         { status: 400 }
       );
     }
 
-    const brevoApiKey = (process.env.BREVO_API_KEY || '').trim();
-    const hubspotToken = (process.env.HUBSPOT_API_KEY || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      return NextResponse.json({ error: 'El email no es válido' }, { status: 400 });
+    }
+
     const sectorNombre = SECTORES_MAP[sector] || sector;
 
-    // PostgreSQL es la fuente de verdad del CRM. Las integraciones externas son complementarias.
-    const leadPartner = await prisma.leadPartner.create({
-      data: {
-        segmentoCrm: 'PARTNER',
-        nombre: String(nombre).trim(),
-        empresa: empresa ? String(empresa).trim() : null,
-        email: String(email).trim().toLowerCase(),
-        telefono: String(telefono).trim(),
-        sector: sectorNombre,
-        numClientes: numClientes ? String(numClientes).trim() : null,
-        mensaje: mensaje ? String(mensaje).trim() : null,
-        newsletter: newsletter === true,
-        estado: 'NUEVO',
-        prioridad: 'MEDIA',
+    const newsletterOptIn = body.newsletter === true;
+    const privacidad = typeof body.privacidad === 'boolean'
+      ? body.privacidad
+      : typeof body.acepta === 'boolean' ? body.acepta : null;
+    // Crear CRM, captación y solicitud partner dentro de la misma transacción.
+    const captacion = await guardarCaptacionWeb(request, {
+      formulario: '/api/partners',
+      segmentoCrm: 'PARTNER',
+      nombre, email, telefono, empresa,
+      datos: {
+        nombre, email, telefono, empresa: empresa || null, sector,
+        numClientes: numClientes || null, mensaje: mensaje || null,
       },
+      newsletter: newsletterOptIn,
+      privacidad,
+      persistir: async (tx, contactoId) => tx.leadPartner.create({
+        data: {
+          crmContactoId: contactoId,
+          segmentoCrm: 'PARTNER',
+          nombre: nombre.trim(),
+          empresa: empresa ? empresa.trim() : null,
+          email: email.trim().toLowerCase(),
+          telefono: telefono.trim(),
+          sector: sectorNombre,
+          numClientes: numClientes ? numClientes.trim() : null,
+          mensaje: mensaje ? mensaje.trim() : null,
+          newsletter: newsletterOptIn,
+          estado: 'NUEVO',
+          prioridad: 'MEDIA',
+        },
+      }),
     });
+    const resultadoLocal = {
+      success: true,
+      contactoId: captacion.contactoId,
+      captacionId: captacion.captacionId,
+      repetido: captacion.repetido,
+    };
+    const respuesta = { ...resultadoLocal, id: captacion.registro.id };
+    if (captacion.repetido) return NextResponse.json(respuesta, { status: 201 });
+
+    const brevoApiKey = (process.env.BREVO_API_KEY || '').trim();
 
     // Ejecutar todas las acciones externas en paralelo
     const promises = [];
@@ -71,22 +98,17 @@ export async function POST(request) {
       promises.push(enviarEmailConfirmacion(brevoApiKey, { nombre, empresa, email, sectorNombre }));
     }
 
-    // 3. Crear contacto en HubSpot y añadir a lista de solicitudes partner
-    if (hubspotToken) {
-      promises.push(crearContactoHubSpot(hubspotToken, { nombre, empresa, email, telefono, sectorNombre, numClientes, newsletter }));
-    }
-
-    // 4. Si se suscribe al newsletter, crear contacto en Brevo con lista partners
-    if (newsletter && brevoApiKey) {
+    // 3. Si se suscribe al newsletter, crear contacto en Brevo con lista partners
+    if (newsletterOptIn && brevoApiKey) {
       promises.push(crearContactoBrevo(brevoApiKey, { nombre, empresa, email, telefono }));
     }
 
     await Promise.allSettled(promises);
 
-    return NextResponse.json({ success: true, id: leadPartner.id }, { status: 201 });
+    return NextResponse.json(respuesta, { status: 201 });
 
-  } catch (error) {
-    console.error('❌ Error procesando solicitud de partner:', error);
+  } catch {
+    console.error('[partners] No se pudo completar la operación');
     return NextResponse.json(
       { error: 'Error al procesar la solicitud' },
       { status: 500 }
@@ -164,14 +186,12 @@ async function enviarEmailComercial(apiKey, data) {
       })
     });
 
-    if (res.ok) {
-      console.log('✅ Email notificación partner enviado a comercial');
-    } else {
-      const err = await res.json();
-      console.error('❌ Error email comercial partner:', err);
+    if (!res.ok) {
+
+      console.error('[partners] No se pudo completar la operación');
     }
-  } catch (e) {
-    console.error('❌ Error enviando email comercial partner:', e);
+  } catch {
+    console.error('[partners] No se pudo completar la operación');
   }
 }
 
@@ -253,94 +273,12 @@ async function enviarEmailConfirmacion(apiKey, data) {
       })
     });
 
-    if (res.ok) {
-      console.log('✅ Email confirmación partner enviado a:', email);
-    } else {
-      const err = await res.json();
-      console.error('❌ Error email confirmación partner:', err);
+    if (!res.ok) {
+
+      console.error('[partners] No se pudo completar la operación');
     }
-  } catch (e) {
-    console.error('❌ Error enviando email confirmación partner:', e);
-  }
-}
-
-// Crear contacto en HubSpot y añadir a lista de solicitudes partner
-async function crearContactoHubSpot(token, data) {
-  const { nombre, empresa, email, telefono, sectorNombre, numClientes, newsletter } = data;
-  
-  try {
-    const properties = {
-      email,
-      firstname: nombre,
-      phone: telefono,
-      company: empresa || '',
-    };
-
-    // Crear contacto
-    const contactRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ properties }),
-    });
-
-    let contactId = '';
-
-    if (contactRes.status === 409) {
-      // Ya existe, buscar ID
-      const searchRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: email }] }],
-        }),
-      });
-      const searchData = await searchRes.json();
-      contactId = searchData.results?.[0]?.id || '';
-    } else if (contactRes.ok) {
-      const contactData = await contactRes.json();
-      contactId = contactData.id;
-    }
-
-    if (contactId) {
-      // Añadir a lista de Solicitudes Partner
-      await fetch(`https://api.hubapi.com/crm/v3/lists/${HUBSPOT_LISTA_SOLICITUDES_PARTNER}/memberships/add`, {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify([contactId]),
-      });
-      console.log('✅ Contacto añadido a lista Solicitudes Partner en HubSpot:', contactId);
-
-      // Si se suscribe al newsletter partners, añadir también a esa lista
-      if (newsletter) {
-        await fetch(`https://api.hubapi.com/crm/v3/lists/${HUBSPOT_LISTA_NEWSLETTER_PARTNERS}/memberships/add`, {
-          method: 'PUT',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify([contactId]),
-        });
-        console.log('✅ Contacto añadido a newsletter partners HubSpot');
-      }
-
-      // Crear nota con detalles
-      await fetch('https://api.hubapi.com/crm/v3/objects/notes', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          properties: {
-            hs_note_body: `Solicitud Programa de Partners\nSector: ${sectorNombre}\nN.º clientes: ${numClientes || 'No especificado'}\nOrigen: Web internetoperadores.com/partners`,
-            hs_timestamp: new Date().toISOString(),
-          },
-          associations: [{
-            to: { id: contactId },
-            types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 202 }]
-          }]
-        }),
-      });
-    }
-  } catch (e) {
-    console.error('❌ Error HubSpot partner:', e);
+  } catch {
+    console.error('[partners] No se pudo completar la operación');
   }
 }
 
@@ -371,9 +309,7 @@ async function crearContactoBrevo(apiKey, data) {
       body: JSON.stringify(contactData)
     });
 
-    if (res.ok) {
-      console.log('✅ Contacto creado en Brevo con newsletter partners');
-    } else {
+    if (!res.ok) {
       const err = await res.json();
       if (err.code === 'duplicate_parameter') {
         // Ya existe, añadir a lista
@@ -382,10 +318,9 @@ async function crearContactoBrevo(apiKey, data) {
           headers: { 'accept': 'application/json', 'api-key': apiKey, 'content-type': 'application/json' },
           body: JSON.stringify({ emails: [email] })
         });
-        console.log('✅ Contacto existente añadido a newsletter partners Brevo');
       }
     }
-  } catch (e) {
-    console.error('❌ Error Brevo newsletter partners:', e);
+  } catch {
+    console.error('[partners] No se pudo completar la operación');
   }
 }

@@ -66,6 +66,7 @@ export default async function CrmContactsDirectoryContent({ params }: { params: 
   const pageSize = 40
   const visibleContactScope = {
     OR: [
+      { hubspotId: null },
       { hubspotId: { startsWith: 'local:' } },
       { empresasCrm: { some: { activo: true } } },
       { listas: { some: { activo: true, lista: { activo: true } } } },
@@ -236,7 +237,7 @@ export default async function CrmContactsDirectoryContent({ params }: { params: 
       </section>
 
       <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
-        <strong>Conversión automática:</strong> la sincronización de clientes de ISPGestión y las altas manuales del panel comprueban el correo. La conversión no crea duplicados y conserva todas las pertenencias a listas. Si el mismo correo corresponde a varios clientes, el contacto sigue como lead para evitar una asociación equivocada.
+        <strong>Captación web:</strong> los formularios conservan su origen y consentimientos dentro de la ficha. No requieren pertenecer a una lista ni tener un identificador HubSpot. Recibir un envío no implica una compra ni una fusión por correo o CIF; las asociaciones de cliente existentes se conservan.
       </div>
 
       <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
@@ -399,7 +400,7 @@ function ContactRow({ contact, businessUnitOptions, businessUnitEditable, refres
     <tr className="block p-4 lg:table-row lg:p-0">
       <td className="block p-0 lg:table-cell lg:px-5 lg:py-4">
         <div className="flex items-start justify-between gap-3 lg:block">
-          <div className="min-w-0"><p className="break-words font-semibold text-gray-900">{contact.nombre || contact.email || `Contacto #${contact.hubspotId}`}</p><p className="mt-1 break-all text-sm text-gray-500">{contact.email || contact.telefono || 'Sin correo ni teléfono'}</p></div>
+          <div className="min-w-0"><p className="break-words font-semibold text-gray-900">{contact.nombre || contact.email || `Contacto #${contact.hubspotId || contact.id}`}</p><p className="mt-1 break-all text-sm text-gray-500">{contact.email || contact.telefono || 'Sin correo ni teléfono'}</p></div>
           <div className="lg:hidden"><ContactStatus contact={contact} /></div>
         </div>
       </td>

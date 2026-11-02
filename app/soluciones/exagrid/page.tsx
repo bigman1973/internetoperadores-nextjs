@@ -1,5 +1,5 @@
 "use client";
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import Link from 'next/link';
 import EmpresaNav from '../../../components/EmpresaNav';
 import EmpresaFooter from '../../../components/EmpresaFooter';
@@ -56,6 +56,7 @@ export default function ExagridPage() {
   });
   const [enviando, setEnviando] = useState(false);
   const [enviado, setEnviado] = useState(false);
+  const envioRef = useRef<{ payload: string; key: string } | null>(null);
   const [error, setError] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -63,10 +64,14 @@ export default function ExagridPage() {
     setEnviando(true);
     setError('');
     try {
+      const payload = JSON.stringify({ ...formData, newsletter: false });
+      if (!envioRef.current || envioRef.current.payload !== payload) {
+        envioRef.current = { payload, key: crypto.randomUUID() };
+      }
       const res = await fetch('/api/contrata/exagrid', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': envioRef.current.key },
+        body: payload,
       });
       if (res.ok) {
         setEnviado(true);

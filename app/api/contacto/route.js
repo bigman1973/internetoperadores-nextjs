@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
+import { guardarCaptacionWeb } from '@/lib/crm-captacion-web';
 
 // Emails de destino según motivo
 const EMAILS_DESTINO = {
@@ -21,34 +22,57 @@ const MOTIVOS_MAP = {
 const BREVO_LISTA_EMPRESAS = 30;
 const BREVO_LISTA_PARTICULARES = 31;
 
-// IDs de listas de HubSpot para newsletter
-const HUBSPOT_LISTA_EMPRESAS = '489';
-const HUBSPOT_LISTA_PARTICULARES = '490';
-
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { tipoUsuario, nombre, empresa, email, telefono, motivo, mensaje, newsletter, origen } = body;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return NextResponse.json({ error: 'El formulario debe ser un objeto válido' }, { status: 400 });
+    }
+    const { tipoUsuario, nombre, empresa, email, telefono, motivo, mensaje, origen } = body;
 
-    console.log('📩 NUEVA SOLICITUD DE CONTACTO:');
-    console.log('Tipo:', tipoUsuario);
-    console.log('Nombre:', nombre);
-    console.log('Empresa:', empresa);
-    console.log('Email:', email);
-    console.log('Teléfono:', telefono);
-    console.log('Motivo:', motivo);
-    console.log('Newsletter:', newsletter);
+    if (![tipoUsuario, nombre, empresa, email, telefono, motivo, mensaje, origen].every(value => value == null || typeof value === 'string')) {
+      return NextResponse.json({ error: 'Los campos del formulario deben ser texto' }, { status: 400 });
+    }
 
     // Validación básica
-    if (!nombre || !email || !telefono || !motivo) {
+    if (!nombre?.trim() || !email?.trim() || !telefono?.trim() || !motivo?.trim()) {
       return NextResponse.json(
         { error: 'Faltan campos obligatorios (nombre, email, teléfono, motivo)' },
         { status: 400 }
       );
     }
 
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      return NextResponse.json({ error: 'El email no es válido' }, { status: 400 });
+    }
+
+    const newsletterOptIn = body.newsletter === true;
+    const privacidad = typeof body.privacidad === 'boolean'
+      ? body.privacidad
+      : typeof body.acepta === 'boolean' ? body.acepta : null;
+    const captacion = await guardarCaptacionWeb(request, {
+      formulario: '/api/contacto',
+      segmentoCrm: tipoUsuario === 'particular' ? 'PARTICULAR' : 'EMPRESA',
+      nombre, email, telefono, empresa,
+      datos: {
+        tipoUsuario: tipoUsuario || 'empresa', nombre, email, telefono,
+        empresa: empresa || null, motivo, mensaje: mensaje || null,
+      },
+      newsletter: newsletterOptIn,
+      privacidad,
+    });
+    const resultadoLocal = {
+      success: true,
+      contactoId: captacion.contactoId,
+      captacionId: captacion.captacionId,
+      repetido: captacion.repetido,
+    };
+    if (captacion.repetido) {
+      return NextResponse.json({ ...resultadoLocal, emailSent: false, departamento: motivo });
+    }
+
+    let emailSent = false;
     const brevoApiKey = (process.env.BREVO_API_KEY || '').trim();
-    const hubspotToken = (process.env.HUBSPOT_API_KEY || '').trim();
     const emailDestino = EMAILS_DESTINO[motivo] || 'comercial@internetoperadores.com';
     const motivoNombre = MOTIVOS_MAP[motivo] || motivo;
     const origenTexto = origen || 'Formulario de contacto';
@@ -139,19 +163,17 @@ export async function POST(request) {
         });
 
         if (brevoResponse.ok) {
-          const brevoResult = await brevoResponse.json();
-          console.log('✅ Email de notificación enviado a', emailDestino, ':', brevoResult.messageId);
+          emailSent = true;
         } else {
-          const errorData = await brevoResponse.json();
-          console.error('❌ Error enviando email con Brevo:', errorData);
+          console.error('[contacto] No se pudo completar la operación');
         }
-      } catch (emailErr) {
-        console.error('❌ Error conexión Brevo email:', emailErr);
+      } catch {
+        console.error('[contacto] No se pudo completar la operación');
       }
     }
 
-    // 2. Crear/actualizar contacto en Brevo
-    if (brevoApiKey) {
+    // 2. Crear/actualizar contacto en Brevo solo con opt-in explícito
+    if (newsletterOptIn && brevoApiKey) {
       try {
         const contactData = {
           email: email,
@@ -165,7 +187,7 @@ export async function POST(request) {
         };
 
         // Si se suscribe al newsletter, añadir a la lista correspondiente
-        if (newsletter) {
+        if (newsletterOptIn) {
           const listId = tipoUsuario === 'particular' ? BREVO_LISTA_PARTICULARES : BREVO_LISTA_EMPRESAS;
           contactData.listIds = [listId];
         }
@@ -180,14 +202,11 @@ export async function POST(request) {
           body: JSON.stringify(contactData)
         });
 
-        if (contactResponse.ok) {
-          console.log('✅ Contacto creado/actualizado en Brevo');
-        } else {
+        if (!contactResponse.ok) {
           const contactError = await contactResponse.json();
-          console.log('⚠️ Brevo contacto:', contactError.message || contactError.code);
           
           // Si ya existe y quiere newsletter, añadir a la lista
-          if (newsletter && contactError.code === 'duplicate_parameter') {
+          if (contactError.code === 'duplicate_parameter') {
             const listId = tipoUsuario === 'particular' ? BREVO_LISTA_PARTICULARES : BREVO_LISTA_EMPRESAS;
             await fetch(`https://api.brevo.com/v3/contacts/lists/${listId}/contacts/add`, {
               method: 'POST',
@@ -198,113 +217,21 @@ export async function POST(request) {
               },
               body: JSON.stringify({ emails: [email] })
             });
-            console.log('✅ Contacto existente añadido a lista newsletter Brevo');
           }
         }
-      } catch (contactErr) {
-        console.error('⚠️ Error creando contacto en Brevo:', contactErr);
-      }
-    }
-
-    // 3. Si se suscribe al newsletter, también añadir a HubSpot
-    if (newsletter && hubspotToken) {
-      try {
-        // Crear contacto en HubSpot
-        const properties = {
-          email,
-          firstname: nombre,
-          phone: telefono || '',
-          company: empresa || '',
-          lifecyclestage: 'subscriber',
-        };
-
-        const contactRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${hubspotToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ properties }),
-        });
-
-        let contactId = '';
-
-        if (contactRes.status === 409) {
-          // Ya existe, buscar su ID
-          const searchRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${hubspotToken}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              filterGroups: [{
-                filters: [{ propertyName: 'email', operator: 'EQ', value: email }],
-              }],
-            }),
-          });
-          const searchData = await searchRes.json();
-          contactId = searchData.results?.[0]?.id || '';
-        } else if (contactRes.ok) {
-          const contactData = await contactRes.json();
-          contactId = contactData.id;
-        } else if (contactRes.status === 400) {
-          // Reintentar sin lifecyclestage
-          const retryRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${hubspotToken}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ properties: { email, firstname: nombre, phone: telefono || '' } }),
-          });
-          if (retryRes.ok) {
-            const retryData = await retryRes.json();
-            contactId = retryData.id;
-          } else if (retryRes.status === 409) {
-            const searchRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${hubspotToken}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                filterGroups: [{
-                  filters: [{ propertyName: 'email', operator: 'EQ', value: email }],
-                }],
-              }),
-            });
-            const searchData = await searchRes.json();
-            contactId = searchData.results?.[0]?.id || '';
-          }
-        }
-
-        // Añadir a lista de newsletter en HubSpot
-        if (contactId) {
-          const listaId = tipoUsuario === 'particular' ? HUBSPOT_LISTA_PARTICULARES : HUBSPOT_LISTA_EMPRESAS;
-          await fetch(`https://api.hubapi.com/crm/v3/lists/${listaId}/memberships/add`, {
-            method: 'PUT',
-            headers: {
-              Authorization: `Bearer ${hubspotToken}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify([contactId]),
-          });
-          console.log('✅ Contacto añadido a newsletter HubSpot:', contactId);
-        }
-      } catch (hubspotErr) {
-        console.error('⚠️ Error HubSpot newsletter:', hubspotErr);
+      } catch {
+        console.error('[contacto] No se pudo completar la operación');
       }
     }
 
     return NextResponse.json({ 
-      success: true,
-      emailSent: true,
+      ...resultadoLocal,
+      emailSent,
       departamento: motivo
     });
 
-  } catch (error) {
-    console.error('❌ Error procesando solicitud de contacto:', error);
+  } catch {
+    console.error('[contacto] No se pudo completar la operación');
     return NextResponse.json(
       { error: 'Error al procesar la solicitud' },
       { status: 500 }

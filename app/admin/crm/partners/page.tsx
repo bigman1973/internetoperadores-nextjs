@@ -8,6 +8,7 @@ import {
 import { requireAuth } from '../../../../lib/middleware/auth'
 import { registrarArea } from '../../../../lib/permisos'
 import prisma from '../../../../lib/prisma'
+import LeadCrmLink from '@/components/crm/LeadCrmLink'
 
 export const dynamic = 'force-dynamic'
 
@@ -117,11 +118,12 @@ export default async function CrmPartnersPage() {
                   <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Cartera</th>
                   <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Estado</th>
                   <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 sm:px-6">Fecha</th>
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Ficha CRM</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {solicitudes.map((solicitud) => (
-                  <tr key={solicitud.id}>
+                  <tr key={solicitud.id} id={`solicitud-${solicitud.id}`}>
                     <td className="px-5 py-4 sm:px-6">
                       <p className="text-sm font-semibold text-gray-900">{solicitud.empresa || solicitud.nombre}</p>
                       <p className="mt-0.5 text-sm text-gray-600">{solicitud.nombre}</p>
@@ -137,6 +139,7 @@ export default async function CrmPartnersPage() {
                     <td className="whitespace-nowrap px-5 py-4 text-sm text-gray-500 sm:px-6">
                       {solicitud.createdAt.toLocaleDateString('es-ES')}
                     </td>
+                    <td className="px-5 py-4"><LeadCrmLink tipo="PARTNER" id={solicitud.id} contactoId={solicitud.crmContactoId} /></td>
                   </tr>
                 ))}
               </tbody>

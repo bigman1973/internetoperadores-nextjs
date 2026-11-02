@@ -1,10 +1,7 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { guardarCaptacionWeb } from '@/lib/crm-captacion-web';
 
 const BREVO_API_KEY = (process.env.BREVO_API_KEY || '').trim();
-const HUBSPOT_API_KEY = (process.env.HUBSPOT_API_KEY || '').trim();
-const HUBSPOT_LIST_CONECTIVIDAD = '504'; // Lista "IO-CONECTIVIDAD-AVANZADA"
-const HUBSPOT_LIST_NEWSLETTER_EMPRESAS = '489';
 const BREVO_LIST_NEWSLETTER_EMPRESAS = 30;
 
 async function sendBrevoEmail(to: { email: string; name: string }, subject: string, htmlContent: string) {
@@ -21,131 +18,6 @@ async function sendBrevoEmail(to: { email: string; name: string }, subject: stri
     });
     return res.ok;
   } catch { return false; }
-}
-
-async function addToHubSpot(email: string, nombre: string, empresa: string, telefono: string, listIds: string[], nota: string) {
-  if (!HUBSPOT_API_KEY) {
-    console.warn('[CONECTIVIDAD] HUBSPOT_API_KEY no configurada');
-    return false;
-  }
-
-  try {
-    const properties: Record<string, string> = {
-      email,
-      firstname: nombre,
-      company: empresa,
-      lifecyclestage: 'subscriber',
-      hs_lead_status: 'NEW',
-    };
-    if (telefono && telefono.trim()) {
-      properties.phone = telefono.trim();
-    }
-
-    console.log('[CONECTIVIDAD] Creando contacto en HubSpot:', email);
-
-    const contactRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ properties }),
-    });
-
-    let contactId: string = '';
-
-    if (contactRes.status === 409) {
-      const conflictData = await contactRes.json();
-      contactId = conflictData.message?.match(/Existing ID: (\d+)/)?.[1] || '';
-
-      if (!contactId) {
-        const idMatch = JSON.stringify(conflictData).match(/(\d{8,})/);
-        contactId = idMatch?.[1] || '';
-      }
-
-      if (!contactId) {
-        const searchRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: email }] }] }),
-        });
-        const searchData = await searchRes.json();
-        contactId = searchData.results?.[0]?.id || '';
-      }
-
-      if (contactId) {
-        const updateProps: Record<string, string> = { firstname: nombre, company: empresa };
-        if (telefono && telefono.trim()) updateProps.phone = telefono.trim();
-        await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}`, {
-          method: 'PATCH',
-          headers: { Authorization: `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ properties: updateProps }),
-        });
-      }
-      console.log('[CONECTIVIDAD] Contacto existente encontrado:', contactId);
-    } else if (contactRes.ok) {
-      const contactData = await contactRes.json();
-      contactId = contactData.id;
-      console.log('[CONECTIVIDAD] Contacto creado con ID:', contactId);
-    } else {
-      const errText = await contactRes.text();
-      console.error('[CONECTIVIDAD] Error HubSpot creando contacto:', contactRes.status, errText);
-
-      if (contactRes.status === 400) {
-        const simpleProps: Record<string, string> = { email, firstname: nombre, company: empresa };
-        if (telefono && telefono.trim()) simpleProps.phone = telefono.trim();
-
-        const retryRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ properties: simpleProps }),
-        });
-
-        if (retryRes.status === 409) {
-          const searchRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: email }] }] }),
-          });
-          const searchData = await searchRes.json();
-          contactId = searchData.results?.[0]?.id || '';
-        } else if (retryRes.ok) {
-          const retryData = await retryRes.json();
-          contactId = retryData.id;
-        }
-      }
-    }
-
-    if (!contactId) {
-      console.error('[CONECTIVIDAD] No se pudo obtener contactId para:', email);
-      return false;
-    }
-
-    // Añadir a listas
-    for (const listId of listIds) {
-      const listRes = await fetch(`https://api.hubapi.com/crm/v3/lists/${listId}/memberships/add`, {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify([contactId]),
-      });
-      const listText = await listRes.text();
-      console.log(`[CONECTIVIDAD] Lista ${listId} response: ${listRes.status} - ${listText}`);
-    }
-
-    // Crear nota
-    if (nota) {
-      await fetch('https://api.hubapi.com/crm/v3/objects/notes', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          properties: { hs_note_body: nota, hs_timestamp: new Date().toISOString() },
-          associations: [{ to: { id: contactId }, types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 202 }] }],
-        }),
-      });
-    }
-
-    return true;
-  } catch (error) {
-    console.error('[CONECTIVIDAD] Error HubSpot:', error);
-    return false;
-  }
 }
 
 async function addToBrevoNewsletter(email: string, nombre: string, empresa: string, telefono: string) {
@@ -203,6 +75,45 @@ export async function POST(request: Request) {
     const serviciosTexto = Array.isArray(servicios) && servicios.length > 0
       ? servicios.join(', ')
       : 'No especificados';
+
+    // Persistir contacto, captación y detalle en una única transacción antes de enviar emails.
+    const datosSolicitud = {
+      numSedes: numSedes || null,
+      conexionActual: conexionActual || null,
+      velocidadNecesaria: velocidadNecesaria || null,
+      servicios: servicios || [],
+      problemaActual: problemaActual || null,
+      operadorActual: operadorActual || null,
+      comentarios: comentarios || null,
+    };
+    const { contactoId, registro: lead, repetido } = await guardarCaptacionWeb(request, {
+      formulario: '/api/contrata/conectividad-avanzada',
+      segmentoCrm: 'EMPRESA',
+      nombre,
+      email,
+      telefono: telefono || null,
+      empresa,
+      datos: datosSolicitud,
+      newsletter: body.newsletter === true,
+      privacidad: typeof body.privacidad === 'boolean' ? body.privacidad : null,
+      persistir: async (tx, contactoId) => tx.leadSolucion.create({
+        data: {
+          crmContactoId: contactoId,
+          tipo: 'CONECTIVIDAD_AVANZADA',
+          segmentoCrm: 'EMPRESA',
+          nombre,
+          email,
+          empresa,
+          telefono: telefono || null,
+          datos: datosSolicitud,
+        },
+      }),
+    });
+
+    // Un reintento devuelve el mismo detalle, sin repetir emails ni suscripciones.
+    if (repetido) {
+      return NextResponse.json({ success: true, leadId: lead.id, contactoId, repetido: true }, { status: 201 });
+    }
 
     // === EMAILS ===
     const emailComercialHtml = `
@@ -286,38 +197,13 @@ export async function POST(request: Request) {
       sendBrevoEmail({ email, name: nombre }, `Tu solicitud de Conectividad Avanzada ha sido recibida - Internet Operadores`, emailInteresadoHtml),
     ];
 
-    // HubSpot: lista Conectividad Avanzada + Newsletter Empresas
-    const notaHubspot = `Solicitud de Conectividad Avanzada\n- Sedes: ${numSedes}\n- Conexión actual: ${conexionActual || 'No indicada'}\n- Velocidad: ${velocidadNecesaria || 'No indicada'}\n- Servicios: ${serviciosTexto}\n- Problema: ${problemaActual || 'No indicado'}\n- Operador: ${operadorActual || 'No indicado'}\n- Comentarios: ${comentarios || 'Sin comentarios'}`;
-    const hubspotPromise = addToHubSpot(email, nombre, empresa, telefono, [HUBSPOT_LIST_CONECTIVIDAD, HUBSPOT_LIST_NEWSLETTER_EMPRESAS], notaHubspot);
+    // La suscripción comercial es opcional y requiere un opt-in explícito.
+    const newsletterPromises = body.newsletter === true
+      ? [addToBrevoNewsletter(email, nombre, empresa, telefono || '')]
+      : [];
+    await Promise.allSettled([...emailPromises, ...newsletterPromises]);
 
-    // Brevo: newsletter empresas
-    const brevoPromise = addToBrevoNewsletter(email, nombre, empresa, telefono);
-
-    // Guardar en BD
-    const dbPromise = prisma.leadSolucion.create({
-      data: {
-        tipo: 'CONECTIVIDAD_AVANZADA',
-        segmentoCrm: 'EMPRESA',
-        nombre,
-        email,
-        empresa,
-        telefono: telefono || null,
-        datos: {
-          numSedes: numSedes || null,
-          conexionActual: conexionActual || null,
-          velocidadNecesaria: velocidadNecesaria || null,
-          servicios: servicios || [],
-          problemaActual: problemaActual || null,
-          operadorActual: operadorActual || null,
-          comentarios: comentarios || null,
-        },
-      },
-    }).catch(err => console.error('[CONECTIVIDAD] Error guardando en BD:', err));
-
-    // Ejecutar todo en paralelo y esperar
-    await Promise.allSettled([...emailPromises, hubspotPromise, brevoPromise, dbPromise]);
-
-    return NextResponse.json({ success: true }, { status: 201 });
+    return NextResponse.json({ success: true, leadId: lead.id, contactoId, repetido: false }, { status: 201 });
   } catch (error) {
     console.error('[CONECTIVIDAD] Error general:', error);
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });

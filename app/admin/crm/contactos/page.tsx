@@ -27,7 +27,7 @@ export default async function CrmContactosPage({ searchParams }: { searchParams:
             <span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-800">CRM operativo</span>
           </div>
           <p className="mt-2 max-w-4xl text-sm leading-6 text-gray-600">
-            Directorio corporativo unificado de leads y clientes. Cuando un correo coincide con un cliente que ha comprado, el contacto pasa automáticamente a cliente sin perder sus listas, negocios ni información histórica.
+            Directorio corporativo de contactos, leads y clientes, incluidas las captaciones web sin referencia HubSpot ni pertenencia a listas. Recibir un formulario no convierte el contacto en cliente ni fusiona fichas por correo o CIF.
           </p>
         </div>
       </header>

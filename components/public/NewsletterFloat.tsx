@@ -8,6 +8,8 @@ export default function NewsletterFloat() {
   const [email, setEmail] = useState('');
   const [nombre, setNombre] = useState('');
   const [telefono, setTelefono] = useState('');
+  const [newsletter, setNewsletter] = useState(false);
+  const [acepta, setAcepta] = useState(false);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
@@ -25,6 +27,7 @@ export default function NewsletterFloat() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newsletter || !acepta) return;
     setLoading(true);
     setError('');
 
@@ -32,7 +35,7 @@ export default function NewsletterFloat() {
       const res = await fetch('/api/newsletter/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, nombre, telefono, tipo }),
+        body: JSON.stringify({ email, nombre, telefono, tipo, newsletter, acepta }),
       });
 
       if (res.ok) {
@@ -40,6 +43,8 @@ export default function NewsletterFloat() {
         setEmail('');
         setNombre('');
         setTelefono('');
+        setNewsletter(false);
+        setAcepta(false);
         setTimeout(() => {
           setIsOpen(false);
           setSuccess(false);
@@ -134,12 +139,34 @@ export default function NewsletterFloat() {
                     className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base text-gray-900 placeholder-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#E85D2A] sm:text-sm"
                   />
                 </div>
+                <label className="flex items-start gap-2 text-xs text-gray-600">
+                  <input
+                    type="checkbox"
+                    name="newsletter"
+                    checked={newsletter}
+                    onChange={(e) => setNewsletter(e.target.checked)}
+                    required
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-[#E85D2A]"
+                  />
+                  <span>Quiero recibir el newsletter, novedades y ofertas por email.</span>
+                </label>
+                <label className="flex items-start gap-2 text-xs text-gray-600">
+                  <input
+                    type="checkbox"
+                    name="acepta"
+                    checked={acepta}
+                    onChange={(e) => setAcepta(e.target.checked)}
+                    required
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-[#E85D2A]"
+                  />
+                  <span>Acepto la <a href="/politica-privacidad" className="underline">política de privacidad</a> y el tratamiento de mis datos para gestionar la suscripción.</span>
+                </label>
                 {error && (
                   <p className="text-red-500 text-xs">{error}</p>
                 )}
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || !newsletter || !acepta}
                   className={`min-h-11 w-full rounded-lg py-2.5 text-sm font-medium text-white transition-colors ${
                     loading
                       ? 'bg-gray-400 cursor-not-allowed'

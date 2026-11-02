@@ -3,9 +3,11 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import LeadCrmLink from '@/components/crm/LeadCrmLink';
 
 interface Lead {
   id: string;
+  crmContactoId: string | null;
   tipo: string;
   nombre: string;
   email: string;
@@ -368,6 +370,7 @@ export default function LeadDetallePage() {
           <p className="text-gray-600">{lead.nombre} — {lead.email}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <LeadCrmLink tipo="SOLUCION" id={lead.id} contactoId={lead.crmContactoId} />
           <span className={`px-3 py-1 rounded-full text-xs font-semibold ${estadoColors[estado] || 'bg-gray-100 text-gray-800'}`}>
             {estado.replace(/_/g, ' ')}
           </span>

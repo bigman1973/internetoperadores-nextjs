@@ -607,6 +607,8 @@ enum Periodicidad {
 
 model LeadMigracionWeb {
   id                String              @id @default(uuid())
+  crmContactoId     String?             @map("area1_crm_contacto_id")
+  crmContacto       CrmRegistroHubspot? @relation(fields: [crmContactoId], references: [id], onDelete: Restrict, map: "area1_leads_migracion_contacto_fkey")
   // Datos básicos (Paso 1)
   nombreEmpresa     String              @map("nombre_empresa")
   contacto          String
@@ -670,6 +672,7 @@ model LeadMigracionWeb {
   @@index([email])
   @@index([segmentoCrm])
   @@index([createdAt])
+  @@index([crmContactoId], map: "area1_leads_migracion_contacto_idx")
   @@map("leads_migracion_web")
 }
 
@@ -753,6 +756,8 @@ enum EstadoCuestionario {
 
 model AltaServicio {
   id                    String              @id @default(uuid())
+  crmContactoId         String?             @map("area1_crm_contacto_id")
+  crmContacto           CrmRegistroHubspot? @relation(fields: [crmContactoId], references: [id], onDelete: Restrict, map: "area1_altas_contacto_fkey")
   // Tipo de cliente
   tipoCliente           TipoCliente         @map("tipo_cliente")
   
@@ -835,6 +840,7 @@ model AltaServicio {
   @@index([email])
   @@index([token])
   @@index([createdAt])
+  @@index([crmContactoId], map: "area1_altas_contacto_idx")
   @@map("altas_servicio")
 }
 
@@ -945,6 +951,8 @@ model MagicLink {
 
 model LeadSolucion {
   id              String            @id @default(uuid())
+  crmContactoId   String?             @map("area1_crm_contacto_id")
+  crmContacto     CrmRegistroHubspot? @relation(fields: [crmContactoId], references: [id], onDelete: Restrict, map: "area1_leads_soluciones_contacto_fkey")
   // Tipo de solución (origen del formulario)
   tipo            TipoSolucion
   // Datos de contacto
@@ -985,11 +993,14 @@ model LeadSolucion {
   @@index([email])
   @@index([segmentoCrm])
   @@index([createdAt])
+  @@index([crmContactoId], map: "area1_leads_soluciones_contacto_idx")
   @@map("leads_soluciones")
 }
 
 model LeadPartner {
   id              String            @id @default(uuid())
+  crmContactoId   String?             @map("area1_crm_contacto_id")
+  crmContacto     CrmRegistroHubspot? @relation(fields: [crmContactoId], references: [id], onDelete: Restrict, map: "area1_leads_partners_contacto_fkey")
   segmentoCrm     SegmentoCrm       @default(PARTNER) @map("segmento_crm")
   nombre          String
   empresa         String?
@@ -1013,6 +1024,7 @@ model LeadPartner {
   @@index([estado])
   @@index([email])
   @@index([createdAt])
+  @@index([crmContactoId], map: "area1_leads_partners_contacto_idx")
   @@map("leads_partners")
 }
 
@@ -3709,7 +3721,7 @@ model CrmLista {
 
 model CrmRegistroHubspot {
   id                   String            @id @default(cuid())
-  hubspotId            String            @map("hubspot_id")
+  hubspotId            String?           @map("hubspot_id")
   objectTypeId         String            @map("object_type_id")
   nombre               String?
   email                String?
@@ -3743,6 +3755,11 @@ model CrmRegistroHubspot {
   tareasCrm            CrmTarea[]
   clienteWeb           ClienteWeb?       @relation(fields: [clienteWebId], references: [id], onDelete: SetNull)
   empresasCrm          CrmEmpresaContacto[]
+  captacionesWeb       CrmCaptacionWeb[]
+  leadsMigracionWeb    LeadMigracionWeb[]
+  leadsSoluciones      LeadSolucion[]
+  leadsPartners        LeadPartner[]
+  altasServicio        AltaServicio[]
 
   @@unique([objectTypeId, hubspotId])
   @@index([email])
@@ -3752,6 +3769,30 @@ model CrmRegistroHubspot {
   @@index([objectTypeId, propiedadesCompletasAt, id])
   @@index([unidadesNegocio], type: Gin)
   @@map("crm_registros_hubspot")
+}
+
+// Registro de envíos dentro de una ficha CRM; no es otra cartera de personas.
+model CrmCaptacionWeb {
+  id                       String           @id @default(cuid())
+  contactoId               String           @map("contacto_id")
+  formulario               String
+  webOrigen                String?          @map("web_origen")
+  paginaOrigen             String?          @map("pagina_origen")
+  fechaEnvio               DateTime         @default(now()) @map("fecha_envio")
+  segmentoCrm              SegmentoCrm      @map("segmento_crm")
+  consentimientoPrivacidad Boolean?         @map("consentimiento_privacidad")
+  consentimientoNewsletter Boolean          @default(false) @map("consentimiento_newsletter")
+  consentimientoVersion    String?          @map("consentimiento_version")
+  datos                    Json             @db.JsonB
+  referenciaTipo           String?          @map("referencia_tipo")
+  referenciaId             String?          @map("referencia_id")
+  huella                   String
+  claveIdempotencia        String           @unique @map("clave_idempotencia")
+  contacto                 CrmRegistroHubspot @relation(fields: [contactoId], references: [id], onDelete: Restrict)
+
+  @@index([contactoId, fechaEnvio(sort: Desc)])
+  @@index([huella, fechaEnvio])
+  @@map("area1_crm_captaciones_web")
 }
 
 // Cuenta comercial independiente: un prospecto nunca se convierte en cliente por asociación.

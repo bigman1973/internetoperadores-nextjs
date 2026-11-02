@@ -1,5 +1,4 @@
 const BREVO_API_KEY = (process.env.BREVO_API_KEY || '').trim()
-const HUBSPOT_API_KEY = (process.env.HUBSPOT_API_KEY || '').trim()
 const BASE_URL = process.env.NEXTAUTH_URL || 'https://www.internetoperadores.com'
 
 interface OrderData {
@@ -205,59 +204,4 @@ export async function sendAbandonedCartEmail(order: OrderData) {
     subject: `[Carrito Abandonado] ${order.customerName} - ${order.tarifaNombre} - ${order.importeTotal.toFixed(2)}€`,
     htmlContent: htmlInterno,
   })
-
-  // Añadir a lista de HubSpot "IO - Carritos Abandonados" (ID: 497)
-  try {
-    // Primero crear/buscar contacto en HubSpot
-    const searchRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${HUBSPOT_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: order.customerEmail }] }],
-      }),
-    })
-    const searchData = await searchRes.json()
-    let contactId: string
-
-    if (searchData.total > 0) {
-      contactId = searchData.results[0].id
-    } else {
-      // Crear contacto
-      const createRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${HUBSPOT_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          properties: {
-            email: order.customerEmail,
-            firstname: order.customerName.split(' ')[0],
-            lastname: order.customerName.split(' ').slice(1).join(' ') || '',
-            phone: order.customerPhone || '',
-            company: order.customerCompany || '',
-          },
-        }),
-      })
-      const createData = await createRes.json()
-      contactId = createData.id
-    }
-
-    // Añadir a lista 497
-    if (contactId) {
-      await fetch(`https://api.hubapi.com/crm/v3/lists/497/memberships/add`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${HUBSPOT_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify([contactId]),
-      })
-    }
-  } catch (e: any) {
-    console.error('[AbandonedCart] Error HubSpot:', e.message)
-  }
 }

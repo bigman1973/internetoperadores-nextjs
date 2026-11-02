@@ -1,41 +1,48 @@
 import { NextResponse } from 'next/server';
+import { guardarCaptacionWeb } from '@/lib/crm-captacion-web';
 
 const BREVO_API_KEY = (process.env.BREVO_API_KEY || '').trim();
-const HUBSPOT_TOKEN = (process.env.HUBSPOT_API_KEY || '').trim();
 
 // IDs de listas de newsletter
 const NEWSLETTER_LISTS = {
-  particular: { hubspot: '490', brevo: 31 },
-  empresa: { hubspot: '489', brevo: 30 },
-  partner: { hubspot: '495', brevo: 32 },
+  particular: 31,
+  empresa: 30,
+  partner: 32,
 };
 
 /**
  * Envía email vía Brevo SMTP API
  */
 async function sendEmail({ to, toName, subject, htmlContent }) {
-  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
-    method: 'POST',
-    headers: {
-      'api-key': BREVO_API_KEY,
-      'Content-Type': 'application/json',
-      'accept': 'application/json',
-    },
-    body: JSON.stringify({
-      sender: { name: 'Internet Operadores - SAT', email: 'sat@internetoperadores.com' },
-      to: [{ email: to, name: toName || to }],
-      subject,
-      htmlContent,
-    }),
-  });
-  return res.ok;
+  if (!BREVO_API_KEY) return false;
+  try {
+    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': BREVO_API_KEY,
+        'Content-Type': 'application/json',
+        'accept': 'application/json',
+      },
+      body: JSON.stringify({
+        sender: { name: 'Internet Operadores - SAT', email: 'sat@internetoperadores.com' },
+        to: [{ email: to, name: toName || to }],
+        subject,
+        htmlContent,
+      }),
+    });
+    return res.ok;
+  } catch {
+    console.error('[Soporte] No se pudo enviar el correo transaccional');
+    return false;
+  }
 }
 
 /**
- * Suscribe al newsletter en Brevo + HubSpot según tipoUsuario
+ * Suscribe al newsletter en Brevo según tipoUsuario con opt-in explícito
  */
 async function subscribeNewsletter({ nombre, email, telefono, tipoUsuario }) {
-  const lists = NEWSLETTER_LISTS[tipoUsuario] || NEWSLETTER_LISTS.empresa;
+  if (!BREVO_API_KEY) return;
+  const listId = NEWSLETTER_LISTS[tipoUsuario] || NEWSLETTER_LISTS.empresa;
 
   // Brevo: crear contacto y añadir a lista
   try {
@@ -52,64 +59,58 @@ async function subscribeNewsletter({ nombre, email, telefono, tipoUsuario }) {
       body: JSON.stringify({
         email,
         attributes,
-        listIds: [lists.brevo],
+        listIds: [listId],
         updateEnabled: true,
       }),
     });
-  } catch (e) {
-    console.error('[Soporte] Error Brevo newsletter:', e.message);
+  } catch {
+    console.error('[soporte] No se pudo completar la operación');
   }
 
-  // HubSpot: crear contacto y añadir a lista
-  try {
-    const properties = {
-      email,
-      firstname: nombre,
-      phone: telefono || '',
-      lifecyclestage: 'subscriber',
-    };
-
-    const createRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${HUBSPOT_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ properties }),
-    });
-
-    let contactId;
-    if (createRes.ok) {
-      const data = await createRes.json();
-      contactId = data.id;
-    } else if (createRes.status === 409) {
-      const errData = await createRes.json();
-      contactId = errData?.message?.match(/Existing ID: (\d+)/)?.[1];
-    }
-
-    if (contactId) {
-      await fetch(`https://api.hubapi.com/crm/v3/lists/${lists.hubspot}/memberships/add`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${HUBSPOT_TOKEN}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify([contactId]),
-      });
-    }
-  } catch (e) {
-    console.error('[Soporte] Error HubSpot newsletter:', e.message);
-  }
 }
 
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { nombre, empresa, email, telefono, tipoUsuario, tipo, prioridad, descripcion, newsletter } = body;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return NextResponse.json({ error: 'El formulario debe ser un objeto válido' }, { status: 400 });
+    }
+    const { nombre, empresa, email, telefono, tipoUsuario, tipo, prioridad, descripcion } = body;
 
-    if (!nombre || !email || !tipoUsuario || !tipo || !prioridad || !descripcion) {
+    if (![nombre, empresa, email, telefono, tipoUsuario, tipo, prioridad, descripcion].every(value => value == null || typeof value === 'string')) {
+      return NextResponse.json({ error: 'Los campos del formulario deben ser texto' }, { status: 400 });
+    }
+
+    if (!nombre?.trim() || !email?.trim() || !tipoUsuario?.trim() || !tipo?.trim() || !prioridad?.trim() || !descripcion?.trim()) {
       return NextResponse.json({ error: 'Faltan campos obligatorios' }, { status: 400 });
     }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      return NextResponse.json({ error: 'El email no es válido' }, { status: 400 });
+    }
+
+    const newsletterOptIn = body.newsletter === true;
+    const privacidad = typeof body.privacidad === 'boolean'
+      ? body.privacidad
+      : typeof body.acepta === 'boolean' ? body.acepta : null;
+    const captacion = await guardarCaptacionWeb(request, {
+      formulario: '/api/soporte',
+      segmentoCrm: tipoUsuario === 'particular' ? 'PARTICULAR' : tipoUsuario === 'partner' ? 'PARTNER' : 'EMPRESA',
+      nombre, email, telefono, empresa,
+      datos: {
+        nombre, email, telefono: telefono || null, empresa: empresa || null,
+        tipoUsuario, tipo, prioridad, descripcion,
+      },
+      newsletter: newsletterOptIn,
+      privacidad,
+    });
+    const resultadoLocal = {
+      success: true,
+      contactoId: captacion.contactoId,
+      captacionId: captacion.captacionId,
+      repetido: captacion.repetido,
+    };
+    if (captacion.repetido) return NextResponse.json(resultadoLocal);
 
     const tipoLabel = {
       conectividad: 'Conectividad / Internet',
@@ -199,13 +200,13 @@ export async function POST(request) {
     });
 
     // 3. Newsletter opt-in (si lo marcó)
-    if (newsletter) {
+    if (newsletterOptIn) {
       await subscribeNewsletter({ nombre, email, telefono, tipoUsuario });
     }
 
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error('[Soporte API] Error:', error);
+    return NextResponse.json(resultadoLocal);
+  } catch {
+    console.error('[soporte] No se pudo completar la operación');
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
   }
 }
