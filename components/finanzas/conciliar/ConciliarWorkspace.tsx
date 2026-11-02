@@ -19,6 +19,7 @@ import { parseConciliarDocumentDetail, type ConciliarDocumentDetail } from '@/li
 import { ConciliarDetailMemoryCache, conciliarDetailCacheKey, formatConciliarUpdatedAt } from './conciliar-detail-client';
 import { ConciliarProjectionMemoryCache, conciliarProjectionCacheKey, isCurrentConciliarProjectionResponse } from './conciliar-projection-client';
 import { useConciliarGlobalSearch } from './conciliar-global-search';
+import { conciliarActiveActuationKey, conciliarSessionProofMatchesActiveActuation, useConciliarClientSessionProof } from './conciliar-client-session-proof';
 import dynamic from 'next/dynamic';
 import { useSession } from 'next-auth/react';
 const loadConciliarDocumentPreview = () => import('./ConciliarDocumentPreview');
@@ -293,6 +294,9 @@ function ConciliarRowView({ row, selected, selectionNeedsReview = false, receipt
 export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery = '', initialCutoff = '2026-01-01', initialOrden = 'IMPORTE', initialDireccion = 'DESC', initialGlobalOrder = false, initialData }: { initialTab?: ConciliarTab; initialQuery?: string; initialCutoff?: string; initialOrden?: ConciliarSortField; initialDireccion?: ConciliarSortDirection; initialGlobalOrder?: boolean; initialData?: unknown }) {
   const { active: activeActuation, loading: actuationLoading } = useActuation();
   const { data: session, status: sessionStatus } = useSession();
+  // NextAuth elimina expires sólo de la sesión RSC. Se recupera por su GET
+  // autenticado y se compara la identidad completa, sin inventar caducidades.
+  const sessionProof = useConciliarClientSessionProof(session, sessionStatus, conciliarActiveActuationKey(activeActuation), activeActuation, !actuationLoading);
   const initialParsed = useMemo(() => initialData === undefined ? null : parseConciliarReadResponse(initialData), [initialData]);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -344,19 +348,19 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const hasTrustedIdentity = useRef(false);
   const discardSearchRef = useRef<() => void>(() => {});
 
-  const sessionExpiresAt = Date.parse(session?.expires ?? '');
+  const sessionExpiresAt = sessionProof.expiresAt ?? Number.NaN;
   const actuationExpiresAt = activeActuation ? Date.parse(activeActuation.expiresAt) : Number.POSITIVE_INFINITY;
   const capabilityExpiresAt = Math.min(sessionExpiresAt, actuationExpiresAt);
-  const awaitingActuationAuthority = Boolean(session?.impersonation) && (actuationLoading || !activeActuation);
+  const awaitingActuationAuthority = actuationLoading || !conciliarSessionProofMatchesActiveActuation(sessionProof.identity, activeActuation);
   const identityScope = useMemo(() => {
     if (sessionStatus !== 'authenticated' || awaitingActuationAuthority || !session?.user?.id || !Number.isFinite(capabilityExpiresAt) || capabilityExpiresAt <= identityClock) return null;
     const roles = [...(session.user.roles ?? []), session.user.role ?? ''].filter(Boolean).sort().join(',');
-    const sessionWindow = session.expires;
+    const sessionWindow = String(sessionExpiresAt);
     if (activeActuation) {
       return `actuacion:${session.user.id}:${activeActuation.sessionId}:${activeActuation.targetId}:${activeActuation.expiresAt}:${sessionWindow}:${roles}`;
     }
     return `usuario:${session.user.id}:${sessionWindow}:${roles}`;
-  }, [activeActuation, awaitingActuationAuthority, capabilityExpiresAt, identityClock, session, sessionStatus]);
+  }, [activeActuation, awaitingActuationAuthority, capabilityExpiresAt, identityClock, session, sessionExpiresAt, sessionStatus]);
   const cacheScope = identityScope ? `${identityScope}:epoch:${cacheEpoch}` : null;
   const currentScopeRef = useRef<string | null>(cacheScope);
   const currentIdentityScopeRef = useRef<string | null>(identityScope);
