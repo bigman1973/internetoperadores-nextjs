@@ -16,6 +16,8 @@ import { preflightConciliarHumanOwnTransferTx } from './conciliar-human-own-tran
 import { ConciliarConfirmingServiceError } from './conciliar-confirming'
 import { ArchivoFinancieroAssertError } from './archivo-financiero-assert'
 import { conciliarDecisionHash } from './conciliar-core'
+import { readConciliarBankFeePreflightSourcesTx, validateConciliarBankFeeSource, type ConciliarBankFeePreflightSource } from './conciliar-confirm-validators'
+import { preflightB4NoDocumentDraftFromSource } from './reconciliation-db'
 
 import { CONCILIAR_PRECHECK_KINDS } from './conciliar-precheck-kinds'
 export { CONCILIAR_PRECHECK_KINDS } from './conciliar-precheck-kinds'
@@ -26,6 +28,7 @@ type Tx = Prisma.TransactionClient & Record<string, any>
  * crosses invocations, and actions intentionally do not receive one. */
 export type ConciliarPrecheckMemo = Map<string,ConciliarPrecheck>
 export type ConciliarPrecheckContext = Readonly<{ rows?:ReadonlyMap<string,ConciliarPrecheckRow>; visited?:ReadonlySet<string>; memo?:ConciliarPrecheckMemo }>
+type PrecheckLoadedSources = Readonly<{ bankFees: ReadonlyMap<string,ConciliarBankFeePreflightSource> }>
 const pass = (mode:ConciliarPrecheck['mode']):ConciliarPrecheck => ({schema:'CONCILIAR_PRECHECK_V1',confirmable:true,mode,code:'CONFIRMABLE',motivo:'Comprobado con las fuentes actuales del servidor.'})
 const blocked = (code:string,motivo:string):ConciliarPrecheck => ({schema:'CONCILIAR_PRECHECK_V1',confirmable:false,mode:'BLOQUEADA',code,motivo})
 const movementRequired = (row:ConciliarPrecheckRow):string => {
@@ -79,14 +82,17 @@ export async function memoizedConciliarPrecheckDecision(
 }
 /** Unknown errors propagate: an unavailable server is never converted to green. */
 export async function precheckConciliarRowTx(base:Prisma.TransactionClient,row:ConciliarPrecheckRow,context:ConciliarPrecheckContext={}):Promise<ConciliarPrecheck> {
+  return precheckConciliarRowWithSourcesTx(base,row,context)
+}
+async function precheckConciliarRowWithSourcesTx(base:Prisma.TransactionClient,row:ConciliarPrecheckRow,context:ConciliarPrecheckContext={},loaded?:PrecheckLoadedSources):Promise<ConciliarPrecheck> {
   if(!(CONCILIAR_PRECHECK_KINDS as readonly string[]).includes(row.source.kind)) return blocked('TIPO_NO_ADMITIDO','Esta fila no tiene una confirmación disponible.')
   if(row.color!=='VERDE') return blocked('REVISION_REQUERIDA',row.motivo || 'Esta fila necesita revisión antes de confirmar.')
   // Visit guard precedes memo lookup so a recursive link never consumes an old
   // result or forms a circular memo-promise dependency.
   if(context.visited?.has(row.id)) return blocked('ENLACE_CIRCULAR','No se puede comprobar el movimiento propuesto para este documento.')
-  return memoizedConciliarPrecheckDecision(row,context.memo,()=>precheckConciliarRowUncachedTx(base,row,context))
+  return memoizedConciliarPrecheckDecision(row,context.memo,()=>precheckConciliarRowUncachedTx(base,row,context,loaded))
 }
-async function precheckConciliarRowUncachedTx(base:Prisma.TransactionClient,row:ConciliarPrecheckRow,context:ConciliarPrecheckContext):Promise<ConciliarPrecheck> {
+async function precheckConciliarRowUncachedTx(base:Prisma.TransactionClient,row:ConciliarPrecheckRow,context:ConciliarPrecheckContext,loaded?:PrecheckLoadedSources):Promise<ConciliarPrecheck> {
   const tx=base as Tx
   try {
     // Documentary mirrors remain non-selectable. Their exact linked bank row
@@ -107,8 +113,13 @@ async function precheckConciliarRowUncachedTx(base:Prisma.TransactionClient,row:
     await preflightConciliarLifecycleTx(tx,row.source)
     switch(row.source.kind) {
       case 'COMISION_BANCARIA': {
-        await preflightConciliarBankFeeTx(tx,row)
-        await preflightB4DraftTx(tx,noDocumentDraft(movimientoId,row.importeCentimos,version!,true))
+        if(loaded) {
+          const source=validateConciliarBankFeeSource(row,loaded.bankFees.get(movimientoId))
+          preflightB4NoDocumentDraftFromSource(noDocumentDraft(movimientoId,row.importeCentimos,version!,true),source)
+        } else {
+          await preflightConciliarBankFeeTx(tx,row)
+          await preflightB4DraftTx(tx,noDocumentDraft(movimientoId,row.importeCentimos,version!,true))
+        }
         return pass('ESTANDAR')
       }
       case 'PAGO_FACTURA_RECIBIDA': {
@@ -170,6 +181,10 @@ async function precheckConciliarRowUncachedTx(base:Prisma.TransactionClient,row:
 export async function guardConciliarGreenRowTx<T extends ConciliarPrecheckRow>(tx:Prisma.TransactionClient,row:T,context:ConciliarPrecheckContext={}):Promise<T> {
   if(row.color!=='VERDE') return row
   const result=await precheckConciliarRowTx(tx,row,context)
+  return guardLoadedConciliarGreenRow(row,result)
+}
+function guardLoadedConciliarGreenRow<T extends ConciliarPrecheckRow>(row:T,result:ConciliarPrecheck):T {
+  if(row.color!=='VERDE') return row
   if(result.confirmable) return row
   const {accionHumana:_human,...withoutHuman}=row
   const next={...withoutHuman,color:'AMBAR' as const,seleccionable:false,motivo:result.motivo}
@@ -181,4 +196,27 @@ export async function assertConciliarGreenPrecheckTx(tx:Prisma.TransactionClient
   const result=await precheckConciliarRowTx(tx,row)
   if(!result.confirmable) throw new ConciliarDbError(422,result.code,result.motivo)
   return result
+}
+
+/** Bounded live pre-DML load, not a memo or an apply token. Every row executes
+ * the same switch/predicates; only fees have a set-based financial read. Other
+ * sources deliberately retain their individual authoritative document checks.
+ * Material is local to this call and cannot escape to later DML/retries. */
+export async function precheckConciliarRowsBatchTx(tx:Prisma.TransactionClient,rows:readonly ConciliarPrecheckRow[],context:Omit<ConciliarPrecheckContext,'memo'>={}):Promise<readonly ConciliarPrecheck[]> {
+  const decisions:ConciliarPrecheck[]=[]
+  for(let start=0;start<rows.length;start+=100) {
+    const page=rows.slice(start,start+100)
+    const bankFees=await readConciliarBankFeePreflightSourcesTx(tx as Tx,page.filter(row=>row.color==='VERDE' && row.source.kind==='COMISION_BANCARIA'))
+    for(const row of page) decisions.push(await precheckConciliarRowWithSourcesTx(tx,row,context,{bankFees}))
+  }
+  return decisions
+}
+export async function assertConciliarGreenPrechecksBatchTx(tx:Prisma.TransactionClient,rows:readonly ConciliarPrecheckRow[]) {
+  const decisions=await precheckConciliarRowsBatchTx(tx,rows)
+  for(const decision of decisions) if(!decision.confirmable) throw new ConciliarDbError(422,decision.code,decision.motivo)
+  return decisions
+}
+export async function guardConciliarGreenRowsBatchTx<T extends ConciliarPrecheckRow>(tx:Prisma.TransactionClient,rows:readonly T[],context:Omit<ConciliarPrecheckContext,'memo'>={}):Promise<T[]> {
+  const decisions=await precheckConciliarRowsBatchTx(tx,rows,context)
+  return rows.map((row,index)=>guardLoadedConciliarGreenRow(row,decisions[index]!))
 }

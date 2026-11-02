@@ -76,19 +76,53 @@ async function liveB5TicketSourceTx(tx: Tx, source: ConciliarProjectionSource, m
 }
 
 
+export type ConciliarBankFeePreflightSource = Readonly<{
+  id: string; version: number | bigint; amount: number | bigint;
+  concepto: string | null; referencia: string | null; info: string | null; tercero: string | null; banco: string | null;
+  decimal: string | null; previous: unknown;
+}>
+/** Same predicates for the single live read and the bounded batch live read.
+ * No color, source hash, historic decision or inferred bank identity is authority. */
+export function validateConciliarBankFeeSource(row: PrecheckRow, source: ConciliarBankFeePreflightSource | undefined) {
+  const movementId = requireMovement(row.source)
+  if (!source || source.id !== movementId || safeInteger(source.amount) === null || safeInteger(source.version) === null) fail(409, 'DECISION_CAMBIADA', 'El movimiento cambió. Actualiza la lista.')
+  const fee = row.source.kind === 'COMISION_BANCARIA' && isConciliarBankFee({ importeCentimos: Number(source.amount), concepto: source.concepto, referencia: source.referencia, infoAdicional: source.info, tercero: source.tercero, banco: source.banco })
+  if (!fee || Number(source.amount) !== row.importeCentimos || Number(source.version) !== b4Version(row.source.versionB4)) fail(409, 'DECISION_CAMBIADA', 'El cargo ya no cumple la regla de gasto bancario. Actualiza la lista.')
+  return source
+}
+/** G7 action pre-DML photo only. The apply provider must still acquire its
+ * established locks and re-read its financial/P1 material before any write. */
+export async function readConciliarBankFeePreflightSourcesTx(tx: Tx, rows: readonly PrecheckRow[]) {
+  const ids = [...new Set(rows.filter(row => row.source.kind === 'COMISION_BANCARIA').map(row => requireMovement(row.source)))].sort()
+  if (ids.length > 100) fail(400, 'FEE_BATCH_INVALIDO', 'La selección de comisiones no es válida.')
+  if (!ids.length) return new Map<string, ConciliarBankFeePreflightSource>()
+  const sources = await tx.$queryRaw<ConciliarBankFeePreflightSource[]>(Prisma.sql`
+    SELECT m.id,COALESCE(e.version,1) AS version,b4_importe_bancario_centimos(m.importe) AS amount,
+      m.concepto,m.referencia,m.info_adicional AS info,m.tercero,c.banco,m.importe::text AS decimal,
+      CASE WHEN e.movimiento_id IS NULL THEN NULL ELSE jsonb_build_object('estado',e.estado::text,'motivoNoRequiere',e.motivo_no_requiere::text,'version',e.version) END AS previous
+    FROM movimientos_bancarios m JOIN cuentas_bancarias c ON c.id=m.cuenta_id
+    LEFT JOIN estado_justificacion_movimientos e ON e.movimiento_id=m.id
+    WHERE m.id IN (${Prisma.join(ids)}) AND COALESCE(e.estado::text,'SIN_DOCUMENTO')='SIN_DOCUMENTO'
+    ORDER BY m.id ASC LIMIT ${ids.length + 1}
+  `)
+  const result = new Map<string, ConciliarBankFeePreflightSource>()
+  for (const source of sources) {
+    if (!ids.includes(source.id) || result.has(source.id)) fail(409, 'DECISION_CAMBIADA', 'El movimiento cambió. Actualiza la lista.')
+    result.set(source.id, source)
+  }
+  return result
+}
+
 export async function preflightConciliarBankFeeTx(tx: Tx, row: PrecheckRow, lock = false) {
   const movementId = requireMovement(row.source)
-  const sourceRows = await tx.$queryRaw<Array<{ id: string; version: number | bigint; amount: number | bigint; concepto: string | null; referencia: string | null; info: string | null; tercero: string | null; banco: string | null }>>(Prisma.sql`
+  const sourceRows = await tx.$queryRaw<ConciliarBankFeePreflightSource[]>(Prisma.sql`
     SELECT m.id,COALESCE(e.version,1) AS version,b4_importe_bancario_centimos(m.importe) AS amount,m.concepto,m.referencia,m.info_adicional AS info,m.tercero,c.banco
     FROM movimientos_bancarios m JOIN cuentas_bancarias c ON c.id=m.cuenta_id
     LEFT JOIN estado_justificacion_movimientos e ON e.movimiento_id=m.id
     WHERE m.id=${movementId} AND COALESCE(e.estado::text,'SIN_DOCUMENTO')='SIN_DOCUMENTO' ${lock ? Prisma.sql`FOR UPDATE OF m` : Prisma.empty}
   `)
-  const source = sourceRows[0]
-  if (!source || safeInteger(source.amount) === null || safeInteger(source.version) === null) fail(409, 'DECISION_CAMBIADA', 'El movimiento cambió. Actualiza la lista.')
-  const fee = row.source.kind === 'COMISION_BANCARIA' && isConciliarBankFee({ importeCentimos: Number(source.amount), concepto: source.concepto, referencia: source.referencia, infoAdicional: source.info, tercero: source.tercero, banco: source.banco })
-  if (!fee || Number(source.amount) !== row.importeCentimos || Number(source.version) !== b4Version(row.source.versionB4)) fail(409, 'DECISION_CAMBIADA', 'El cargo ya no cumple la regla de gasto bancario. Actualiza la lista.')
-  return source
+  if (sourceRows.length > 1) fail(409, 'DECISION_CAMBIADA', 'El movimiento cambió. Actualiza la lista.')
+  return validateConciliarBankFeeSource(row, sourceRows[0])
 }
 
 export async function preflightConciliarReceivedInvoiceTx(tx: Tx, row: PrecheckRow, lock = false) {

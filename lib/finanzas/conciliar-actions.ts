@@ -1,4 +1,4 @@
-import { assertConciliarGreenPrecheckTx } from './conciliar-precheck'
+import { assertConciliarGreenPrecheckTx, assertConciliarGreenPrechecksBatchTx } from './conciliar-precheck'
 import { preflightConciliarBankFeeTx, preflightConciliarReceivedInvoiceTx, preflightConciliarPayrollTx, preflightConciliarConfirmingTx, preflightConciliarB5TicketTx } from './conciliar-confirm-validators'
 import { assertLiveCollectionProjectionForActionTx } from './conciliar-db'
 import { Prisma, type PrismaClient } from '@prisma/client'
@@ -27,6 +27,7 @@ import { knownBankFeeUndoMovements } from './conciliar-fee-undo'
 import { conciliarDocumentSourceGuardMessage, lockConciliarDocumentSourceForConfirmationTx, supportsConciliarDocumentSourceGuard } from './conciliar-document-source-guard'
 import { Area3ReviewConfirmDbError, confirmArea3ReviewTx, preflightArea3ReviewConfirmTx } from './area3-review-confirm-db'
 import { trustedImpersonationContextResolutionFromRequest } from '@/lib/impersonation-context'
+import { assertConciliarLiveAccessTx } from './conciliar-live-access'
 import {
   assertConciliarRecoveryIntentExecutableTx,
   commitConciliarRecoveryIntentTx,
@@ -160,16 +161,16 @@ function conciliarHistoryLegSnapshot(row: Awaited<ReturnType<typeof readConcilia
 }
 
 async function projectionStateAtActionStart(tx: Tx): Promise<{ wasDirty: boolean }> {
-  const rows = await tx.$queryRaw<Array<{ dirtyAt: Date | null }>>(Prisma.sql`
-    SELECT dirty_at AS "dirtyAt" FROM estado_proyeccion_conciliar WHERE singleton=true LIMIT 1 FOR UPDATE
+  const rows = await tx.$queryRaw<Array<{ dirtyAt: Date | null; pending: number | bigint }>>(Prisma.sql`
+    SELECT dirty_at AS "dirtyAt",(SELECT COUNT(*)::bigint FROM area3_conciliar_projection_changes) AS pending
+    FROM estado_proyeccion_conciliar WHERE singleton=true LIMIT 1 FOR UPDATE
   `)
   if (!rows.length) fail(503, 'CONCILIAR_MIGRATION_PENDING', 'La proyección de Conciliar aún no está preparada.')
   // El trigger B4 marca esta misma fila dirty. FOR UPDATE se toma antes de
   // tocar fuentes para que dos acciones no retengan FOR SHARE y después ambas
   // intenten escalar a exclusivo al disparar el trigger. Las mutaciones ajenas
   // posteriores esperan y dejan dirty al terminar; una marca previa se conserva.
-  const pending = await tx.$queryRaw<Array<{ total: bigint }>>(Prisma.sql`SELECT COUNT(*)::bigint AS total FROM area3_conciliar_projection_changes LIMIT 1`)
-  return { wasDirty: rows[0].dirtyAt !== null || pending.length !== 1 || Number(pending[0].total) > 0 }
+  return { wasDirty: rows[0].dirtyAt !== null || !Number.isSafeInteger(Number(rows[0].pending)) || Number(rows[0].pending) !== 0 }
 }
 
 /**
@@ -182,14 +183,19 @@ async function projectionStateAtActionStart(tx: Tx): Promise<{ wasDirty: boolean
 async function settleKnownFeeOnlyProjection(tx: Tx, stateAtStart: { wasDirty: boolean }, kinds: ReadonlySet<ConciliarProjectionSource['kind']>, movementIds: readonly string[]): Promise<boolean> {
   if (stateAtStart.wasDirty || kinds.size !== 1 || !kinds.has('COMISION_BANCARIA')) return false
   const updated = await tx.$queryRaw<Array<{ projectionVersion: bigint | number }>>(Prisma.sql`
+    WITH settled AS (
     UPDATE estado_proyeccion_conciliar
        SET dirty_at=NULL,dirty_reason=NULL,rebuilt_at=CURRENT_TIMESTAMP,projection_version=projection_version+1
      WHERE singleton=true AND dirty_at IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM area3_conciliar_projection_changes WHERE kind<>'MOVEMENT' OR source_id NOT IN (${Prisma.join(movementIds)}))
      RETURNING projection_version AS "projectionVersion"
+    ), consumed AS (
+      DELETE FROM area3_conciliar_projection_changes
+      WHERE kind='MOVEMENT' AND source_id IN (${Prisma.join(movementIds)}) AND EXISTS (SELECT 1 FROM settled)
+    ) SELECT "projectionVersion" FROM settled
   `)
   // All B4 changes are trigger-invalidated. An empty result is still safe: it
   // means no dirty marker remains; this path never clears a pre-existing one.
-  if (updated.length === 1) await tx.$executeRaw(Prisma.sql`DELETE FROM area3_conciliar_projection_changes WHERE kind='MOVEMENT' AND source_id IN (${Prisma.join(movementIds)})`)
   return updated.length === 1
 }
 
@@ -215,24 +221,30 @@ async function responseProjection(tx: Tx, responseView: import('./conciliar-cont
   return readConciliarProjectionTx(tx, responseView)
 }
 
-async function lockOperationOrReplay(tx: Tx, actorId: number, action: 'CONFIRMAR' | 'PEDIR' | 'DESHACER', idempotencyKey: string, requestHash: string, parentId?: string): Promise<{ replay: true; id: string; result: Record<string, unknown> } | { replay: false; id: string }> {
-  await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`conciliar:${actorId}:${idempotencyKey}`},0))::text AS locked`)
-  const existing = await tx.$queryRaw<Array<{ id: string; requestHash: string; result: unknown }>>(Prisma.sql`
+async function lockOperationOrReplay(tx: Tx, actorId: number, action: 'CONFIRMAR' | 'PEDIR' | 'DESHACER', idempotencyKey: string, requestHash: string, parentId?: string, lockedRecoveryKey?: string): Promise<{ replay: true; id: string; result: Record<string, unknown> } | { replay: false; id: string }> {
+  // Only the private dispatch below supplies this key, after executable intent
+  // validation acquired this exact actor/key barrier in this same transaction.
+  if (lockedRecoveryKey!==idempotencyKey) await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`conciliar:${actorId}:${idempotencyKey}`},0))::text AS locked`)
+  const records = await tx.$queryRaw<Array<{ id: string; requestHash: string; result: unknown; replay: boolean }>>(Prisma.sql`
+    WITH existing AS (
     SELECT id::text,request_hash AS "requestHash",resultado AS result
     FROM operaciones_conciliar WHERE actor_id=${actorId} AND idempotency_key=CAST(${idempotencyKey} AS uuid)
     LIMIT 1 FOR UPDATE
+    ), inserted AS (
+      INSERT INTO operaciones_conciliar(actor_id,accion,estado,idempotency_key,request_hash,operacion_padre_id,resultado,created_at)
+      SELECT ${actorId},CAST(${action} AS "AccionOperacionConciliar"),'APLICADA'::"EstadoOperacionConciliar",CAST(${idempotencyKey} AS uuid),${requestHash},${parentId ? Prisma.sql`CAST(${parentId} AS uuid)` : Prisma.sql`NULL`},'{}'::jsonb,CURRENT_TIMESTAMP
+      WHERE NOT EXISTS (SELECT 1 FROM existing)
+      RETURNING id::text,request_hash AS "requestHash",resultado AS result
+    )
+    SELECT *,true AS replay FROM existing UNION ALL SELECT *,false AS replay FROM inserted
   `)
-  if (existing[0]) {
-    if (existing[0].requestHash !== requestHash) fail(409, 'IDEMPOTENCY_PAYLOAD_MISMATCH', 'La clave de idempotencia pertenece a otra solicitud.')
-    return { replay: true, id: existing[0].id, result: json(existing[0].result) }
+  if (records.length!==1 || !records[0]?.id || typeof records[0].replay!=='boolean') fail(409, 'RECIBO_NO_CREADO', 'No se pudo crear el recibo de la acción.')
+  const record=records[0]
+  if (record.requestHash!==requestHash) fail(409, 'IDEMPOTENCY_PAYLOAD_MISMATCH', 'La clave de idempotencia pertenece a otra solicitud.')
+  if (record.replay) {
+    return { replay: true, id: record.id, result: json(record.result) }
   }
-  const inserted = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    INSERT INTO operaciones_conciliar(actor_id,accion,estado,idempotency_key,request_hash,operacion_padre_id,resultado,created_at)
-    VALUES(${actorId},CAST(${action} AS "AccionOperacionConciliar"),'APLICADA'::"EstadoOperacionConciliar",CAST(${idempotencyKey} AS uuid),${requestHash},${parentId ? Prisma.sql`CAST(${parentId} AS uuid)` : Prisma.sql`NULL`},'{}'::jsonb,CURRENT_TIMESTAMP)
-    RETURNING id::text
-  `)
-  if (!inserted[0]?.id) fail(409, 'RECIBO_NO_CREADO', 'No se pudo crear el recibo de la acción.')
-  return { replay: false, id: inserted[0].id }
+  return { replay: false, id: record.id }
 }
 
 async function appendLeg(tx: Tx, operationId: string, input: Readonly<{
@@ -446,7 +458,7 @@ async function askRow(tx: Tx, actorId: number, operationId: string, row: Awaited
   return { state: 'pedido', movementId, gestionId }
 }
 
-async function undoB4Leg(tx: Tx, actorId: number, operationId: string, ordinal: number, leg: any, originalConciliarOperationId: string) {
+async function undoB4Leg(tx: Tx, actorId: number, operationId: string, ordinal: number, leg: any, originalConciliarOperationId: string, active: readonly { id: string; amount: number | bigint }[]) {
   const receiptResult = json(leg.result)
   if (receiptResult.sourceKind === 'TRANSFERENCIA_PROPIA_MANUAL') {
     await lockConciliarHumanOwnTransferUndoTx(tx, receiptResult)
@@ -459,7 +471,7 @@ async function undoB4Leg(tx: Tx, actorId: number, operationId: string, ordinal: 
   const original = operation[0]
   if (!original || original.state !== 'APLICADA' || original.reverted) fail(409, 'RECIBO_CAMBIADO', 'Una de las decisiones ya cambió y no se puede deshacer de forma segura.')
   const current = await tx.$queryRaw<Array<{ version: number | bigint }>>(Prisma.sql`SELECT version FROM estado_justificacion_movimientos WHERE movimiento_id=${original.movementId} LIMIT 1 FOR UPDATE`)
-  const active = await tx.$queryRaw<Array<{ id: string; amount: number | bigint }>>(Prisma.sql`SELECT id::text,importe_centimos AS amount FROM vinculos_movimiento_documento WHERE operacion_creacion_id=CAST(${operationIdB4} AS uuid) AND activo=true ORDER BY id ASC`)
+  if (original.movementId !== leg.movimientoId) fail(409, 'RECIBO_CAMBIADO', 'La decisión ya no corresponde al movimiento del recibo.')
   if (!current[0] || Number(current[0].version) !== Number(original.version)) fail(409, 'RECIBO_CAMBIADO', 'El movimiento fue modificado después de confirmar. Actualiza la lista.')
   const priorResult = receiptResult
   if (priorResult.sourceKind === 'TRANSFERENCIA_PROPIA_MANUAL') {
@@ -506,24 +518,23 @@ async function undoB4Leg(tx: Tx, actorId: number, operationId: string, ordinal: 
       motivo: 'Reversión de la conciliación confirming original.', idempotencyKey: uuidKey('CONCILIAR_CONFIRMING_INTEREST_UNDO', operationId, leg.rowId),
     })
   }
-  await appendLeg(tx, operationId, { ordinal, rowId: leg.rowId, movimientoId: original.movementId, operationB4Id: String(reversal.operacion.id), result: { state: 'deshecha', originalOperationB4Id: operationIdB4, operationB4Id: String(reversal.operacion.id), ...(pairedReversal ?? {}) } })
+  return { ordinal, rowId: leg.rowId, movimientoId: original.movementId, operationB4Id: String(reversal.operacion.id), result: { state: 'deshecha', originalOperationB4Id: operationIdB4, operationB4Id: String(reversal.operacion.id), ...(pairedReversal ?? {}) } }
 }
 
 async function undoCollectionLeg(tx: Tx, actorId: number, operationId: string, ordinal: number, leg: any) {
   const result: any = await runEasyCollectionsActionTx(tx, actorId, {
     action: 'deshacer_bloque', confirmacion: true, idempotencyKey: uuidKey('CONCILIAR_COLLECTION_UNDO', operationId, leg.rowId), bloqueId: leg.proposalBlockId,
   }, { preserveSerializableP2034: true })
-  await appendLeg(tx, operationId, { ordinal, rowId: leg.rowId, movimientoId: leg.movimientoId ?? null, proposalBlockId: String(result.bloqueId), result: { state: 'deshecha', proposalBlockId: String(result.bloqueId) } })
+  return { ordinal, rowId: leg.rowId, movimientoId: leg.movimientoId ?? null, proposalBlockId: String(result.bloqueId), result: { state: 'deshecha', proposalBlockId: String(result.bloqueId) } }
 }
 
 async function requireLiveWrite(actorId: number, database: Tx) {
-  await assertConciliarRuntime(database)
-  const access = await requireB4ActorAccess(actorId, 'escritura', database)
+  const access = await assertConciliarLiveAccessTx(database,actorId)
   if ('response' in access) fail(access.response.status, 'ACCESS_REVOKED', 'Tu permiso para conciliar ya no está vigente.')
 }
 
-async function confirmStandard(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar'; items: readonly unknown[] }>, actors: ConciliarHistoryActors, onProgress?: (event: ConciliarBatchProgress) => void) {
-  const receipt = await lockOperationOrReplay(tx, actorId, 'CONFIRMAR', command.idempotencyKey, conciliarRequestHash(actorId, command))
+async function confirmStandard(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar'; items: readonly unknown[] }>, actors: ConciliarHistoryActors, onProgress?: (event: ConciliarBatchProgress) => void, lockedRecoveryKey?: string) {
+  const receipt = await lockOperationOrReplay(tx, actorId, 'CONFIRMAR', command.idempotencyKey, conciliarRequestHash(actorId, command),undefined,lockedRecoveryKey)
   if (receipt.replay) return { operationId: receipt.id, recoveryReceiptOperationId: receipt.id, idempotent: true, ...receipt.result }
   const historyActors = await conciliarHistoryActorSnapshot(tx, actors)
   const stateAtStart = await projectionStateAtActionStart(tx)
@@ -531,15 +542,14 @@ async function confirmStandard(tx: Tx, actorId: number, command: Extract<Concili
   const plan = await readConciliarConfirmBatchForActionTx(tx, command.items, fail)
   const selectedRows = plan.rows
   const g7PrecheckStartedAt = Date.now()
-  for (const row of selectedRows) await assertConciliarGreenPrecheckTx(tx,row)
-  // La puerta G7 se conserva por cada fila antes de cualquier DML. El recibo
-  // mide su coste real para que staging decida si procede una prelectura
-  // set-based compartida con el proveedor homogéneo de comisiones.
+  await assertConciliarGreenPrechecksBatchTx(tx,selectedRows)
+  // Todas las filas reutilizan los predicados autoritativos. Sólo las comisiones
+  // agrupan sus lecturas G7; el proveedor repite locks/revalidación antes de DML.
   const g7PrecheckTelemetry = {
     schema: 'CONCILIAR_G7_PRECHECK_TELEMETRY_V1',
     selectedRows: selectedRows.length,
     elapsedMs: Date.now() - g7PrecheckStartedAt,
-    mode: plan.onlyBankFees ? 'COMISIONES_HOMOGENEAS_POR_FILA' : 'MIXTO_POR_FILA',
+    mode: plan.onlyBankFees ? 'COMISIONES_G7_CARGA_LOTE' : 'MIXTO_COMISIONES_LOTE_OTRAS_SERIAL',
   } as const
   const legs: Array<{
     ordinal: number; rowId: string; movimientoId: string | null; operationB4Id?: string; proposalBlockId?: string; result: Record<string, unknown>
@@ -777,12 +787,12 @@ async function confirmArea3Review(tx: Tx, actorId: number, command: Extract<Conc
   return { operationId: receipt.id, recoveryReceiptOperationId: receipt.id, idempotent: false, ...result }
 }
 
-async function confirm(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar' }>, actors: ConciliarHistoryActors, onProgress?: (event: ConciliarBatchProgress) => void) {
+async function confirm(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar' }>, actors: ConciliarHistoryActors, onProgress?: (event: ConciliarBatchProgress) => void, lockedRecoveryKey?: string) {
   if ('review' in command) {
     if(command.review.kind === 'REVIEW_PREVIEW') return previewArea3Review(tx,{action:'confirmar',review:command.review})
     return confirmArea3Review(tx,actorId,{action:'confirmar',idempotencyKey:'idempotencyKey' in command ? command.idempotencyKey : fail(400,'REVIEW_CONFIRM_INVALIDA','Falta identificar la confirmación humana.'),review:command.review},actors)
   }
-  return confirmStandard(tx, actorId, command, actors, onProgress)
+  return confirmStandard(tx, actorId, command, actors, onProgress,lockedRecoveryKey)
 }
 
 async function ask(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'pedir' }>) {
@@ -833,11 +843,32 @@ async function undo(tx: Tx, actorId: number, command: Extract<ConciliarCommand, 
     FROM patas_operacion_conciliar WHERE operacion_conciliar_id=CAST(${source.id} AS uuid) ORDER BY ordinal ASC
   `)
   if (!legs.length || legs.some(leg => leg.actionB5 || (!leg.operationB4Id && !leg.proposalBlockId))) fail(409, 'RECIBO_NO_REVERSIBLE', 'El recibo no conserva todas las patas reversibles.')
+  const b4Ids=legs.filter(leg=>!leg.proposalBlockId).map(leg=>leg.operationB4Id!)
+  if (new Set(b4Ids).size!==b4Ids.length || new Set(legs.map(leg=>leg.rowId)).size!==legs.length) fail(409,'RECIBO_NO_REVERSIBLE','El recibo repite una pata reversible.')
+  // Read-only intent lines are loaded once. Each deshacerB4Tx still takes its
+  // original locks and re-reads state/active links for total cancellation. No
+  // P1/B4 lock is acquired earlier or in a different order by this preload.
+  const activeByOperation=new Map<string,Array<{id:string;amount:number|bigint}>>()
+  if (b4Ids.length) {
+    const active=await tx.$queryRaw<Array<{operationId:string;id:string;amount:number|bigint}>>(Prisma.sql`
+      SELECT operacion_creacion_id::text AS "operationId",id::text,importe_centimos AS amount
+      FROM vinculos_movimiento_documento WHERE operacion_creacion_id IN (${Prisma.join(b4Ids.map(id=>Prisma.sql`CAST(${id} AS uuid)`))}) AND activo=true
+      ORDER BY operacion_creacion_id ASC,id ASC
+    `)
+    for (const line of active) {
+      if (!b4Ids.includes(line.operationId)) fail(409,'RECIBO_CAMBIADO','Un vínculo no pertenece al recibo reversible.')
+      const lines=activeByOperation.get(line.operationId)??[]
+      lines.push(line);activeByOperation.set(line.operationId,lines)
+    }
+  }
+  const reversalLegs=[]
   for (const leg of legs) {
     await undoConciliarDocumentaryCounterpartyTx(tx, actorId, json(leg.result).counterpartyReceipt)
-    if (leg.proposalBlockId) await undoCollectionLeg(tx, actorId, receipt.id, leg.ordinal, leg)
-    else await undoB4Leg(tx, actorId, receipt.id, leg.ordinal, leg, source.id)
+    reversalLegs.push(leg.proposalBlockId
+      ? await undoCollectionLeg(tx, actorId, receipt.id, leg.ordinal, leg)
+      : await undoB4Leg(tx, actorId, receipt.id, leg.ordinal, leg, source.id, activeByOperation.get(leg.operationB4Id!)??[]))
   }
+  await appendLegs(tx,receipt.id,reversalLegs)
   await tx.$executeRaw(Prisma.sql`UPDATE operaciones_conciliar SET estado='REVERTIDA'::"EstadoOperacionConciliar",revertida_at=CURRENT_TIMESTAMP WHERE id=CAST(${source.id} AS uuid) AND estado='APLICADA'::"EstadoOperacionConciliar"`)
   const projectionSynchronized = await restoreKnownFeeOnlyProjection(tx, stateAtStart, legs)
   let synchronized = projectionSynchronized
@@ -871,9 +902,10 @@ export async function runConciliarTransactionCommand(tx: Tx, actorId: number, ra
   }
   // The PENDING record is durable before business DML. Re-taking the shared
   // receipt lock inside this callback prevents late replay/commit races.
+  if (recoveryContext && recoveryContext.identity.actorEffectiveId!==actorId) fail(403,'RECOVERY_ACTOR_INVALIDO','La identidad efectiva de recuperación no coincide.')
   await assertConciliarRecoveryIntentExecutableTx(tx, recoveryContext)
   let result: Record<string, any>
-  if (command.action === 'confirmar') result = await confirm(tx, actorId, command, actors, onProgress)
+  if (command.action === 'confirmar') result = await confirm(tx, actorId, command, actors, onProgress,recoveryContext?.intent.idempotencyKey)
   else if (command.action === 'confirmar_traspasos_propios_manual') result = await confirmHumanOwnTransfers(tx, actorId, command, actors)
   else if (command.action === 'pedir') result = await ask(tx, actorId, command)
   else result = await undo(tx, actorId, command)

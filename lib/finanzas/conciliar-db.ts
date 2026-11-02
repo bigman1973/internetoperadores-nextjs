@@ -1225,6 +1225,11 @@ function projectionInsertValue(item: RebuildRow) {
  * complete before a caller deletes or inserts projection rows. */
 export async function sealConciliarProjectionRowsTx(tx: Tx, rows: readonly RebuildRow[]): Promise<RebuildRow[]> {
   const contextRows = new Map(rows.map(item=>[item.row.id,{...item.row,source:item.source,sourceFingerprint:item.sourceFingerprint}]))
+  if (rows.length && rows.every(item=>item.source.kind==='COMISION_BANCARIA')) {
+    const { guardConciliarGreenRowsBatchTx }=await import('./conciliar-precheck')
+    const guarded=await guardConciliarGreenRowsBatchTx(tx,[...contextRows.values()],{rows:contextRows})
+    return rows.map((item,index)=>({ ...item,row:guarded[index]!,source:guarded[index]!.color==='VERDE' ? {...item.source,g7Precheck:CONCILIAR_GREEN_PRECHECK_STAMP} : item.source }))
+  }
   // The G7 decisions below share one caller-owned repeatable-read picture. The
   // memo is born and discarded in this invocation, before the first projection
   // DML, so a cached badge can never become authority for a later action.

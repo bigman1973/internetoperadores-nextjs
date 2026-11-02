@@ -433,6 +433,37 @@ export async function createDocumentoB4(actorId: number, input: unknown) {
 /** Financial PRECHECK shared verbatim by B4 apply after its locks. No receipt,
  * wrapper, ACK or write is created. Virtual wrappers describe real source rows
  * only; they are never persisted or accepted from HTTP. */
+function validateB4LoadedDraft(raw: Readonly<{version: number; borrador: unknown}>, movementCents: number, docs: readonly any[], nets: ReadonlyMap<string, number>) {
+  if (!raw.borrador || typeof raw.borrador !== 'object' || Array.isArray(raw.borrador)) fail(400, 'VALIDATION_ERROR', 'borrador inválido.')
+  const normalizedDraft = { ...(raw.borrador as JsonRecord), importeMovimientoCentimos: movementCents }
+  if ((raw.borrador as any).importeMovimientoCentimos !== movementCents) fail(409, 'IMPORTE_MOVIMIENTO_CAMBIADO', 'El importe del borrador no coincide con el banco.')
+  const validation = validarBorradorMovimiento(normalizedDraft, docs.map((doc: any) => ({ documentoConciliableId: doc.id, tipoDocumento: doc.tipo, importeObjetivoCentimos: doc.importeObjetivoCentimos, netoActivoPrevioCentimos: nets.get(doc.id) ?? 0 })))
+  if (!validation.ok) fail(400, 'VALIDATION_ERROR', 'El borrador B4 no es válido.', (validation as any).errors)
+  return validation.value
+}
+function validateB4LoadedState(previous: any, version: number) {
+  const previousVersion = previous?.version ?? 1
+  if (previousVersion !== version) fail(409, 'VERSION_CONFLICT', 'La versión B4 ha cambiado; relea el movimiento.')
+  if (previous?.estado === 'JUSTIFICADO' || previous?.estado === 'NO_REQUIERE') {
+    fail(409, 'DESHACER_REQUERIDO', 'Un JUSTIFICADO o NO_REQUIERE existente debe deshacerse totalmente antes de reemplazarse.')
+  }
+  return previousVersion
+}
+
+/** Only for server rows read in the current caller-owned transaction. This is
+ * not a decision cache or a general document shortcut: nonempty/documentary
+ * drafts fail closed and continue through preflightB4DraftTx instead. */
+export function preflightB4NoDocumentDraftFromSource(raw: Readonly<{version: number; borrador: unknown}>, source: Readonly<{ id: string; decimal: string | null; previous: unknown }>) {
+  const movimientoId = stringId((raw.borrador as JsonRecord | undefined)?.movimientoId, 'borrador.movimientoId')
+  if (source.id !== movimientoId) fail(404, 'MOVIMIENTO_NO_ENCONTRADO', 'El movimiento bancario no existe.')
+  const movementCents = centsFromSource(source.decimal, 'movimiento.importe', false, true)!
+  const draft = raw.borrador as JsonRecord
+  if (draft.estado !== 'NO_REQUIERE' || !Array.isArray(draft.lineas) || draft.lineas.length !== 0) fail(400, 'VALIDATION_ERROR', 'El preflight sin documento sólo admite NO_REQUIERE sin líneas.')
+  const plan = validateB4LoadedDraft(raw, movementCents, [], new Map())
+  const previousVersion = validateB4LoadedState(source.previous, raw.version)
+  return { plan, previous: source.previous, previousVersion }
+}
+
 export async function preflightB4DraftTx(base: Prisma.TransactionClient, raw: Readonly<{version: number; borrador: unknown}>, lock = false, virtualDocuments: readonly B4VirtualDocument[] = []) {
   const tx = base as Tx
   const movimientoId = stringId((raw.borrador as JsonRecord | undefined)?.movimientoId, 'borrador.movimientoId')
@@ -440,7 +471,6 @@ export async function preflightB4DraftTx(base: Prisma.TransactionClient, raw: Re
     if (!movement) fail(404, 'MOVIMIENTO_NO_ENCONTRADO', 'El movimiento bancario no existe.')
     const movementCents = centsFromSource(await exactSourceDecimal(tx,'movimientos_bancarios','importe',movement.id), 'movimiento.importe', false, true)!
     if (!raw.borrador || typeof raw.borrador !== 'object' || Array.isArray(raw.borrador)) fail(400, 'VALIDATION_ERROR', 'borrador inválido.')
-    const normalizedDraft = { ...(raw.borrador as JsonRecord), importeMovimientoCentimos: movementCents }
     // Client cannot substitute the bank amount: equality is asserted against source.
     if ((raw.borrador as any).importeMovimientoCentimos !== movementCents) fail(409, 'IMPORTE_MOVIMIENTO_CAMBIADO', 'El importe del borrador no coincide con el banco.')
     const docIds: string[] = Array.isArray((raw.borrador as any).lineas)
@@ -451,18 +481,12 @@ export async function preflightB4DraftTx(base: Prisma.TransactionClient, raw: Re
     if (docs.length !== new Set(docIds).size) fail(404, 'DOCUMENTO_NO_ENCONTRADO', 'Un documento no existe.')
     for (const doc of docs) await evidenceForWrapper(tx, doc)
     const nets = docIds.length ? await activeNet(tx, [...new Set(docIds)]) : new Map<string, number>()
-    const validation = validarBorradorMovimiento(normalizedDraft, docs.map((doc: any) => ({ documentoConciliableId: doc.id, tipoDocumento: doc.tipo, importeObjetivoCentimos: doc.importeObjetivoCentimos, netoActivoPrevioCentimos: nets.get(doc.id) ?? 0 })))
-    if (!validation.ok) fail(400, 'VALIDATION_ERROR', 'El borrador B4 no es válido.', (validation as any).errors)
+    const plan = validateB4LoadedDraft(raw, movementCents, docs, nets)
 
     const previous = await currentState(tx, movimientoId)
     // An absent row is the schema's virtual initial state at version 1. It is
     // intentionally not materialized until a confirmed operation applies it.
-    const previousVersion = previous?.version ?? 1
-    if (previousVersion !== raw.version) fail(409, 'VERSION_CONFLICT', 'La versión B4 ha cambiado; relea el movimiento.')
-    if (previous?.estado === 'JUSTIFICADO' || previous?.estado === 'NO_REQUIERE') {
-      fail(409, 'DESHACER_REQUERIDO', 'Un JUSTIFICADO o NO_REQUIERE existente debe deshacerse totalmente antes de reemplazarse.')
-    }
-    const plan = validation.value
+    const previousVersion = validateB4LoadedState(previous, raw.version)
     try { await assertArchivosFinancierosParaNuevoCargoJustificadoTx(tx, { movimientoId, estado: plan.borrador.estado, documentoConciliableIds: docIds }) } catch (error) { if (error instanceof ArchivoFinancieroAssertError) fail(error.status,error.code,error.message); throw error }
     return { plan, previous, previousVersion }
 }

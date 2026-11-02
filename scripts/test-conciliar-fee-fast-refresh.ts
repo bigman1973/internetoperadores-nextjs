@@ -18,7 +18,7 @@ assert.match(fastPath, /stateAtStart\.wasDirty \|\| kinds\.size !== 1 \|\| !kind
 assert.match(fastPath, /WHERE singleton=true AND dirty_at IS NOT NULL/)
 assert.match(fastPath, /SET dirty_at=NULL,dirty_reason=NULL/)
 assert.doesNotMatch(fastPath, /rebuildConciliarProjection|fetch|https?:/i)
-assert.match(confirm, /return confirmStandard\(tx, actorId, command, actors, onProgress\)/, 'el wrapper de confirmar debe delegar las confirmaciones estándar en la implementación que toma el bloqueo')
+assert.match(confirm, /return confirmStandard\(tx, actorId, command, actors, onProgress(?:,lockedRecoveryKey)?\)/, 'el wrapper de confirmar debe delegar las confirmaciones estándar en la implementación que toma el bloqueo')
 assert.doesNotMatch(confirm, /settleKnownFeeOnlyProjection|deleteConciliarBatchProjectionRowsTx/, 'el wrapper no debe abrir una ruta de confirmación que omita la implementación estándar bloqueada')
 assert.match(confirmStandard, /const stateAtStart = await projectionStateAtActionStart\(tx\)/)
 assert.match(confirmStandard, /const plan = await readConciliarConfirmBatchForActionTx\(tx, command\.items, fail\)/)

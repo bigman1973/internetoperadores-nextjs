@@ -454,6 +454,12 @@ function classifySqlStatement(template: string | null): RawSqlStatementKind {
       if (!TYPE_MODIFIER_TYPES.has(token.value) || !parenthesisedListIs(body, offset + 1, item => item.kind === 'number' && /^[0-9]+$/.test(item.value))) return 'unknown'
       continue
     }
+    // PostgreSQL's reviewed CTE form is `name AS MATERIALIZED (SELECT ...)`.
+    // It is neither a function call nor an alias-column list; the SELECT body
+    // is still recursively constrained by this same token walk. Deliberately
+    // do not admit `AS NOT MATERIALIZED`, arbitrary modifiers, or DML CTEs.
+    if (previous?.kind === 'ident' && previous.value === 'as' && token.value === 'materialized') continue
+    if (token.value === 'materialized') return 'unknown'
     // After AS only an alias column list or a CAST target type can follow.
     if (previous?.kind === 'ident' && previous.value === 'as') {
       const exact = TYPE_MODIFIER_TYPES.has(token.value)

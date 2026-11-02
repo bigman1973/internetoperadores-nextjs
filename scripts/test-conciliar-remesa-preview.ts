@@ -31,12 +31,13 @@ test('database receipt cannot accept later lines or duplicate direct confirmatio
 })
 
 test('versioned remittance owns a native B4 leg, never a phantom legacy proposal block',()=>{
- const source=text('lib/finanzas/conciliar-actions.ts')
+ const source=text('lib/finanzas/conciliar-actions.ts'),liveAccess=text('lib/finanzas/conciliar-live-access.ts')
  const branch=source.slice(source.indexOf('if (receiptSource) {'),source.indexOf('const result: any = await runEasyCollectionsActionTx',source.indexOf('if (receiptSource) {')))
  assert.match(branch,/operationB4Id: String\(result\.operationB4Id\)/)
  assert.match(branch,/reciboCobroRemesaB7Id: String\(result\.reciboId\)/)
  assert.doesNotMatch(branch,/proposalBlockId:/)
  assert.match(source,/await requireLiveWrite\(actorId, tx\)/)
- assert.match(source,/await assertConciliarRuntime\(database\)/)
+ assert.match(source,/assertConciliarLiveAccessTx\(database,actorId\)/)
+ assert.match(liveAccess,/await assertConciliarRuntime\(accessTx\)[\s\S]*await requireB4ActorAccess\(actorId, 'escritura', accessTx\)/)
  assert.match(source,/runWithConciliarSerializableAuthorization\(tx, \(\) => runConciliarTransactionCommand\(tx, actorId, command,/)
 })

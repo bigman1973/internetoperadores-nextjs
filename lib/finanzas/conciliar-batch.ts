@@ -2,7 +2,6 @@ import { Prisma } from '@prisma/client'
 import { derivedUuidV4 } from '@/lib/finanzas/easy-auto-core'
 import {
   B8CentroCosteServiceError,
-  requireActualActorPermissionB8Tx,
 } from '@/lib/finanzas/centros-coste-db'
 import {
   B8_RECEIPT_SCHEMA,
@@ -17,12 +16,10 @@ import {
   type ConfirmCounterpartyInput,
   type CounterpartyCandidateSeed,
 } from '@/lib/finanzas/easy-counterparty-core'
-import { assertFinanceEasyRuntime } from '@/lib/finanzas/prototype-staging'
-import { requireB4ActorAccess } from '@/lib/finanzas/reconciliation-auth'
-import { hasConciliarSerializableAuthorizationForActor } from '@/lib/prisma'
 import { conciliarHash } from './conciliar-core'
 import { isConciliarBankFee, type ConciliarProjectionSource } from './conciliar-contract'
 import { projectionRow, type ProjectionSqlRow } from './conciliar-projection-read'
+import { assertConciliarLiveAccessTx } from './conciliar-live-access'
 
 type Tx = Prisma.TransactionClient & Record<string, any>
 
@@ -74,6 +71,7 @@ export function planConciliarConfirmBatch(
   rows: readonly ConciliarBatchActionRow[],
   fail: BatchFail,
 ): ConciliarConfirmBatchPlan {
+  if (new Set(selections.map(selection=>selection.id)).size!==selections.length) fail(422,'MOVIMIENTO_REPETIDO','La selección incluye la misma fila más de una vez.')
   if (rows.length !== selections.length) fail(409, 'FILA_OBSOLETA', 'Una fila ya no está disponible. Actualiza la lista.')
   const byId = new Map(rows.map(row => [row.id, row]))
   const ordered = selections.map(selection => {
@@ -680,145 +678,53 @@ async function existingBatchReplayTx(
   })
 }
 
-function countFrom(result: unknown, code: string): number {
-  const value = (result as { count?: unknown } | null)?.count
-  if (!Number.isSafeInteger(value)) providerFail(500, code, 'No se pudo conservar el recibo de conciliación.')
-  return value as number
-}
-
 async function requireBatchEffectiveActorTx(tx: Tx, actorId: number): Promise<void> {
-  // Conciliar's public action has just performed these two live checks in this
-  // exact SERIALIZABLE callback. Any absent/stale/mismatched marker deliberately
-  // follows the complete legacy path; B8 stays live below in every path.
-  if (!hasConciliarSerializableAuthorizationForActor(tx, actorId)) {
-    await assertFinanceEasyRuntime(tx)
-    const b4Access = await requireB4ActorAccess(actorId, 'escritura', tx)
-    if ('response' in b4Access) {
-      providerFail(b4Access.response.status, 'ACCESS_REVOKED', 'Tu permiso para conciliar ya no está vigente.')
-    }
-  }
+  // No cached authorization decision: the exact B4/B8 validators consume a
+  // fresh set read under B8's unchanged actor→permission row-lock order.
   try {
-    await requireActualActorPermissionB8Tx(tx, actorId, 'escritura')
+    const access=await assertConciliarLiveAccessTx(tx,actorId,true)
+    if ('response' in access) providerFail(access.response.status,'ACCESS_REVOKED','Tu permiso para conciliar ya no está vigente.')
   } catch (error) {
     if (error instanceof B8CentroCosteServiceError) providerFail(error.status, error.code, error.message)
     throw error
   }
 }
 
-async function persistConciliarBankFeeBatchTx(
-  tx: Tx,
-  actorId: number,
+export type ConciliarFeeFinancialPackageCounts = Readonly<{
+  operations: unknown
+  states: unknown
+  events: unknown
+  receipts: unknown
+  p1: unknown
+}>
+
+/** The chained SQL is all-or-nothing only if every dependent ledger stage
+ * returned its exact expected cardinality. Keep these checks outside SQL so a
+ * malformed driver result cannot silently become a financial success. */
+export function assertConciliarFeeFinancialPackageCounts(
+  rows: readonly ConciliarFeeFinancialPackageCounts[],
   prepared: readonly ConciliarBankFeePrepared[],
-): Promise<void> {
-  const now = new Date()
-  const operations = await (tx as any).operacionJustificacionB4.createMany({
-    data: prepared.map(item => ({
-      id: item.operationB4Id,
-      movimientoId: item.movementId,
-      estado: 'APLICADA',
-      idempotencyKey: item.idempotencyKey,
-      payloadHash: item.b4PayloadHash,
-      versionEsperada: item.version,
-      versionResultante: item.resultState.version,
-      solicitadaPorId: actorId,
-      aprobadaPorId: actorId,
-      snapshotSolicitud: item.b4Request,
-      snapshotEstadoPrevio: item.previousState,
-      snapshotResultado: item.resultState,
-      aprobadaAt: now,
-      aplicadaAt: now,
-    })),
-  })
-  if (countFrom(operations, 'B4_OPERACIONES_NO_CREADAS') !== prepared.length) {
-    providerFail(409, 'B4_OPERACIONES_NO_CREADAS', 'No se pudieron conservar todas las decisiones B4.')
-  }
-
-  const withoutState = prepared.filter(item => !item.hadStoredState)
-  if (withoutState.length) {
-    const states = await (tx as any).estadoJustificacionMovimientoB4.createMany({
-      data: withoutState.map(item => ({
-        movimientoId: item.movementId,
-        estado: 'NO_REQUIERE',
-        motivoNoRequiere: 'COMISION_BANCARIA',
-        version: item.resultState.version,
-        actualizadoPorId: actorId,
-      })),
-    })
-    if (countFrom(states, 'B4_ESTADOS_NO_CREADOS') !== withoutState.length) {
-      providerFail(409, 'B4_ESTADOS_NO_CREADOS', 'No se pudieron conservar todos los estados B4.')
+): void {
+  if (rows.length !== 1) providerFail(500, 'B4_OPERACIONES_NO_CREADAS', 'No se pudo conservar el paquete financiero completo.')
+  const result = rows[0]!
+  const checks = [
+    [result.operations, prepared.length, 'B4_OPERACIONES_NO_CREADAS'],
+    [result.states, prepared.length, 'VERSION_CONFLICT'],
+    [result.events, prepared.length * 3, 'B4_AUDITORIA_NO_CREADA'],
+    [result.receipts, prepared.length, 'B8_RECIBOS_NO_CREADOS'],
+    [result.p1, prepared.filter(item => item.p1 !== null).length, 'P1_DECISIONES_NO_CREADAS'],
+  ] as const
+  for (const [count, expected, code] of checks) {
+    if (!Number.isSafeInteger(count) || count !== expected) {
+      providerFail(409, code, 'No se pudo conservar el paquete financiero completo.')
     }
   }
+}
 
-  const withState = prepared.filter(item => item.hadStoredState)
-  if (withState.length) {
-    const values = withState.map(item => Prisma.sql`(${item.movementId},${item.version})`)
-    const states = await tx.$queryRaw<Array<{ movementId: string }>>(Prisma.sql`
-      UPDATE estado_justificacion_movimientos AS e
-         SET estado='NO_REQUIERE'::"EstadoJustificacionMovimiento",
-             motivo_no_requiere='COMISION_BANCARIA'::"MotivoNoRequiere",
-             version=e.version+1,
-             actualizado_por_id=${actorId}
-        FROM (VALUES ${Prisma.join(values)}) AS selected(movimiento_id,version_esperada)
-       WHERE e.movimiento_id=selected.movimiento_id
-         AND e.estado='SIN_DOCUMENTO'::"EstadoJustificacionMovimiento"
-         AND e.version=selected.version_esperada
-      RETURNING e.movimiento_id AS "movementId"
-    `)
-    if (states.length !== withState.length) {
-      providerFail(409, 'VERSION_CONFLICT', 'Una comisión cambió mientras se confirmaba; actualiza la lista.')
-    }
-  }
-
-  const events = await (tx as any).eventoJustificacionB4.createMany({
-    data: prepared.flatMap(item => ['SOLICITUD', 'APROBACION', 'APLICACION'].map(accion => ({
-      operacionId: item.operationB4Id,
-      movimientoId: item.movementId,
-      accion,
-      actorId,
-      detalle: buildConciliarBankFeeB4EventDetail(item.resultState.version),
-    }))),
-  })
-  if (countFrom(events, 'B4_AUDITORIA_NO_CREADA') !== prepared.length * 3) {
-    providerFail(500, 'B4_AUDITORIA_NO_CREADA', 'No se pudo conservar la auditoría B4.')
-  }
-
-  const b8 = await (tx as any).reciboEleccionCentroB8.createMany({
-    data: prepared.map(item => ({
-      operacionB4Id: item.operationB4Id,
-      actorId,
-      idempotencyKey: item.idempotencyKey,
-      metadataHash: item.b8.metadataHash,
-      relatedSourceHashP2: item.b8.relatedSourceHashP2,
-      sourceNoteRule: B8_SOURCE_NOTE_RULE,
-      snapshotSolicitud: item.b8.snapshotSolicitud,
-      snapshotResultado: item.b8.snapshotResultado,
-    })),
-  })
-  if (countFrom(b8, 'B8_RECIBOS_NO_CREADOS') !== prepared.length) {
-    providerFail(500, 'B8_RECIBOS_NO_CREADOS', 'No se pudo conservar el recibo B8 de todas las comisiones.')
-  }
-
-  const p1Items = prepared.flatMap(item => item.p1 ? [{ item, p1: item.p1 }] : [])
-  if (p1Items.length) {
-    const p1 = await (tx as any).decisionTerceroModoFacil.createMany({
-      data: p1Items.map(({ item, p1 }) => ({
-        id: p1.decisionId,
-        movimientoId: item.movementId,
-        actorId,
-        accion: 'CONFIRMADA',
-        tipoTercero: 'BANCO',
-        origen: 'ENTIDAD_FISCAL',
-        candidatoHash: p1.candidateHash,
-        idempotencyKey: p1.idempotencyKey,
-        requestHash: p1.requestHash,
-        revierteId: null,
-        snapshot: p1.snapshot,
-      })),
-    })
-    if (countFrom(p1, 'P1_DECISIONES_NO_CREADAS') !== p1Items.length) {
-      providerFail(500, 'P1_DECISIONES_NO_CREADAS', 'No se pudo conservar la decisión P1 de las comisiones con ficha bancaria.')
-    }
-  }
+async function persistConciliarBankFeeBatchTx(tx: Tx, actorId: number, prepared: readonly ConciliarBankFeePrepared[]): Promise<void> {
+  const { persistConciliarFeeFinancialPackageTx }=await import('./conciliar-fee-persistence')
+  const rows=await persistConciliarFeeFinancialPackageTx(tx,actorId,prepared)
+  assertConciliarFeeFinancialPackageCounts(rows,prepared)
 }
 
 /**
@@ -836,11 +742,15 @@ export async function tryConfirmConciliarBankFeeBatchTx(
   const items = assertConciliarBankFeeBatchInput(input)
   await requireBatchEffectiveActorTx(tx, actorId)
   await lockB4FeeMovementsTx(tx, items.map(item => item.movimientoId))
+  // A source without active P1 is meaningful only after its exact P1 advisory
+  // key is held. Lock every selected movement after the B4 keys (the established
+  // order), then read source/P1 material once; a concurrent P1 cannot slip in
+  // between the eligibility photo and this package's append-only receipt.
+  await lockP1FeeMovementsTx(tx, items.map(item => item.movimientoId))
   const sources = await lockedFeeSourcesTx(tx, [...new Set(items.map(item => item.movimientoId))].sort((left, right) => left.localeCompare(right)))
   const replay = await existingBatchReplayTx(tx, actorId, input, sources)
   if (replay) return replay
   const prepared = prepareConciliarBankFeeBatchRows(input, actorId, sources)
-  await lockP1FeeMovementsTx(tx, prepared.filter(item => item.p1 !== null).map(item => item.movementId))
   await persistConciliarBankFeeBatchTx(tx, actorId, prepared)
   return prepared.map(item => ({
     rowId: item.rowId,

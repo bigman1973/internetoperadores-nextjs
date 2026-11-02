@@ -5,6 +5,7 @@ import { requireB4ActorAccess } from '@/lib/finanzas/reconciliation-auth'
 import { trustedImpersonationContextResolutionFromRequest } from '@/lib/impersonation-context'
 import { impersonationRequestAllowed } from '@/lib/impersonation-policy'
 import type { ConciliarCommand } from './conciliar-contract'
+import { assertConciliarLiveAccessTx } from './conciliar-live-access'
 import { retryConciliarRecoveryPreparation } from './conciliar-recovery-retry-core'
 import {
   buildConciliarRecoveryIntent,
@@ -94,8 +95,9 @@ async function lockRecoveryKeyTx(tx: Tx, actorEffectiveId: number, idempotencyKe
   await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${recoveryLockKey(actorEffectiveId, idempotencyKey)},0))::text AS locked`)
 }
 
-async function readIntentForUpdateTx(tx: Tx, actorEffectiveId: number, idempotencyKey: string): Promise<ConciliarRecoveryRecord | null> {
+async function readIntentForUpdateTx(tx: Tx, actorEffectiveId: number, idempotencyKey: string, checkLegacyReceipt = false): Promise<ConciliarRecoveryRecord | null> {
   const rows = await tx.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+    WITH intent AS (
     SELECT idempotency_key::text AS "idempotencyKey",action,resolution,
       command_hash AS "commandHash",body_hash AS "bodyHash",request_hash AS "requestHash",
       actor_real_id AS "actorRealId",actor_effective_id AS "actorEffectiveId",
@@ -105,25 +107,22 @@ async function readIntentForUpdateTx(tx: Tx, actorEffectiveId: number, idempoten
     FROM area3_conciliar_recovery_intents
     WHERE actor_effective_id=${actorEffectiveId} AND idempotency_key=CAST(${idempotencyKey} AS uuid)
     LIMIT 1 FOR UPDATE
+    )
+    ${checkLegacyReceipt ? Prisma.sql`, legacy_receipt AS (
+      SELECT id FROM operaciones_conciliar
+      WHERE actor_id=${actorEffectiveId} AND idempotency_key=CAST(${idempotencyKey} AS uuid)
+      LIMIT 1 FOR UPDATE
+    )` : Prisma.empty}
+    SELECT * FROM intent
+    ${checkLegacyReceipt ? Prisma.sql`UNION ALL SELECT NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL
+      WHERE NOT EXISTS (SELECT 1 FROM intent) AND EXISTS (SELECT 1 FROM legacy_receipt)` : Prisma.empty}
   `)
+  if (rows.length > 1) fail(503,'RECOVERY_INTENT_CORRUPTO','El intent durable no conserva una forma verificable.')
   if (!rows[0]) return null
+  if (checkLegacyReceipt && rows[0].idempotencyKey === null) fail(409, 'RECOVERY_RECIBO_LEGADO_NO_VERIFICABLE', 'La clave ya tiene un recibo sin correlación durable de recuperación.')
   const record = rowToRecord(rows[0])
   if (!record) fail(503, 'RECOVERY_INTENT_CORRUPTO', 'El intent durable no conserva una forma verificable.')
   return record
-}
-
-/**
- * A receipt that predates its durable intent cannot be safely adopted: its
- * historical JSON may have an actor label but has no authoritative session/body
- * correlation. The same advisory key closes the race with lockOperationOrReplay.
- */
-async function existingConciliarReceiptTx(tx: Tx, actorEffectiveId: number, idempotencyKey: string): Promise<boolean> {
-  const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    SELECT id::text AS id FROM operaciones_conciliar
-    WHERE actor_id=${actorEffectiveId} AND idempotency_key=CAST(${idempotencyKey} AS uuid)
-    LIMIT 1 FOR UPDATE
-  `)
-  return rows.length === 1
 }
 
 function intentMatches(record: ConciliarRecoveryRecord, context: ConciliarRecoveryWriteContext): boolean {
@@ -160,8 +159,7 @@ export async function resolveConciliarRecoveryIdentity(actorEffectiveId: number)
 }
 
 async function assertRecoveryWriteAccessTx(tx: Tx, actorEffectiveId: number): Promise<void> {
-  await assertConciliarRuntime(tx)
-  const access = await requireB4ActorAccess(actorEffectiveId, 'escritura', tx)
+  const access = await assertConciliarLiveAccessTx(tx,actorEffectiveId)
   if ('response' in access) fail(access.response.status, 'ACCESS_REVOKED', 'Tu permiso para conciliar ya no está vigente.')
 }
 
@@ -190,13 +188,10 @@ export async function prepareConciliarRecoveryIntent(
     }
     await assertRecoveryWriteAccessTx(tx, actorEffectiveId)
     await lockRecoveryKeyTx(tx, actorEffectiveId, intent.idempotencyKey)
-    const existing = await readIntentForUpdateTx(tx, actorEffectiveId, intent.idempotencyKey)
+    const existing = await readIntentForUpdateTx(tx, actorEffectiveId, intent.idempotencyKey, true)
     if (existing) {
       assertMatchingIntent(existing, context)
       return context
-    }
-    if (await existingConciliarReceiptTx(tx, actorEffectiveId, intent.idempotencyKey)) {
-      fail(409, 'RECOVERY_RECIBO_LEGADO_NO_VERIFICABLE', 'La clave ya tiene un recibo sin correlación durable de recuperación.')
     }
     await tx.$executeRaw(Prisma.sql`
       INSERT INTO area3_conciliar_recovery_intents(
