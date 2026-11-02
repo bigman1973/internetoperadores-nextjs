@@ -8,8 +8,14 @@ import { ROOT } from './run-batteries.mjs';
 export function migrationNameValid(name) { return /^\d{8}(?:_\d{6})?_area[1-9]_[a-z0-9]+(?:_[a-z0-9]+)*$/.test(name); }
 export function additiveSqlCheck(sql) {
   const text = sql.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '');
+  // La única excepción son los dos triggers añadidos para hacer append-only la
+  // bitácora de Área 4. Se valida su forma completa antes de retirarlos del
+  // análisis: un trigger distinto, una tabla distinta o una función distinta
+  // sigue siendo SQL no aditivo.
+  const allowedAppendOnlyTriggers = /CREATE\s+TRIGGER\s+"area4_auditoria_permisos_no_(?:update_delete|truncate)"\s+BEFORE\s+(?:UPDATE\s+OR\s+DELETE|TRUNCATE)\s+ON\s+"auditoria_permisos_area4"\s+FOR\s+EACH\s+(?:ROW|STATEMENT)\s+EXECUTE\s+FUNCTION\s+"area4_auditoria_permisos_bloquear_mutacion"\(\);/gi;
+  const checkedText = text.replace(allowedAppendOnlyTriggers, '');
   const destructive = /\b(DROP\s+(TABLE|COLUMN|INDEX|CONSTRAINT|SCHEMA|TYPE|TRIGGER|FUNCTION)|TRUNCATE|DELETE\s+FROM|UPDATE\s+[\w".]|RENAME\s+(TO|COLUMN)|ALTER\s+COLUMN\s+\w+\s+TYPE)\b/i;
-  return !destructive.test(text);
+  return !destructive.test(checkedText);
 }
 export function main() {
   const baseline = JSON.parse(readFileSync(join(ROOT, 'config/migration-baseline.json'), 'utf8'));

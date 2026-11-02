@@ -7,17 +7,21 @@ export type AdminPermissionSsrSeed = Readonly<{
   codigo: string
   lectura: boolean
   escritura: boolean
+  confirmar: boolean
+  exportar: boolean
 }>
 
 export type AdminPermissionSeedLoadMode = 'seed' | 'skip' | 'privileged' | 'fetch' | 'idle'
 
 export function serializeAdminPermissionSsrSeed(
-  rows: readonly Readonly<{ area: Readonly<{ codigo: string }>; lectura: boolean; escritura: boolean }>[],
+  rows: readonly Readonly<{ area: Readonly<{ codigo: string }>; lectura: boolean; escritura: boolean; confirmar: boolean; exportar: boolean }>[],
 ): AdminPermissionSsrSeed[] {
-  return rows.map(({ area, lectura, escritura }) => ({
+  return rows.map(({ area, lectura, escritura, confirmar, exportar }) => ({
     codigo: area.codigo,
     lectura,
     escritura,
+    confirmar,
+    exportar,
   }))
 }
 

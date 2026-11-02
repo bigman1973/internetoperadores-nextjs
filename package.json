@@ -10,6 +10,7 @@
     "postinstall": "prisma generate",
     "test:security:alta-contract": "tsx scripts/test-alta-contract-access.ts",
     "test:security:high-risk": "tsx scripts/test-high-risk-api-middleware.ts",
+    "test:area4": "tsx scripts/test-area4-rbac.ts && tsx scripts/test-area4-menu-presentation.ts && tsx scripts/test-area4-surface-registry.ts && tsx scripts/test-area4-template-route-matrix.ts",
     "test:areas": "node scripts/areas/run-batteries.mjs",
     "test:areas:infra": "node --test scripts/areas/infrastructure.test.mjs scripts/areas/run-batteries-local-only.test.mjs",
     "release:guard": "node scripts/areas/release-guard.mjs"

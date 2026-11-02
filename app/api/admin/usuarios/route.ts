@@ -1,96 +1,63 @@
 import { NextResponse } from 'next/server'
-import prisma from '../../../../lib/prisma'
 import bcrypt from 'bcryptjs'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '../../../../lib/auth'
+import prisma from '@/lib/prisma'
+import { appendArea4Audit, snapshotAdminUser } from '@/lib/area4/audit'
+import { requireArea4Owner } from '@/lib/area4/live-admin'
 
 export const dynamic = 'force-dynamic'
 
-// GET - Listar usuarios admin
-export async function GET() {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session || session.user?.userType !== 'admin') {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
+const ROLES_VALIDOS = new Set(['SUPER_ADMIN', 'GERENTE', 'MARKETING', 'VENTAS', 'CONTABILIDAD', 'RRHH', 'VISOR'])
 
-    const usuarios = await prisma.usuarioAdmin.findMany({
-      select: {
-        id: true,
-        email: true,
-        nombre: true,
-        rol: true,
-        roles: true,
-        activo: true,
-        ultimoAcceso: true,
-        createdAt: true,
-        perfilAsignado: true,
-      },
-      orderBy: { createdAt: 'asc' },
-    })
-
-    return NextResponse.json({ usuarios })
-  } catch (error) {
-    console.error('Error fetching usuarios:', error)
-    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 })
-  }
+function normalizarRol(value: unknown): string | null {
+  return typeof value === 'string' && ROLES_VALIDOS.has(value) ? value : null
 }
 
-// POST - Crear nuevo usuario admin
+// GET - La lista de cuentas y sus roles sólo es visible para Víctor.
+export async function GET() {
+  const auth = await requireArea4Owner(prisma)
+  if (auth.ok === false) return auth.response
+
+  const usuarios = await prisma.usuarioAdmin.findMany({
+    select: {
+      id: true, email: true, nombre: true, rol: true, roles: true, activo: true,
+      ultimoAcceso: true, createdAt: true, perfilAsignado: true,
+    },
+    orderBy: { createdAt: 'asc' },
+  })
+  return NextResponse.json({ usuarios })
+}
+
+// POST - Alta administrativa: sólo Víctor y nunca crea otro Super Admin.
 export async function POST(request: Request) {
+  const auth = await requireArea4Owner(prisma)
+  if (auth.ok === false) return auth.response
+
   try {
-    const session = await getServerSession(authOptions)
-    if (!session || session.user?.userType !== 'admin') {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
-
-    // Solo SUPER_ADMIN puede crear usuarios
-    if (session.user.role !== 'SUPER_ADMIN') {
-      return NextResponse.json({ error: 'Solo el Super Admin puede crear usuarios' }, { status: 403 })
-    }
-
     const body = await request.json()
-    const { email, nombre, password, rol, roles } = body
+    const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
+    const nombre = typeof body.nombre === 'string' ? body.nombre.trim() : ''
+    const password = typeof body.password === 'string' ? body.password : ''
+    const rol = normalizarRol(body.rol)
+    if (!email || !nombre || !password || !rol) return NextResponse.json({ error: 'Todos los campos son obligatorios y el rol debe ser válido' }, { status: 400 })
+    if (rol === 'SUPER_ADMIN') return NextResponse.json({ error: 'Solo existe un Super Admin canónico; no se pueden crear más.' }, { status: 403 })
 
-    if (!email || !nombre || !password || !rol) {
-      return NextResponse.json({ error: 'Todos los campos son obligatorios' }, { status: 400 })
-    }
+    const existing = await prisma.usuarioAdmin.findUnique({ where: { email }, select: { id: true } })
+    if (existing) return NextResponse.json({ error: 'Ya existe un usuario con ese email' }, { status: 409 })
 
-    // Verificar que el email no existe
-    const existing = await prisma.usuarioAdmin.findUnique({
-      where: { email: email.toLowerCase() },
-    })
-
-    if (existing) {
-      return NextResponse.json({ error: 'Ya existe un usuario con ese email' }, { status: 409 })
-    }
-
-    // Hash de la contraseña
     const passwordHash = await bcrypt.hash(password, 10)
-
-    const usuario = await prisma.usuarioAdmin.create({
-      data: {
-        email: email.toLowerCase(),
-        nombre,
-        passwordHash,
-        rol: rol as any,
-        roles: roles || [rol],
-        activo: true,
-      },
-      select: {
-        id: true,
-        email: true,
-        nombre: true,
-        rol: true,
-        roles: true,
-        activo: true,
-        createdAt: true,
-      },
+    const usuario = await prisma.$transaction(async tx => {
+      const created = await tx.usuarioAdmin.create({
+        data: { email, nombre, passwordHash, rol: rol as never, roles: [rol], activo: true },
+        select: { id: true, email: true, nombre: true, rol: true, roles: true, activo: true, createdAt: true, perfilAsignado: true },
+      })
+      await appendArea4Audit(tx, {
+        actorId: auth.principal.id, objetivoUsuarioId: created.id, operacion: 'USUARIO_ALTA',
+        despues: snapshotAdminUser(created), origen: new URL(request.url).pathname,
+      })
+      return created
     })
-
     return NextResponse.json({ usuario }, { status: 201 })
-  } catch (error) {
-    console.error('Error creating usuario:', error)
-    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 })
+  } catch {
+    return NextResponse.json({ error: 'Error interno al crear el usuario' }, { status: 500 })
   }
 }

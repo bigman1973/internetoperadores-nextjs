@@ -2,7 +2,6 @@
 
 import { usePathname } from 'next/navigation'
 import { useRole } from './RoleContext'
-import { useEffect } from 'react'
 
 /**
  * Mapeo de rutas planas a su padre lógico en el árbol de permisos.
@@ -24,9 +23,6 @@ const ROUTE_PARENT_MAP: Record<string, string> = {
   // Cobertura bancaria es una consulta del área de importación de extractos.
   'admin.finanzas.estado_cuentas': 'admin.finanzas.importar',
 }
-
-const recentlyRegistered = new Map<string, number>()
-const REGISTRATION_TTL_MS = 5 * 60 * 1000
 
 /**
  * Mapea una ruta del panel admin a un código de área de permisos.
@@ -61,32 +57,10 @@ export function pathToAreaCode(pathname: string): string {
 }
 
 /**
- * Auto-registra el área en la base de datos si no existe.
- * No registra áreas que están en la lista de ignorados (ya mapeadas manualmente).
- */
-function useAutoRegisterArea(areaCode: string) {
-  useEffect(() => {
-    if (!areaCode || areaCode === 'admin') return
-    if ((recentlyRegistered.get(areaCode) || 0) > Date.now()) return
-    recentlyRegistered.set(areaCode, Date.now() + REGISTRATION_TTL_MS)
-    fetch('/api/admin/permisos', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'auto_registrar',
-        codigo: areaCode,
-      }),
-    }).then((response) => {
-      if (!response.ok) recentlyRegistered.delete(areaCode)
-    }).catch(() => { recentlyRegistered.delete(areaCode) })
-  }, [areaCode])
-}
-
-/**
  * Componente que protege las rutas del panel admin según permisos granulares.
  * 
  * Reglas:
- * - SUPER_ADMIN sin simulación: acceso total
+ * - Víctor sin simulación: acceso total
  * - GERENTE sin simulación: acceso total
  * - Usuario con permisos granulares: solo accede a las áreas permitidas
  * - Usuario sin permisos granulares: usa sistema legacy de roles (no bloquea)
@@ -96,7 +70,7 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
   const pathname = usePathname()
   const { 
     hasAreaAccess, 
-    isSuperAdmin, 
+    isArea4Owner,
     isViewingAs, 
     isViewingAsUser,
     tienePermisosGranulares, 
@@ -106,13 +80,13 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
   
   const areaCode = pathToAreaCode(pathname)
   
-  // Auto-registrar el área (solo para SUPER_ADMIN, en background)
-  useAutoRegisterArea(isSuperAdmin && !isViewingAs ? areaCode : '')
-
-  // SUPER_ADMIN real sin simulación: acceso total
-  if (isSuperAdmin && !isViewingAs) {
+  // Víctor sin simulación: acceso total.
+  if (isArea4Owner && !isViewingAs) {
     return <>{children}</>
   }
+
+  // Usuarios, auditoría y actuación nunca se habilitan por rol ni por un grant visual.
+  if (['admin.usuarios', 'admin.auditoria', 'admin.actuar_como'].includes(areaCode)) return <AccessDenied />
   
   // GERENTE sin simulación de usuario: acceso total
   if (effectiveRole === 'GERENTE' && !isViewingAsUser) {

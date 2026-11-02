@@ -2,6 +2,8 @@ export type AdminSidebarPermission = Readonly<{
   codigo: string
   lectura: boolean
   escritura: boolean
+  confirmar?: boolean
+  exportar?: boolean
 }>
 
 export type AdminSidebarPreviewUser = Readonly<{
@@ -18,9 +20,10 @@ export const PERMISOS_POR_ROL: Record<string, readonly string[]> = {
   GERENTE: [
     'dashboard', 'crm', 'tarifas', 'clientes', 'leads', 'comunicados',
     'altas-pendientes', 'contratos', 'facturacion', 'finanzas',
-    'estadisticas', 'usuarios', 'subida-precios', 'personal',
+    'estadisticas', 'subida-precios', 'personal',
     'proyectos', 'historial', 'configuracion', 'certificaciones', 'certificaciones.iso_27001', 'certificaciones.tisax', 'certificaciones.cuestionarios',
     'asistente', 'asistente.chat', 'asistente.conocimiento', 'asistente.conversaciones', 'asistente.leads', 'asistente.aprendizaje', 'asistente.analitica', 'asistente.propuestas', 'asistente.configuracion',
+    'aapp', 'peticiones', 'imputaciones', 'proyectos_internos',
   ],
   MARKETING: [
     'dashboard', 'crm', 'leads', 'comunicados', 'estadisticas',
@@ -37,8 +40,11 @@ export const PERMISOS_POR_ROL: Record<string, readonly string[]> = {
   VISOR: [],
 }
 
-// Secciones que requieren acceso exclusivo SUPER_ADMIN
-export const SECCIONES_SUPER_ADMIN_ONLY = ['finanzas-tickets']
+// Secciones que requieren acceso exclusivo del propietario canónico (Víctor).
+export const SECCIONES_SUPER_ADMIN_ONLY = [
+  'usuarios', 'auditoria', 'actuar-como',
+  'admin.usuarios', 'admin.auditoria', 'admin.actuar_como',
+]
 
 // Mapeo de secciones del sidebar a códigos de área granular
 const SECTION_TO_AREA: Record<string, string> = {
@@ -64,6 +70,7 @@ const SECTION_TO_AREA: Record<string, string> = {
   'finanzas-tickets': 'admin.finanzas.tickets',
   estadisticas: 'admin.estadisticas',
   usuarios: 'admin.usuarios',
+  auditoria: 'admin.auditoria',
   'subida-precios': 'admin.subida_precios',
   personal: 'admin.empleados',
   proyectos: 'admin.proyectos',
@@ -73,6 +80,7 @@ const SECTION_TO_AREA: Record<string, string> = {
   'certificaciones.cuestionarios': 'admin.certificaciones.cuestionarios',
   historial: 'admin.historial',
   configuracion: 'admin.configuracion',
+  peticiones: 'admin.peticiones',
   'portal-empleado': 'admin',
   asistente: 'admin.asistente',
   'asistente.chat': 'admin.asistente.chat',
@@ -89,6 +97,7 @@ export type AdminSidebarAccessInput = Readonly<{
   section: string
   effectiveRole: string
   isSuperAdmin: boolean
+  isArea4Owner: boolean
   isViewingAs: boolean
   isViewingAsUser: boolean
   viewAsRole: string | null
@@ -110,6 +119,7 @@ export function hasAccess(input: AdminSidebarAccessInput): boolean {
   const {
     effectiveRole,
     isSuperAdmin,
+    isArea4Owner,
     isViewingAs,
     isViewingAsUser,
     viewAsRole,
@@ -119,8 +129,12 @@ export function hasAccess(input: AdminSidebarAccessInput): boolean {
     tienePermisosGranulares,
   } = input
 
-  // SUPER_ADMIN real sin simulación: acceso total
-  if (isSuperAdmin && !isViewingAs) return true
+  // Solo el propietario canónico tiene acceso total, y nunca mientras ve a otra persona.
+  if (isArea4Owner && !isViewingAs) return true
+  if (SECCIONES_SUPER_ADMIN_ONLY.includes(section)) return false
+
+  // Una cuenta histórica SUPER_ADMIN que no sea Víctor queda cerrada por defecto.
+  if (isSuperAdmin && !isViewingAs) return false
 
   // Portal empleado siempre accesible
   if (section === 'portal-empleado') return true
@@ -136,9 +150,10 @@ export function hasAccess(input: AdminSidebarAccessInput): boolean {
     // Si no tiene granulares, usar su rol
     const userRolesEff = viewingUser.roles?.length > 0 ? viewingUser.roles : [viewingUser.rol]
     return userRolesEff.some(rol => {
+      if (rol === 'GERENTE') return !SECCIONES_SUPER_ADMIN_ONLY.includes(section)
       const permisos = PERMISOS_POR_ROL[rol]
       if (!permisos) return false
-      if (permisos.includes('*')) return true
+      if (permisos.includes('*')) return !SECCIONES_SUPER_ADMIN_ONLY.includes(section)
       return permisos.includes(section)
     })
   }
@@ -148,7 +163,7 @@ export function hasAccess(input: AdminSidebarAccessInput): boolean {
     if (effectiveRole === 'GERENTE') return !SECCIONES_SUPER_ADMIN_ONLY.includes(section)
     const permisos = PERMISOS_POR_ROL[effectiveRole]
     if (!permisos) return false
-    if (permisos.includes('*')) return true
+    if (permisos.includes('*')) return !SECCIONES_SUPER_ADMIN_ONLY.includes(section)
     return permisos.includes(section)
   }
 
@@ -167,7 +182,7 @@ export function hasAccess(input: AdminSidebarAccessInput): boolean {
   return userRoles.some(rol => {
     const permisos = PERMISOS_POR_ROL[rol]
     if (!permisos) return false
-    if (permisos.includes('*')) return true
+    if (permisos.includes('*')) return !SECCIONES_SUPER_ADMIN_ONLY.includes(section)
     return permisos.includes(section)
   })
 }
@@ -181,7 +196,8 @@ export function checkGranularAccess(
   section: string,
   permisos: readonly AdminSidebarPermission[],
 ): boolean {
-  const codigoArea = SECTION_TO_AREA[section] || `admin.${section.replace(/-/g, '_')}`
+  const codigoArea = SECTION_TO_AREA[section]
+    || (section.startsWith('admin.') || section.startsWith('empleado.') ? section : `admin.${section.replace(/-/g, '_')}`)
 
   return permisos.some(p => {
     if (!p.lectura) return false
@@ -198,7 +214,7 @@ export function checkGranularAccess(
 /** Firma estable, sólo para saber si la foto recibida por el cliente cambió. */
 export function permissionSignature(permissions: readonly AdminSidebarPermission[]): string {
   return permissions
-    .map(permission => `${permission.codigo}:${permission.lectura ? '1' : '0'}${permission.escritura ? '1' : '0'}`)
+    .map(permission => `${permission.codigo}:${permission.lectura ? '1' : '0'}${permission.escritura ? '1' : '0'}${permission.confirmar ? '1' : '0'}${permission.exportar ? '1' : '0'}`)
     .sort()
     .join('|')
 }

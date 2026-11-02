@@ -26,6 +26,8 @@ import {
 } from '@/lib/impersonation'
 import { strictSameOrigin, validIdempotencyKey } from '@/lib/impersonation-policy'
 import { trustedRequestOrigin } from '@/lib/impersonation-context'
+import prisma from '@/lib/prisma'
+import { requireArea4Owner } from '@/lib/area4/live-admin'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -39,6 +41,13 @@ function json(body: unknown, status = 200): NextResponse {
 function errorResponse(error: unknown): NextResponse {
   if (error instanceof ImpersonationError) return json({ error: error.message, codigo: error.code }, error.status)
   return json({ error: 'No se pudo completar la operación de actuación.', codigo: 'IMPERSONATION_INTERNAL_ERROR' }, 500)
+}
+
+/** Víctor es el único usuario que abre o inicia una actuación.
+ * La salida de una sesión ya activa conserva su recuperación independiente. */
+async function requireArea4ImpersonationOwner(): Promise<void> {
+  const owner = await requireArea4Owner(prisma)
+  if (owner.ok === false) throw new ImpersonationError(owner.response.status, 'AREA4_OWNER_REQUIRED', 'Solo Víctor puede gestionar Actuar como.')
 }
 
 function rejectBearer(req: NextRequest): NextResponse | null {
@@ -195,6 +204,7 @@ export async function GET(req: NextRequest) {
         return errorResponse(error)
       }
     }
+    await requireArea4ImpersonationOwner()
     const actor = await requireLiveSuperAdmin(token)
     const limit = pageNumber(req.nextUrl.searchParams.get('limit'), 50, 100)
     const offset = pageNumber(req.nextUrl.searchParams.get('offset'), 0, 10_000)
@@ -223,6 +233,7 @@ export async function POST(req: NextRequest) {
       const result = isActiveImpersonationToken(token)
         ? await replayEffectiveImpersonationStart(token, body.targetId as number, idempotencyKey, origin.ip)
         : await (async () => {
+          await requireArea4ImpersonationOwner()
           await requireLiveSuperAdmin(token)
           return startImpersonation({
             sourceToken: token,

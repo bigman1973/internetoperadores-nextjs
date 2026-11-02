@@ -427,6 +427,55 @@ async function highRiskApiBoundary(request) {
   }
 }
 
+/**
+ * Las APIs administrativas registradas usan la misma matriz que el menú una
+ * vez que Víctor aplica una plantilla o ajuste a esa cuenta. El marcador vivo
+ * evita modificar el alcance heredado de personas todavía no migradas.
+ * Finanzas y las rutas de alto riesgo conservan sus guardias específicas.
+ */
+async function area4RegisteredAdminApiBoundary(request) {
+  const pathname = request.nextUrl.pathname;
+  if (!pathname.startsWith('/api/admin/') || pathname.startsWith('/api/admin/finanzas/')) return null;
+  if (request.method === 'OPTIONS' || highRiskApiRequirement(pathname, request.method)) return null;
+  try {
+    const [{ area4RegisteredSurfaceArea }, { getToken }, { default: prisma }, { evaluateArea4Capability }] = await Promise.all([
+      import('@/lib/area4/section-registry'), import('next-auth/jwt'), import('@/lib/prisma'), import('@/lib/area4/policy'),
+    ]);
+    const codigoArea = area4RegisteredSurfaceArea(pathname, 'api');
+    if (!codigoArea) return privateBoundary({ error: 'API administrativa no registrada' }, 403);
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET, cookieName: configuredSessionCookieName() });
+    if (token?.userType !== 'admin') return privateBoundary({ error: 'No autorizado' }, 401);
+    const userId = Number(token.id);
+    if (!Number.isSafeInteger(userId) || userId <= 0) return privateBoundary({ error: 'No autorizado' }, 401);
+    const user = await prisma.usuarioAdmin.findUnique({
+      where: { id: userId },
+      select: {
+        id: true, activo: true, rol: true, roles: true, permisosArea4Vivos: true,
+        permisos: { where: { area: { activo: true } }, select: { lectura: true, escritura: true, confirmar: true, exportar: true, area: { select: { codigo: true } } } },
+      },
+    });
+    if (!user?.activo) return privateBoundary({ error: 'No autorizado' }, 401);
+    if (!user.permisosArea4Vivos) return null;
+    const capability = SAFE_API_METHODS.has(request.method) ? 'lectura' : 'escritura';
+    const allowed = evaluateArea4Capability({
+      principal: user,
+      grants: user.permisos.map(permission => ({
+        codigo: permission.area.codigo,
+        lectura: permission.lectura,
+        escritura: permission.escritura,
+        confirmar: permission.confirmar,
+        exportar: permission.exportar,
+      })),
+      codigoArea,
+      capability,
+    });
+    return allowed ? null : privateBoundary({ error: `Sin permiso de ${capability}` }, 403);
+  } catch (error) {
+    console.error('Error verificando acceso vivo de Área 4:', error);
+    return privateBoundary({ error: 'No se pudo verificar el acceso' }, 503);
+  }
+}
+
 export async function middleware(request) {
   const timingStart = performance.now();
   const traceTiming = phase => {
@@ -586,6 +635,9 @@ export async function middleware(request) {
   // sin cuerpo ni datos; GET/HEAD y todas las escrituras se comprueban.
   const highRiskDenied = await highRiskApiBoundary(request);
   if (highRiskDenied) return highRiskDenied;
+
+  const area4RegisteredDenied = await area4RegisteredAdminApiBoundary(request);
+  if (area4RegisteredDenied) return area4RegisteredDenied;
 
   // Las APIs financieras heredadas se comprueban aquí mientras se llevan
   // progresivamente las autorizaciones al interior de cada handler.

@@ -42,6 +42,7 @@ interface RoleContextType {
   realRole: string
   realRoles: string[]
   isSuperAdmin: boolean
+  isArea4Owner: boolean
   setViewAsRole: (role: RolId | null) => void
   setViewAsUser: (user: UsuarioSimulado | null) => void
   hasAccess: (section: string) => boolean
@@ -61,6 +62,7 @@ const RoleContext = createContext<RoleContextType>({
   realRole: '',
   realRoles: [],
   isSuperAdmin: false,
+  isArea4Owner: false,
   setViewAsRole: () => {},
   setViewAsUser: () => {},
   hasAccess: () => true,
@@ -76,6 +78,7 @@ export function RoleProvider({
   children,
   userRole,
   userRoles,
+  isArea4Owner,
   userId,
   initialPermissions,
   initialPermissionsLoaded,
@@ -84,6 +87,8 @@ export function RoleProvider({
   children: React.ReactNode
   userRole: string
   userRoles: string[]
+  /** Identidad efectiva resuelta en servidor; nunca se infiere del JWT en cliente. */
+  isArea4Owner: boolean
   userId?: number
   /** Foto serializada sólo para el actor efectivo de la respuesta SSR actual. */
   initialPermissions?: readonly AdminPermissionSsrSeed[]
@@ -103,15 +108,15 @@ export function RoleProvider({
   const [initialSeedInvalidated, setInitialSeedInvalidated] = useState(false)
 
   const isSuperAdmin = userRole === 'SUPER_ADMIN'
-  const isViewingAsUser = isSuperAdmin && viewingUser !== null
-  const isViewingAs = isSuperAdmin && (viewAsRole !== null || viewingUser !== null)
+  const isViewingAsUser = isArea4Owner && viewingUser !== null
+  const isViewingAs = isArea4Owner && (viewAsRole !== null || viewingUser !== null)
 
   const effectiveRole: RolId = isViewingAsUser
     ? (viewingUser!.rol as RolId)
     : (viewAsRole ? viewAsRole : (userRole as RolId))
 
   const effectiveUserId = isViewingAsUser ? viewingUser!.id : (userId || null)
-  const isPrivilegedRealRole = !isViewingAs && (userRole === 'SUPER_ADMIN' || userRole === 'GERENTE')
+  const isPrivilegedRealRole = !isViewingAs && (isArea4Owner || userRole === 'GERENTE')
 
   // ¿Tiene permisos granulares asignados? (con al menos 1 lectura=true)
   const tienePermisosGranulares = permisosGranulares.some(p => p.lectura || p.escritura)
@@ -156,6 +161,8 @@ export function RoleProvider({
             codigo: p.area.codigo,
             lectura: p.lectura,
             escritura: p.escritura,
+            confirmar: p.confirmar === true,
+            exportar: p.exportar === true,
           })))
         }
         setPermisosLoaded(true)
@@ -188,6 +195,7 @@ export function RoleProvider({
     section,
     effectiveRole,
     isSuperAdmin,
+    isArea4Owner,
     isViewingAs,
     isViewingAsUser,
     viewAsRole,
@@ -195,11 +203,12 @@ export function RoleProvider({
     viewingUser,
     permisosGranulares,
     tienePermisosGranulares,
-  }), [effectiveRole, isSuperAdmin, isViewingAs, isViewingAsUser, viewAsRole, userRoles, viewingUser, permisosGranulares, tienePermisosGranulares])
+  }), [effectiveRole, isSuperAdmin, isArea4Owner, isViewingAs, isViewingAsUser, viewAsRole, userRoles, viewingUser, permisosGranulares, tienePermisosGranulares])
 
   // Verificación granular por código de área
   const hasAreaAccess = useCallback((codigoArea: string, tipo: 'lectura' | 'escritura' = 'lectura') => {
-    if (isSuperAdmin && !isViewingAs) return true
+    if (isArea4Owner && !isViewingAs) return true
+    if (['admin.usuarios', 'admin.auditoria', 'admin.actuar_como'].includes(codigoArea)) return false
     if (effectiveRole === 'GERENTE' && !isViewingAsUser) return true
 
     // Construir cadena de herencia hacia arriba (padres del área solicitada)
@@ -224,7 +233,7 @@ export function RoleProvider({
     }
 
     return false
-  }, [isSuperAdmin, isViewingAs, isViewingAsUser, effectiveRole, permisosGranulares])
+  }, [isArea4Owner, isViewingAs, isViewingAsUser, effectiveRole, permisosGranulares])
 
   return (
     <RoleContext.Provider value={{
@@ -235,6 +244,7 @@ export function RoleProvider({
       realRole: userRole,
       realRoles: userRoles,
       isSuperAdmin,
+      isArea4Owner,
       setViewAsRole,
       setViewAsUser,
       hasAccess,

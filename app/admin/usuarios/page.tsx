@@ -1,11 +1,14 @@
 export const dynamic = "force-dynamic";
-import { requireAdminAreaRead } from '@/lib/admin-area-auth'
+import { redirect } from 'next/navigation'
 import prisma from '../../../lib/prisma'
 import UsuariosAdminClient from '../../../components/admin/UsuariosAdminClient'
 import { serializeUsuariosInitiales } from '../../../components/admin/usuariosInitialData'
+import { requireArea4Owner } from '@/lib/area4/live-admin'
+import MenuPresentationControl from '@/components/admin/MenuPresentationControl'
 
 export default async function UsuariosPage() {
-  await requireAdminAreaRead('admin.usuarios')
+  const auth = await requireArea4Owner(prisma)
+  if (!auth.ok) redirect('/admin')
 
   const usuarios = await prisma.usuarioAdmin.findMany({
     select: {
@@ -22,5 +25,8 @@ export default async function UsuariosPage() {
     orderBy: { createdAt: 'asc' },
   })
 
-  return <UsuariosAdminClient initialUsuarios={serializeUsuariosInitiales(usuarios)} />
+  return <>
+    <MenuPresentationControl />
+    <UsuariosAdminClient initialUsuarios={serializeUsuariosInitiales(usuarios)} />
+  </>
 }

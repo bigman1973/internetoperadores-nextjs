@@ -25,6 +25,9 @@ import {
 } from '@/components/admin/sidebar-navigation'
 import AdminSidebarMenu from '@/components/admin/server/AdminSidebarMenu'
 import { AdminSidebarPlaceholder } from '@/components/admin/presentation/AdminSidebarPlaceholder'
+import { isArea4Owner } from '@/lib/area4/policy'
+import { resolveLiveAdminPrincipal } from '@/lib/area4/live-admin'
+import { readArea4MenuConfiguration, resolveArea4MenuPresentation, type Area4MenuPresentation } from '@/lib/area4/menu-presentation'
 
 type SidebarInitialModel = Readonly<{
   mode: 'easy' | 'privileged' | 'seed'
@@ -43,6 +46,8 @@ function getSidebarInitialModel({
   financeEnvironment,
   conciliarEnabled,
   initialPermissions,
+  isArea4Owner: isOwner,
+  menuPresentation,
 }: {
   userRole: string
   userRoles: string[]
@@ -51,6 +56,8 @@ function getSidebarInitialModel({
   /** Server-derived render/navigation seed; never authorization for an API. */
   conciliarEnabled: boolean
   initialPermissions: Awaited<ReturnType<typeof readAdminPermissionsSsrWithFallback>>
+  isArea4Owner: boolean
+  menuPresentation: Area4MenuPresentation
 }): SidebarInitialModel | null {
   if (easyOnly) {
     return {
@@ -61,7 +68,7 @@ function getSidebarInitialModel({
   }
 
   const isSuperAdmin = userRole === 'SUPER_ADMIN'
-  const isPrivilegedRealRole = isSuperAdmin || userRole === 'GERENTE'
+  const isPrivilegedRealRole = isOwner || userRole === 'GERENTE'
   // Si falla la lectura no se puede inferir que el actor no tenga ACL granular.
   // Se mantiene un placeholder seguro hasta que RoleContext consulta la ACL viva.
   if (!isPrivilegedRealRole && initialPermissions === null) return null
@@ -72,6 +79,7 @@ function getSidebarInitialModel({
     section,
     effectiveRole: userRole,
     isSuperAdmin,
+    isArea4Owner: isOwner,
     isViewingAs: false,
     isViewingAsUser: false,
     viewAsRole: null,
@@ -79,7 +87,7 @@ function getSidebarInitialModel({
     viewingUser: null,
     permisosGranulares: permissions,
     tienePermisosGranulares,
-  }), conciliarEnabled)
+  }), conciliarEnabled, menuPresentation)
 
   return {
     mode: isPrivilegedRealRole ? 'privileged' : 'seed',
@@ -100,9 +108,12 @@ export default async function AdminLayout({
   const session = await requireAuth('admin')
   trace('session')
   const actorId = Number(session.user.id)
-  const userRole = session.user.role || 'VENTAS'
-  const userRoles = session.user.roles || []
-  const isPrivilegedRealRole = userRole === 'SUPER_ADMIN' || userRole === 'GERENTE'
+  const livePrincipal = await resolveLiveAdminPrincipal(prisma, actorId)
+  if (!livePrincipal) redirect('/login')
+  const userRole = livePrincipal.rol
+  const userRoles = [...(livePrincipal.roles || [])]
+  const isOwner = isArea4Owner(livePrincipal)
+  const isPrivilegedRealRole = isOwner || userRole === 'GERENTE'
   // Esta foto pertenece sólo a este render y al actor efectivo que requireAuth
   // acaba de comprobar. No es autoridad para APIs ni se conserva entre requests.
   const permissionSeed = !isPrivilegedRealRole
@@ -111,16 +122,17 @@ export default async function AdminLayout({
   // Las lecturas posteriores a la autenticación son independientes y no mutan
   // estado. La foto, si está disponible, reutiliza su propio conteo de lectura;
   // ante un error se conserva exactamente el fallback histórico de count().
-  const [profileEnvironment, financeContext, conciliarContext, initialPermissions, canAccessAdmin] = await Promise.all([
+  const [profileEnvironment, financeContext, conciliarContext, initialPermissions, canAccessAdmin, menuConfiguration] = await Promise.all([
     getFinanceEasyProfileRuntime(),
     getFinanceEasyRuntimeContext(),
     getConciliarRuntimeContext(),
     permissionSeed,
-    canAccessAdminPanel(session.user, async usuarioId => {
+    canAccessAdminPanel({ ...session.user, role: userRole, roles: userRoles }, async usuarioId => {
       const permissions = await permissionSeed
       if (permissions !== null && usuarioId === actorId) return countReadableAdminPermissionSeeds(permissions)
       return prisma.permisoUsuario.count({ where: { usuarioId, lectura: true } })
     }),
+    readArea4MenuConfiguration(prisma),
   ])
   trace('environment-and-access')
   const easyOnly = profileEnvironment !== null && await isEasyOnlyFinanceUser(Number(session.user.id))
@@ -131,6 +143,7 @@ export default async function AdminLayout({
 
   const financeEnvironment = financeContext?.runtime ?? null
   const conciliarEnabled = conciliarContext !== null
+  const menuPresentation = resolveArea4MenuPresentation(menuConfiguration, livePrincipal)
   const initialSidebar = getSidebarInitialModel({
     userRole,
     userRoles,
@@ -138,6 +151,8 @@ export default async function AdminLayout({
     financeEnvironment,
     conciliarEnabled,
     initialPermissions,
+    isArea4Owner: isOwner,
+    menuPresentation,
   })
   const initialMenu = initialSidebar ? (
     <AdminSidebarMenu
@@ -161,6 +176,7 @@ export default async function AdminLayout({
         initialPermissions={initialPermissions ?? undefined}
         initialPermissionsLoaded={initialPermissions !== null}
         skipPermissionLoad={easyOnly}
+        isArea4Owner={isOwner}
       >
         <SidebarProvider>
           <div data-admin-shell className="min-h-screen overflow-x-hidden bg-gray-50 text-gray-900">
@@ -172,6 +188,7 @@ export default async function AdminLayout({
               initialMenu={initialMenu}
               initialMenuMode={initialSidebar?.mode ?? 'unavailable'}
               initialPermissionSignature={initialSidebar?.permissionSignature}
+              menuPresentation={menuPresentation}
             />
             <div className="min-w-0 lg:pl-64">
               <AdminHeader />

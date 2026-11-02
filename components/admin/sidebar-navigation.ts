@@ -1,4 +1,7 @@
+import { AREA4_GROUPED_MENU, AREA4_MENU_GROUPS, area4SectionByKey } from '@/lib/area4/section-registry'
+
 export type FinanceEnvironment = 'staging' | 'production' | null
+export type SidebarPresentation = 'historico' | 'agrupado'
 
 export type SidebarIconName =
   | 'academicCap'
@@ -174,34 +177,72 @@ const navigation: SidebarNavigationEntry[] = [
   { name: 'Configuración', href: '/admin/configuracion', icon: 'cog', section: 'configuracion' },
 ]
 
-function withFinanceEnvironment(financeEnvironment: FinanceEnvironment, conciliarEnabled = financeEnvironment === 'staging'): SidebarNavigationEntry[] {
-  const financeLabel = financeEnvironment === 'staging' ? ' · staging' : ''
-
-  return navigation.map(entry => {
-    if (!isSidebarNavigationGroup(entry) || entry.name !== 'Finanzas') return entry
-
-    return {
-      ...entry,
-      children: entry.children
-        .filter(child => {
-          if (child.href === '/admin/finanzas/conciliar') return conciliarEnabled
-          if (['/admin/finanzas/modo-facil', '/admin/finanzas/para-pedir', '/admin/finanzas/reparto-clientes'].includes(child.href)) return financeEnvironment !== null
-          // Telefonía/SOFÍA continúa aparcada en producción.
-          if (child.href === '/admin/finanzas/analitica-cliente') return financeEnvironment === 'staging'
-          return true
-        })
-        .map(child => ({
-          ...child,
-          name: ['/admin/finanzas/modo-facil', '/admin/finanzas/para-pedir', '/admin/finanzas/reparto-clientes', '/admin/finanzas/analitica-cliente'].includes(child.href)
-            ? `${child.name}${financeLabel}`
-            : child.name,
-        })),
-    }
-  })
+const GROUP_ICONS: Record<(typeof AREA4_MENU_GROUPS)[number], SidebarIconName> = {
+  Inicio: 'home',
+  Comercial: 'chartBar',
+  'Clientes y contratos': 'users',
+  Finanzas: 'calculator',
+  Personas: 'briefcase',
+  Operación: 'rocketLaunch',
+  Administración: 'cog',
 }
 
-export function getSidebarNavigation(financeEnvironment: FinanceEnvironment, conciliarEnabled = financeEnvironment === 'staging'): SidebarNavigationEntry[] {
-  return withFinanceEnvironment(financeEnvironment, conciliarEnabled)
+function groupedItem(item: (typeof AREA4_GROUPED_MENU)[keyof typeof AREA4_GROUPED_MENU][number]): SidebarNavigationItem {
+  const section = area4SectionByKey(item.section)
+  if (!section) throw new Error(`Sección no registrada en el menú: ${item.section}`)
+  return {
+    name: item.name,
+    href: item.href,
+    icon: item.icon as SidebarIconName,
+    section: section.areaCode,
+    subitems: item.subitems?.map(subitem => groupedItem(subitem as (typeof AREA4_GROUPED_MENU)[keyof typeof AREA4_GROUPED_MENU][number])),
+  }
+}
+
+/** La agrupación sólo cambia presentación: las rutas y sus códigos de área provienen del registro estático. */
+function groupedNavigation(): SidebarNavigationEntry[] {
+  return AREA4_MENU_GROUPS.map(name => ({
+    name,
+    icon: GROUP_ICONS[name],
+    section: 'admin',
+    children: AREA4_GROUPED_MENU[name].map(item => groupedItem(item)),
+  }))
+}
+
+function withFinanceEnvironment(
+  financeEnvironment: FinanceEnvironment,
+  conciliarEnabled = financeEnvironment === 'staging',
+  presentation: SidebarPresentation = 'historico',
+): SidebarNavigationEntry[] {
+  const financeLabel = financeEnvironment === 'staging' ? ' · staging' : ''
+
+  const adaptItem = (item: SidebarNavigationItem): SidebarNavigationItem | null => {
+    if (item.href === '/admin/finanzas/conciliar' && !conciliarEnabled) return null
+    if (['/admin/finanzas/modo-facil', '/admin/finanzas/para-pedir', '/admin/finanzas/reparto-clientes'].includes(item.href) && financeEnvironment === null) return null
+    // Telefonía/SOFÍA continúa aparcada en producción.
+    if (item.href === '/admin/finanzas/analitica-cliente' && financeEnvironment !== 'staging') return null
+    return {
+      ...item,
+      name: ['/admin/finanzas/modo-facil', '/admin/finanzas/para-pedir', '/admin/finanzas/reparto-clientes', '/admin/finanzas/analitica-cliente'].includes(item.href)
+        ? `${item.name}${financeLabel}`
+        : item.name,
+      subitems: item.subitems?.map(adaptItem).filter((child): child is SidebarNavigationItem => child !== null),
+    }
+  }
+
+  const base = presentation === 'agrupado' ? groupedNavigation() : navigation
+  return base.map(entry => {
+    if (!isSidebarNavigationGroup(entry)) return adaptItem(entry)
+    return { ...entry, children: entry.children.map(adaptItem).filter((child): child is SidebarNavigationItem => child !== null) }
+  }).filter((entry): entry is SidebarNavigationEntry => entry !== null)
+}
+
+export function getSidebarNavigation(
+  financeEnvironment: FinanceEnvironment,
+  conciliarEnabled = financeEnvironment === 'staging',
+  presentation: SidebarPresentation = 'historico',
+): SidebarNavigationEntry[] {
+  return withFinanceEnvironment(financeEnvironment, conciliarEnabled, presentation)
 }
 
 export function getEasyOnlySidebarNavigation(financeEnvironment: FinanceEnvironment, conciliarEnabled = financeEnvironment === 'staging'): SidebarNavigationItem[] {
@@ -235,8 +276,9 @@ export function filterAuthorizedSidebarNavigation(
   financeEnvironment: FinanceEnvironment,
   hasAccess: (section: string) => boolean,
   conciliarEnabled = financeEnvironment === 'staging',
+  presentation: SidebarPresentation = 'historico',
 ): SidebarNavigationEntry[] {
-  return getSidebarNavigation(financeEnvironment, conciliarEnabled)
+  return getSidebarNavigation(financeEnvironment, conciliarEnabled, presentation)
     .map(entry => {
       if (!isSidebarNavigationGroup(entry)) return filterItem(entry, hasAccess)
 

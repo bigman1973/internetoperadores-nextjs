@@ -9,6 +9,7 @@ import {
   filterAuthorizedSidebarNavigation,
   isSidebarNavigationGroup,
   type FinanceEnvironment,
+  type SidebarPresentation,
   type SidebarNavigationGroup,
   type SidebarNavigationItem,
 } from '../sidebar-navigation'
@@ -20,6 +21,7 @@ interface InteractiveAdminSidebarMenuProps {
   financeEnvironment?: FinanceEnvironment
   /** Presentation seed from the server; cannot authorize routes or writes. */
   conciliarEnabled?: boolean
+  menuPresentation?: SidebarPresentation
   onNavigate?: () => void
 }
 
@@ -28,6 +30,7 @@ export default function InteractiveAdminSidebarMenu({
   easyOnly = false,
   financeEnvironment = null,
   conciliarEnabled = false,
+  menuPresentation = 'historico',
   onNavigate,
 }: InteractiveAdminSidebarMenuProps) {
   const pathname = usePathname()
@@ -37,8 +40,8 @@ export default function InteractiveAdminSidebarMenu({
   const visibleNavigation = useMemo(() => (
     easyOnly
       ? []
-      : filterAuthorizedSidebarNavigation(financeEnvironment, hasAccess, conciliarEnabled)
-  ), [easyOnly, financeEnvironment, conciliarEnabled, hasAccess])
+      : filterAuthorizedSidebarNavigation(financeEnvironment, hasAccess, conciliarEnabled, menuPresentation)
+  ), [easyOnly, financeEnvironment, conciliarEnabled, menuPresentation, hasAccess])
 
   // Auto-abrir el grupo si la ruta actual está dentro.
   useEffect(() => {

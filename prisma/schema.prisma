@@ -61,7 +61,10 @@ model UsuarioAdmin {
   tarifasCreadas   Tarifa[]          @relation("TarifaCreador")
   tarifasEditadas  Tarifa[]          @relation("TarifaEditor")
   permisos         PermisoUsuario[]
+  auditoriasPermisosArea4ComoActor    AuditoriaPermisosArea4[] @relation("AuditoriaArea4Actor")
+  auditoriasPermisosArea4ComoObjetivo AuditoriaPermisosArea4[] @relation("AuditoriaArea4Objetivo")
   perfilAsignado   String?           @map("perfil_asignado") // Nombre del perfil de permisos asignado
+  permisosArea4Vivos Boolean         @default(false) @map("permisos_area4_vivos")
   outlookConexion  OutlookConexion?
   comentariosFactura ComentarioFacturaRecibida[]
   rentabilidadAuditoria RentabilidadAuditoria[]
@@ -3227,6 +3230,8 @@ model PermisoUsuario {
   areaId          String       @map("area_id")
   lectura         Boolean      @default(false)
   escritura       Boolean      @default(false)
+  confirmar       Boolean      @default(false)
+  exportar        Boolean      @default(false)
   createdAt       DateTime     @default(now()) @map("created_at")
   updatedAt       DateTime     @updatedAt @map("updated_at")
 
@@ -3250,6 +3255,39 @@ model PerfilPermisos {
   updatedAt       DateTime     @updatedAt @map("updated_at")
 
   @@map("perfiles_permisos")
+}
+
+/// Bitácora inmutable de Área 4. Los triggers de la migración rechazan UPDATE,
+/// DELETE y TRUNCATE; la aplicación sólo inserta dentro de la transacción del cambio.
+model AuditoriaPermisosArea4 {
+  id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorId           Int           @map("actor_id")
+  objetivoUsuarioId Int?          @map("objetivo_usuario_id")
+  operacion         String
+  areaCodigo        String?       @map("area_codigo")
+  antes             Json?
+  despues           Json?
+  origen            String?
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  actor             UsuarioAdmin  @relation("AuditoriaArea4Actor", fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  objetivoUsuario   UsuarioAdmin? @relation("AuditoriaArea4Objetivo", fields: [objetivoUsuarioId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([createdAt(sort: Desc)], map: "auditoria_permisos_area4_created_idx")
+  @@index([actorId, createdAt(sort: Desc)], map: "auditoria_permisos_area4_actor_idx")
+  @@index([objetivoUsuarioId, createdAt(sort: Desc)], map: "auditoria_permisos_area4_target_idx")
+  @@map("auditoria_permisos_area4")
+}
+
+/// Interruptor reversible del menú agrupado. La ausencia de fila equivale a
+/// menú histórico; sólo Víctor puede modificarla y cada cambio queda auditado.
+model ConfiguracionPanelArea4 {
+  id                            String   @id
+  menuAgrupadoParaPropietario   Boolean  @default(false) @map("menu_agrupado_para_propietario")
+  menuAgrupadoParaTodos         Boolean  @default(false) @map("menu_agrupado_para_todos")
+  updatedById                   Int?     @map("updated_by_id")
+  updatedAt                     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("configuracion_panel_area4")
 }
 
 

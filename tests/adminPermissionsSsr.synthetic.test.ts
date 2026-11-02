@@ -14,6 +14,8 @@ const seed = serializeAdminPermissionSsrSeed([
     area: { codigo: 'admin.finanzas.conciliacion' },
     lectura: true,
     escritura: false,
+    confirmar: false,
+    exportar: false,
   },
 ])
 
@@ -21,6 +23,8 @@ assert.deepEqual(seed, [{
   codigo: 'admin.finanzas.conciliacion',
   lectura: true,
   escritura: false,
+  confirmar: false,
+  exportar: false,
 }])
 assert.equal(JSON.stringify(seed).includes('areaId'), false, 'La semilla no expone identificadores internos.')
 
@@ -75,7 +79,7 @@ assert.equal(decideAdminPermissionSeedLoad({
 }), 'privileged', 'SUPER_ADMIN y GERENTE reales conservan su ruta visual inmediata.')
 
 const deniedSeed = serializeAdminPermissionSsrSeed([
-  { area: { codigo: 'admin.finanzas.conciliacion' }, lectura: false, escritura: true },
+  { area: { codigo: 'admin.finanzas.conciliacion' }, lectura: false, escritura: true, confirmar: false, exportar: false },
 ])
 assert.equal(countReadableAdminPermissionSeeds(deniedSeed), 0, 'Escritura sin lectura no satisface la entrada al panel.')
 async function run() {
@@ -89,14 +93,14 @@ async function run() {
     permisoUsuario: {
       findMany: async (query: unknown) => {
         calls.push(query)
-        return [{ area: { codigo: 'admin.finanzas.conciliacion' }, lectura: true, escritura: false }]
+        return [{ area: { codigo: 'admin.finanzas.conciliacion' }, lectura: true, escritura: false, confirmar: false, exportar: false }]
       },
     },
   } as any, 41)
   assert.deepEqual(readerSeed, seed, 'La lectura SSR devuelve sólo el contrato serializable de la respuesta actual.')
   assert.deepEqual(calls, [{
     where: { usuarioId: 41, area: { activo: true } },
-    select: { lectura: true, escritura: true, area: { select: { codigo: true } } },
+    select: { lectura: true, escritura: true, confirmar: true, exportar: true, area: { select: { codigo: true } } },
   }])
   assert.equal(await readAdminPermissionsSsr({ permisoUsuario: { findMany: async () => [] } } as any, 0), null)
   assert.equal(await readAdminPermissionsSsrWithFallback({
