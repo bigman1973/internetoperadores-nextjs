@@ -37,7 +37,7 @@ for (const query of rendered) {
 const legacy = rendered.find(query => query.text.includes('legacy_receipt'))
 const executable = rendered.find(query => !query.text.includes('legacy_receipt'))
 assert.ok(legacy && executable, 'las plantillas distinguen prepare con legado y executable sin legado')
-assert.match(legacy.text, /WITH barrier AS MATERIALIZED \(\s*SELECT pg_advisory_xact_lock/s)
+assert.match(legacy.text, /WITH barrier AS MATERIALIZED \(\s*SELECT pg_advisory_xact_lock/)
 assert.match(legacy.text, /FROM barrier LEFT JOIN intent i ON true LEFT JOIN legacy_flags ON true/)
 assert.match(executable.text, /FROM barrier LEFT JOIN intent i ON true/)
 assert.equal((legacy.text.match(/pg_advisory_xact_lock/g) ?? []).length, 1, 'prepare coalesce advisory y lecturas en una sola query')
