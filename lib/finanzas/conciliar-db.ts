@@ -1282,7 +1282,7 @@ export async function insertProjectionBatches(tx: Tx, rows: readonly RebuildRow[
 /**
  * Rebuilds an exact, already-classified set of bank-fee rows from their current
  * locked B4 sources. It never accepts a historic projection/fingerprint/decision
- * hash as evidence. The three set queries deliberately finish before the single
+ * hash as evidence. The two set queries deliberately finish before the single
  * insert: any missing source, active P1, current non-fee classification or
  * existing projection returns false without a partial restoration. The caller
  * then retains dirty and uses the established full-rebuild route.
@@ -1309,19 +1309,27 @@ export async function restoreLiveBankFeeProjectionBatchTx(base: Prisma.Transacti
     currentByMovementId.set(movimientoId, current)
   }
   if (currentByMovementId.size !== movimientoIds.length || movimientoIds.some(movimientoId => !currentByMovementId.has(movimientoId))) return false
-  const activeP1 = await tx.$queryRaw<Array<{ movimientoId: string }>>(Prisma.sql`
-    SELECT d.movimiento_id AS "movimientoId"
-    FROM decisiones_tercero_modo_facil d
-    WHERE d.movimiento_id IN (${ids}) AND d.accion='CONFIRMADA'::"EstadoDecisionTerceroModoFacil"
-      AND NOT EXISTS (SELECT 1 FROM decisiones_tercero_modo_facil r WHERE r.revierte_id=d.id AND r.accion='REVERTIDA'::"EstadoDecisionTerceroModoFacil")
-    FOR UPDATE OF d
+  // Fully consume the P1 lock set before touching projection rows. COUNT, not
+  // EXISTS, drains the materialized source even when several decisions exist.
+  // A P1 incompatibility still skips projection locks, exactly as before.
+  const conflicts = await tx.$queryRaw<Array<{ activeP1Count: number; existingProjectionCount: number }>>(Prisma.sql`
+    WITH active_p1 AS MATERIALIZED (
+      SELECT d.movimiento_id AS "movimientoId"
+      FROM decisiones_tercero_modo_facil d
+      WHERE d.movimiento_id IN (${ids}) AND d.accion='CONFIRMADA'::"EstadoDecisionTerceroModoFacil"
+        AND NOT EXISTS (SELECT 1 FROM decisiones_tercero_modo_facil r WHERE r.revierte_id=d.id AND r.accion='REVERTIDA'::"EstadoDecisionTerceroModoFacil")
+      FOR UPDATE OF d
+    ), active_p1_count AS MATERIALIZED (
+      SELECT COUNT(*)::integer AS total FROM active_p1
+    ), existing_projection AS MATERIALIZED (
+      SELECT movimiento_id AS "movimientoId" FROM conciliar_proyecciones
+      CROSS JOIN active_p1_count guard
+      WHERE movimiento_id IN (${ids}) AND guard.total=0 FOR UPDATE OF conciliar_proyecciones
+    )
+    SELECT (SELECT total FROM active_p1_count) AS "activeP1Count",
+      (SELECT COUNT(*)::integer FROM existing_projection) AS "existingProjectionCount"
   `)
-  if (activeP1.length) return false
-  const existing = await tx.$queryRaw<Array<{ movimientoId: string }>>(Prisma.sql`
-    SELECT movimiento_id AS "movimientoId" FROM conciliar_proyecciones
-    WHERE movimiento_id IN (${ids}) FOR UPDATE
-  `)
-  if (existing.length) return false
+  if (conflicts.length !== 1 || conflicts[0]?.activeP1Count !== 0 || conflicts[0]?.existingProjectionCount !== 0) return false
   const rows: RebuildRow[] = []
   for (const movimientoId of movimientoIds) {
     const rebuilt = buildBankFeeProjectionSeed(currentByMovementId.get(movimientoId))
