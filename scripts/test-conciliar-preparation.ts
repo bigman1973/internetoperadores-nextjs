@@ -34,6 +34,7 @@ function fixture(config: { rows?: RebuildRow[]; prior?: core.PreparationPrior[];
     $executeRaw: async (statement: any) => {
       const text = sql(statement); active.statements.push(text); calls.push(text)
       if (text === 'SET TRANSACTION READ ONLY') { active.readonly = true; return 0 }
+      if (text === 'SET TRANSACTION READ WRITE') { active.readonly = false; return 0 }
       assert.equal(active.readonly, false, 'No DML in read-only phase')
       if (text.startsWith('DELETE FROM conciliar_proyecciones WHERE id IN')) { for (const id of statement.values) { financial.delete(id); metadata.delete(id) }; return statement.values.length }
       if (text.startsWith('INSERT INTO area3_conciliar_projection_changes')) {
@@ -92,7 +93,9 @@ function fixture(config: { rows?: RebuildRow[]; prior?: core.PreparationPrior[];
         return page.map(p => ({ ...structuredClone(p), source: { ...p.source, documentLifecycleVersionState: 'guarded-current' }, row: config.guardAmber === p.row.id ? { ...p.row, color: 'AMBAR', seleccionable: false } : p.row }))
       },
       sealConciliarProjectionRowsTx: async (base: any, page: RebuildRow[], context: RebuildRow[]) => {
-        assert.equal(base, tx); assert.equal(active.readonly, true); assert.equal(context.length, rows.length)
+        assert.equal(base, tx); assert.equal(active.readonly, false); assert.equal(context.length, rows.length)
+        assert.ok(active.statements.includes('SET TRANSACTION READ WRITE'))
+        assert.ok(!active.statements.some((s: string) => s.includes('FOR UPDATE NOWAIT')))
         assert.ok(context.every(p => p.source.documentLifecycleVersionState === 'guarded-current'), 'Full guarded context, not raw/old pages')
         calls.push(`seal:${page.length}`)
         return page.map(p => ({ ...structuredClone(p), source: { ...p.source, ...(p.row.color === 'VERDE' ? { g7Precheck: 'live-display-only' } : {}) } }))
@@ -145,7 +148,8 @@ async function main() {
     assert.equal(f.queue.length, 0); assert.equal(f.state.dirtyAt, null); assert.match(f.state.dirtyReason!, /^AREA3_PREP_DONE:/)
     assert.ok([...f.financial.values()].every(r => r.row.color === 'VERDE'), 'Not permanent all-amber')
     assert.ok(f.transactions.filter(t => t.readonly).every(t => !t.statements.some(s => /FOR UPDATE|DELETE|INSERT/.test(s))))
-    assert.ok(f.transactions.filter(t => !t.readonly).every(t => t.options.timeout === 10_000))
+    assert.ok(f.transactions.filter(t => t.statements.some(s => s.includes('FOR UPDATE NOWAIT'))).every(t => t.options.timeout === 10_000))
+    assert.ok(f.transactions.filter(t => t.statements.includes('SET TRANSACTION READ WRITE')).every(t => t.options.timeout === 25_000 && !t.statements.some(s => /DELETE|INSERT|UPDATE estado_/.test(s))))
   })
   await test('real guard amber retained and full guarded context supplied to all seal pages', async () => {
     const f = fixture({ guardAmber: 'newA' }); await f.run({ batchSize: 1 }); assert.equal(f.financial.get('newA')!.row.color, 'AMBAR')

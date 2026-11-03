@@ -195,7 +195,10 @@ export async function prepareConciliarProjection(options: ConciliarPreparationOp
   while (c.sealCursor < c.plan.rows.length) {
     const page = c.guardedRows.slice(c.sealCursor, c.sealCursor + c.plan.batchSize)
     const checked = await options.client.$transaction(async base => {
-      const tx = base as Tx; await tx.$executeRaw(Prisma.sql`SET TRANSACTION READ ONLY`)
+      // B4's unchanged authoritative preflight takes movement row locks. Keep
+      // those locks only for this bounded page, never the global state/rebuild.
+      // The seal's existing proxy forbids model/raw writes; no finance is saved.
+      const tx = base as Tx; await tx.$executeRaw(Prisma.sql`SET TRANSACTION READ WRITE`)
       if (!samePreparationToken(c.expected, await current(tx, c, options))) changed()
       return sealConciliarProjectionRowsTx(tx, page, c.guardedRows)
     }, READ_OPTIONS)
