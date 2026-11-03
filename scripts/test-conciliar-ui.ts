@@ -119,7 +119,9 @@ required(globalSearch, 'búsqueda global', [
   'controllerRef.current?.abort()',
   'void (pending ?? readRef.current(view, { signal: controller.signal, generation }))',
   'if (controller.signal.aborted) return',
-  'return () => controller.abort()',
+  'return () => { window.clearTimeout(timeout); controller.abort() }',
+  "dispatch({ type: 'FAILED', generation, error: new Error('La lectura está tardando demasiado.",
+  '}, CONCILIAR_SEARCH_READ_TIMEOUT_MS)',
   'dataGeneration === state.generation',
 ]);
 if (/readRef\.current\(view, \{ generation \}\)/.test(globalSearch)) throw new Error('La búsqueda global no puede iniciar una lectura sin AbortSignal.');

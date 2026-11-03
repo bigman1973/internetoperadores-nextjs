@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { canAdoptConciliarMutationProjection } from '../components/finanzas/conciliar/conciliar-mutation-ui';
 
 const root = process.cwd();
 const page = readFileSync(resolve(root, 'app/admin/finanzas/conciliar/page.tsx'), 'utf8');
@@ -19,7 +20,16 @@ assert.match(workspace, />Ver más</, 'la cola debe ofrecer Ver más cuando qued
 assert.match(workspace, /data\.offset \+ data\.rows\.length >= data\.total/, 'Ver más debe detenerse en el total server-side');
 assert.doesNotMatch(workspace, /rows\.slice\(0,\s*20\)/, 'no se pueden cargar filas extra para esconderlas localmente');
 assert.match(workspace, /responseViewFor\(requestInput\)/, 'las acciones deben conservar la vista exacta que estaba renderizada');
-assert.match(workspace, /su proyección de respuesta no se adopta para[\s\S]*?evitar cruzar una vista o una generación distinta/, 'la respuesta inmediata de una acción no puede sustituir una vista paginada distinta');
-assert.match(workspace, /invalidateProjectionMemory\(true\);\s*void load\(true, true\);/, 'tras una acción la página debe invalidarse y releerse en el servidor en vez de adoptar una foto de otra generación');
+assert.match(workspace, /requestView, currentView: projectionContextRef\.current\.view, requestGeneration, currentGeneration: projectionContextRef\.current\.generation/,
+  'la adopción comprueba la vista y generación actuales, no sólo las capturadas al enviar');
+assert.match(workspace, /invalidateProjectionMemory\(true\);\s*if \(!adoptProjection\(result\)\) void load\(true, true\);/,
+  'una foto ajena se descarta y fuerza GET autorizado de la vista activa');
+const exactPage = JSON.stringify({ tab: 'COBROS', query: '', limit: 20, offset: 20 });
+const authority = { synchronized: true, requestIdentity: 'usuario:3:valid', currentIdentity: 'usuario:3:valid', requestView: exactPage, currentView: exactPage, requestGeneration: 1, currentGeneration: 1, requestSequence: 2, currentSequence: 2, pendingCount: 1 };
+assert.equal(canAdoptConciliarMutationProjection(authority), true, 'la foto sincronizada de la página exacta es reutilizable');
+for (const page of [{ tab: 'COBROS', query: '', limit: 20, offset: 0 }, { tab: 'COBROS', query: '', limit: 50, offset: 20 }]) {
+  assert.equal(canAdoptConciliarMutationProjection({ ...authority, currentView: JSON.stringify(page) }), false,
+    'otro offset o límite nunca sustituye la página visible');
+}
 
 console.log('OK: Conciliar siembra 20 filas SSR y Ver más solicita páginas server-side consistentes.');

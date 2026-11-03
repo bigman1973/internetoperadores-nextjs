@@ -49,6 +49,10 @@ test('Documento sólo muestra referencia; Nota y detalles siguen accesibles sin 
   const nextGeneration = reduceConciliarSearchMachine(seededSearch, { type: 'TAB', tab: 'PAGOS' })
   assert.equal(reduceConciliarSearchMachine(nextGeneration, { type: 'RESOLVED', generation: seededSearch.generation }).phase, 'loading')
   assert.match(ui,/const ConciliarConfirmationHistory = dynamic\(loadConciliarConfirmationHistory\);/)
-  assert.match(ui,/<ConciliarConfirmationHistory activeActuationSessionId=\{activeActuation\?\.sessionId \?\? null\} busy=\{mutationsBlocked\} refreshKey=\{confirmationHistoryRevision\}/)
+  assert.match(ui,/<ConciliarConfirmationHistory activeActuationSessionId=\{activeActuation\?\.sessionId \?\? null\} busy=\{undoBlocked\} refreshKey=\{confirmationHistoryRevision\}/)
+  assert.match(ui,/const undoBlocked = identityBlocked \|\| sending \|\| retry !== null \|\| remesaPreviewLoading \|\| area3ReviewLoading;/,
+    'deshacer no depende del GET de la cola, pero conserva identidad, envío y revisión humana')
+  assert.match(ui,/onUndo=\{\(operationId, targetRowIds\) => \{ if \(!undoBlocked && targetRowIds\.length\) \{ operationTargetsRef\.current\.set\(operationId, \[\.\.\.targetRowIds\]\)/,
+    'el historial sólo habilita undo con los destinos durables conocidos')
   assert.match(ui,/showInterestInvoices && <ConfirmingInterestInvoices/)
 })
