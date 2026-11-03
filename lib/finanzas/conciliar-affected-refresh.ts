@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma'
 import { assertConciliarRuntime } from './conciliar-runtime'
 import { assertConciliarLiveAccessTx } from './conciliar-live-access'
 import { rebuildConciliarProjectionTx, type ConciliarAffectedProjectionScope, type ConciliarProjectionChange } from './conciliar-db'
+import { PREPARATION_QUEUE_KIND } from './conciliar-preparation-core'
 
 type Tx = Prisma.TransactionClient & Record<string, any>
 const MAX_CHANGES = 25_000
@@ -18,6 +19,12 @@ export async function refreshAffectedConciliarProjectionTx(base: Prisma.Transact
   const changes = await tx.$queryRaw<Array<{ kind: string; sourceId: string }>>(Prisma.sql`
     SELECT kind,source_id AS "sourceId" FROM area3_conciliar_projection_changes ORDER BY kind,source_id LIMIT ${MAX_CHANGES + 1} FOR UPDATE
   `)
+  // A partial full-view publish is not a collection of independently dirty
+  // source IDs. Only full preparation (or the real manual full rebuild) proves
+  // coverage and may consume this durable marker; ordinary refresh stays inert.
+  if (changes.some(row => row.kind === PREPARATION_QUEUE_KIND)) {
+    return { projectionSynchronized: false, reason: 'INCOMPLETE_FULL_PREPARATION_REQUIRED' }
+  }
   if (!changes.length) return { projectionSynchronized: !state[0].dirty }
   if (changes.length > MAX_CHANGES) throw new Error('CONCILIAR_AFFECTED_SCOPE_LIMIT')
   const byKind = (kind: string) => changes.filter(row => row.kind === kind).map(row => row.sourceId)

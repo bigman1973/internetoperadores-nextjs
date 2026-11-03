@@ -709,10 +709,10 @@ function remittancesFromRows(
  * supplies the DB/transaction, so this function never starts a transaction or
  * mutates state.  `assertIsolatedStaging` runs before the first SELECT.
  */
-export async function readBankInvoicingPopulation(
+export async function readConciliarBankInvoicingSources(
   db: B7ReadDatabase,
   options: B7ReaderOptions,
-): Promise<B7CalculatedPopulation> {
+) {
   if (!options.enabled) throw new Error('B7_READ_DISABLED')
   await options.assertIsolatedStaging()
 
@@ -738,6 +738,11 @@ export async function readBankInvoicingPopulation(
   assertCompleteBoundedPopulation('RECIBOS_REMESA', receiptRows)
   assertCompleteBoundedPopulation('LINEAS_RECIBO_REMESA', receiptLineRows)
   if (coverageRows.length > 1) throw new Error('B7_READ_COBERTURA_INEXACTA')
+  return { invoiceRows, directRows, differenceRows, memberRows, remittanceLines, refundRows, coverageRows, remittanceAudits, receiptRows, receiptLineRows }
+}
+/** Exactly the existing canonical calculation, usable after closing source I/O. */
+export function calculateConciliarBankInvoicingSources(sources: Awaited<ReturnType<typeof readConciliarBankInvoicingSources>>): B7CalculatedPopulation {
+  const { invoiceRows, directRows, differenceRows, memberRows, remittanceLines, refundRows, coverageRows, remittanceAudits, receiptRows, receiptLineRows } = sources
   const invoices: CanonicalInvoiceInput[] = invoiceRows.map((row) => ({
     id: row.id, sourceTotalText: row.sourceTotalText, b2Economic: row.b2Economic === true,
     numFactura: row.numFactura, cliente: row.cliente, fechaISO: dateISO(row.fechaISO),
@@ -754,4 +759,8 @@ export async function readBankInvoicingPopulation(
     }),
     directB4Lines,
   }
+}
+
+export async function readBankInvoicingPopulation(db: B7ReadDatabase, options: B7ReaderOptions): Promise<B7CalculatedPopulation> {
+  return calculateConciliarBankInvoicingSources(await readConciliarBankInvoicingSources(db, options))
 }

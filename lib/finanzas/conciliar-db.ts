@@ -2,7 +2,7 @@ import { CONCILIAR_GREEN_PRECHECK_STAMP } from './conciliar-precheck-visual'
 import { guardConciliarGreenRowTx, type ConciliarPrecheck } from './conciliar-precheck'
 import { Prisma, type PrismaClient } from '@prisma/client'
 import prisma from '@/lib/prisma'
-import { readBankInvoicingPopulation, type B7CalculatedPopulation, type B7ReadDatabase } from '@/lib/finanzas/conciliar-bank-invoicing-db'
+import { calculateConciliarBankInvoicingSources, readConciliarBankInvoicingSources, readBankInvoicingPopulation, type B7CalculatedPopulation, type B7ReadDatabase } from '@/lib/finanzas/conciliar-bank-invoicing-db'
 import type { InvoiceSettlement } from '@/lib/finanzas/bank-invoicing-core'
 import { archivoRecibidaControlado, bibliotecaFinancieraConfigurada } from '@/lib/finanzas/archivo-fuente-controlada'
 import { driveItemDesdeArchivoUrlNominaControlada } from '@/lib/finanzas/nominas-propuestas-db'
@@ -1134,6 +1134,10 @@ export function collectionProjectionForMovement(
 }
 
 export async function confirmingProjectionForMovement(tx: Tx, movement: any, candidate: any): Promise<RebuildRow> {
+  const file = await resolveStoredConfirmingFile(tx as unknown as ConfirmingQueryClient, candidate.confirmingId)
+  return confirmingProjectionFromSources(movement, candidate, !!file)
+}
+function confirmingProjectionFromSources(movement: any, candidate: any, confirmingFile: boolean): RebuildRow {
   const id = String(movement.id), amount = cents(movement.importeCentimos, 'El movimiento')
   const fecha = day(movement.fecha, 'El movimiento'), concepto = textoSeguro(movement.concepto)
   const cuentaId = String(movement.cuentaId), banco = nullableText(movement.banco, 300), cuenta = nullableText(movement.cuenta, 300)
@@ -1143,7 +1147,6 @@ export async function confirmingProjectionForMovement(tx: Tx, movement: any, can
   const documents = candidate.facturas
   const single = documents.length === 1 ? documents[0] : null
   const opaqueId = rowId('COBROS', `COBRO_CONFIRMING:${id}:${candidate.confirmingId}`)
-  const confirmingFile = await resolveStoredConfirmingFile(tx as unknown as ConfirmingQueryClient, candidate.confirmingId)
   const documentValue = candidate.totalFacturasCentimos !== null ? {
     referencia: single ? single.numeroFacturaEmitida ?? single.numeroDocumento : `Confirming · ${documents.length} facturas`,
     tercero: single?.sociedadFactura ?? 'Grupo Draxton', importeCentimos: candidate.totalFacturasCentimos,
@@ -1223,11 +1226,11 @@ function projectionInsertValue(item: RebuildRow) {
 
 /** Seals all G7 decisions against one repeatable-read source picture. It must
  * complete before a caller deletes or inserts projection rows. */
-export async function sealConciliarProjectionRowsTx(tx: Tx, rows: readonly RebuildRow[]): Promise<RebuildRow[]> {
-  const contextRows = new Map(rows.map(item=>[item.row.id,{...item.row,source:item.source,sourceFingerprint:item.sourceFingerprint}]))
+export async function sealConciliarProjectionRowsTx(tx: Tx, rows: readonly RebuildRow[], context: readonly RebuildRow[] = rows): Promise<RebuildRow[]> {
+  const contextRows = new Map(context.map(item=>[item.row.id,{...item.row,source:item.source,sourceFingerprint:item.sourceFingerprint}]))
   if (rows.length && rows.every(item=>item.source.kind==='COMISION_BANCARIA')) {
     const { guardConciliarGreenRowsBatchTx }=await import('./conciliar-precheck')
-    const guarded=await guardConciliarGreenRowsBatchTx(tx,[...contextRows.values()],{rows:contextRows})
+    const guarded=await guardConciliarGreenRowsBatchTx(tx,rows.map(item=>({...item.row,source:item.source,sourceFingerprint:item.sourceFingerprint})),{rows:contextRows})
     return rows.map((item,index)=>({ ...item,row:guarded[index]!,source:guarded[index]!.color==='VERDE' ? {...item.source,g7Precheck:CONCILIAR_GREEN_PRECHECK_STAMP} : item.source }))
   }
   // The G7 decisions below share one caller-owned repeatable-read picture. The
@@ -1468,23 +1471,38 @@ export type ConciliarAffectedProjectionScope = Readonly<{
   manualPairsOnly?: boolean
 }>
 
-export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClient, rebuiltById: number | null, affected?: ConciliarAffectedProjectionScope) {
+/** Complete global classification only. Caller supplies a READ ONLY repeatable
+ * picture; no advisory/state/data lock, G7 seal or projection DML occurs here. */
+export async function readConciliarProjectionPlanSourcesTx(base: Prisma.TransactionClient, affected?: ConciliarAffectedProjectionScope, requireCompletePopulation = false) {
   const tx = asTx(base)
-  await tx.$queryRaw(Prisma.sql`SELECT singleton FROM estado_proyeccion_conciliar WHERE singleton=true LIMIT 1 FOR UPDATE`)
-  await assertProjectionSnapshot(tx)
-  const emptyBankPopulation = (): B7CalculatedPopulation => ({ invoices: [], directB4Lines: [] } as B7CalculatedPopulation)
+  // Existing source readers have historical caps. A preparatory global plan
+  // must not allocate reservations from a silently truncated population.
+  if (requireCompletePopulation) {
+    const sizes = await tx.$queryRaw<Array<{ movements: bigint; proposals: bigint; received: bigint; payroll: bigint }>>(Prisma.sql`
+    SELECT
+      (SELECT COUNT(*) FROM movimientos_bancarios m LEFT JOIN estado_justificacion_movimientos e ON e.movimiento_id=m.id WHERE COALESCE(e.estado::text,'SIN_DOCUMENTO')='SIN_DOCUMENTO') AS movements,
+      (SELECT COUNT(*) FROM modo_facil_propuestas_cobro p WHERE p.generacion_id=(SELECT id FROM modo_facil_generaciones_cobro ORDER BY creada_at DESC,id DESC LIMIT 1) AND p.estado_propuesto IN ('JUSTIFICADO','NO_REQUIERE')) AS proposals,
+      (SELECT COUNT(*) FROM facturas_recibidas) AS received,
+      (SELECT COUNT(*) FROM nominas) AS payroll
+    LIMIT 1
+  `)
+    if (sizes.length !== 1 || Object.values(sizes[0]).some(size => safeInteger(size) === null || Number(size) > MAX_REBUILD_ROWS)) {
+      fail(409, 'PROYECCION_DEMASIADA', 'Las fuentes globales superan el límite seguro; no se publica una planificación truncada.')
+    }
+  }
   const emptyConfirmingCandidates = (): ReadConciliarConfirmingCandidatesResult => ({
     candidates: [], documentosBloqueados: [], warningCodes: [], modo: 'LIMITADO',
     movimientosLeidos: 0, movimientosTruncados: false, noEscrituras: true,
   })
-  const [movements, proposals, invoices, payroll, b5Documents, bank, confirming, transfers, reservations] = await Promise.all([
+  const [movements, proposals, invoices, payroll, b5Documents, bankSources, confirming, transfers, reservations] = await Promise.all([
     unresolvedMovements(tx), affected?.manualPairsOnly ? [] : liveCollectionProposals(tx), affected?.manualPairsOnly ? [] : receivedInvoices(tx), affected?.manualPairsOnly ? [] : payrollSources(tx),
     affected?.manualPairsOnly ? [] : b5DocumentSources(tx),
-    affected?.manualPairsOnly ? emptyBankPopulation() : readBankInvoicingPopulation(tx as unknown as B7ReadDatabase, { enabled: true, assertIsolatedStaging: async () => undefined }),
+    affected?.manualPairsOnly ? null : readConciliarBankInvoicingSources(tx as unknown as B7ReadDatabase, { enabled: true, assertIsolatedStaging: async () => undefined }),
     affected?.manualPairsOnly ? emptyConfirmingCandidates() : readConciliarConfirmingCandidates(tx, { allRebuild: true }),
     readStrictOwnTransfers(tx),
     affected?.manualPairsOnly ? [] : readLiveCollectionDocumentReservations(tx),
   ])
+  if (requireCompletePopulation && confirming.movimientosTruncados) fail(409, 'PROYECCION_DEMASIADA', 'No se publica una población confirming truncada.')
   const manualOwnAccounts = await readManualOwnAccountProofTx(tx, movements.map(movement => String(movement.cuentaId)))
   const manualOwnIbanRows = manualOwnAccounts.proof.accountIds.size
     ? await tx.$queryRaw<Array<{ iban: string | null }>>(Prisma.sql`
@@ -1494,6 +1512,35 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
     `)
     : []
   if (manualOwnIbanRows.length > MAX_REBUILD_ROWS) throw new Error('CONCILIAR_MANUAL_OWN_ACCOUNTS_TOO_MANY')
+
+  const seedIds = [...new Set(affected?.movementIds ?? [])]
+  const seeds = seedIds.length ? await tx.$queryRaw<Array<any>>(Prisma.sql`
+      SELECT m.id,b4_importe_bancario_centimos(m.importe) AS "importeCentimos",m.concepto,m.referencia,m.info_adicional,m.tercero,
+        ef.razon_social AS "entidadRazonSocial",ef.nombre_comercial AS "entidadNombreComercial"
+      FROM movimientos_bancarios m LEFT JOIN entidades_fiscales ef ON ef.id=m.entidad_fiscal_id
+      WHERE m.id IN (${Prisma.join(seedIds)}) ORDER BY m.id LIMIT ${MAX_REBUILD_ROWS + 1}
+    `) : []
+  const priorSources = affected ? await tx.$queryRaw<Array<{ movementId: string; source: unknown; documento: unknown }>>(Prisma.sql`
+    SELECT movimiento_id AS "movementId",source,documento FROM conciliar_proyecciones ORDER BY id LIMIT ${MAX_REBUILD_ROWS + 1}
+  `) : []
+  if (priorSources.length > MAX_REBUILD_ROWS) fail(409, 'PROYECCION_DEMASIADA', 'La población anterior supera el límite seguro.')
+  const clientIdentityProfiles = await readCollectionClientIdentityProfiles(tx, proposals.map(proposal => String(proposal.propuestaId)))
+  const remittanceMapPreflights = await readArea3RemittanceMapPreflightsTx(tx, proposals)
+  const confirmingFiles = new Map<string, boolean>()
+  for (const id of [...new Set(confirming.candidates.map(candidate => candidate.confirmingId))]) {
+    confirmingFiles.set(id, !!await resolveStoredConfirmingFile(tx as unknown as ConfirmingQueryClient, id))
+  }
+  return { movements, proposals, invoices, payroll, b5Documents, bankSources, confirming, transfers, reservations,
+    manualOwnAccounts, manualOwnIbanRows, seeds, priorSources, clientIdentityProfiles, remittanceMapPreflights, confirmingFiles }
+}
+/** Same existing rendering/allocation logic, after the source transaction closes.
+ * No database, G7 memo, prior badge or finance permission enters this calculation. */
+export function calculateConciliarProjectionPlan(
+  sources: Awaited<ReturnType<typeof readConciliarProjectionPlanSourcesTx>>, affected?: ConciliarAffectedProjectionScope,
+) {
+  const { movements, proposals, invoices, payroll, b5Documents, bankSources, confirming, transfers, reservations,
+    manualOwnAccounts, manualOwnIbanRows, seeds, priorSources, clientIdentityProfiles, remittanceMapPreflights, confirmingFiles } = sources
+  const bank = bankSources ? calculateConciliarBankInvoicingSources(bankSources) : ({ invoices: [], directB4Lines: [] } as B7CalculatedPopulation)
   const manualOwnIbanKeys = new Set(manualOwnIbanRows.flatMap(row => {
     const iban = normalizedRegisteredOwnIban(row.iban)
     return iban ? [iban] : []
@@ -1517,13 +1564,7 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
   const selectedReceivedIds = new Set(affected?.receivedIds ?? [])
   const selectedIssuedIds = new Set(affected?.issuedIds ?? [])
   if (affected) {
-    const seedIds = [...new Set(affected.movementIds)]
-    const seeds = seedIds.length ? await tx.$queryRaw<Array<any>>(Prisma.sql`
-      SELECT m.id,b4_importe_bancario_centimos(m.importe) AS "importeCentimos",m.concepto,m.referencia,m.info_adicional,m.tercero,
-        ef.razon_social AS "entidadRazonSocial",ef.nombre_comercial AS "entidadNombreComercial"
-      FROM movimientos_bancarios m LEFT JOIN entidades_fiscales ef ON ef.id=m.entidad_fiscal_id
-      WHERE m.id IN (${Prisma.join(seedIds)}) ORDER BY m.id LIMIT ${MAX_REBUILD_ROWS + 1}
-    `) : []
+
     // La restauración manual ya trae ambas patas selladas. No puede ampliar por
     // importe/alias: un movimiento ajeno con el mismo importe debe conservar su
     // propia clasificación, no convertir la pareja en un abort parcial.
@@ -1569,9 +1610,7 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
     // Historical rows identify documentary mirrors that disappeared from current
     // candidate sets (paid invoice, deleted proposal or confirming reversal).
     const ids = [...selectedMovementIds!]
-    const prior = ids.length ? await tx.$queryRaw<Array<{ source: unknown; documento: unknown }>>(Prisma.sql`
-      SELECT source,documento FROM conciliar_proyecciones WHERE movimiento_id IN (${Prisma.join(ids)}) LIMIT ${MAX_REBUILD_ROWS + 1}
-    `) : []
+    const prior = priorSources.filter(row => ids.includes(row.movementId))
     for (const row of prior) {
       const source = json(row.source)
       if (typeof source.facturaRecibidaId === 'string') selectedReceivedIds.add(source.facturaRecibidaId)
@@ -1579,13 +1618,11 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
     }
   }
   const rows: RebuildRow[] = []
-  const clientIdentityProfiles = await readCollectionClientIdentityProfiles(tx, proposals.map(proposal => String(proposal.propuestaId)))
   const clientIdentityByProposal = clientIdentityProfiles ?? new Map<string, CollectionClientIdentityProfile>()
   const invoiceDates = new Map(bank.invoices.map(item => [item.invoiceId, item.fechaISO]))
   const issuedReferences = bank.invoices.map(item => item.numFactura)
   // Índice exclusivo de fuentes ya importadas. No modifica ni recalcula B7: sólo
   // decide si la misma cadena que B7 exigirá está presente para pintar la fila.
-  const remittanceMapPreflights = await readArea3RemittanceMapPreflightsTx(tx, proposals)
   const collectionReservations = collectionReservationResolution({
     proposals, movements, invoiceDates, issuedReferences, clientIdentityByProposal, reservations,
     remittanceCurrentInvoices: currentRemittanceInvoices(bank.invoices), remittanceMapPreflights,
@@ -1697,7 +1734,7 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
     if (amount > 0) {
       const confirmingCandidate = confirmingByMovement.get(id)
       if (confirmingCandidate) {
-        rows.push(await confirmingProjectionForMovement(tx, movement, confirmingCandidate))
+        rows.push(confirmingProjectionFromSources(movement, confirmingCandidate, confirmingFiles.get(confirmingCandidate.confirmingId) ?? false))
         continue
       }
       const selectedProposal = collectionReservations.selectedByMovement.get(id)
@@ -1843,6 +1880,30 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
   }
 
   if (rows.length > MAX_REBUILD_ROWS) fail(409, 'PROYECCION_DEMASIADA', 'La proyección supera el límite de rebuild manual; acota o revisa las fuentes.')
+  const proposalById = new Map(proposals.map(proposal => [String(proposal.propuestaId), proposal]))
+  const reservationKeys = rows.map(item => {
+    const source = item.source
+    const proposal = source.propuestaId ? proposalById.get(source.propuestaId) : undefined
+    const candidate = source.movimientoId ? confirmingByMovement.get(source.movimientoId) : undefined
+    return { rowId: item.row.id, keys: [
+      ...(source.facturaRecibidaId ? [`RECEIVED:${source.facturaRecibidaId}`] : []),
+      ...(source.facturaEmitidaId ? [`ISSUED:${source.facturaEmitidaId}`] : []),
+      ...(proposal ? proposalCompositionInvoiceIds(proposal.composicion).map(id => `ISSUED:${id}`) : []),
+      ...(source.kind === 'COBRO_CONFIRMING' && candidate ? candidate.facturas.flatMap((f: any) => typeof f.facturaEmitidaId === 'string' ? [`ISSUED:${f.facturaEmitidaId}`] : []) : []),
+    ] }
+  })
+  return { rows, emitted: bank.invoices.length, selectedMovementIds, selectedReceivedIds, selectedIssuedIds, reservationKeys }
+}
+
+export async function planConciliarProjectionRowsTx(base: Prisma.TransactionClient, affected?: ConciliarAffectedProjectionScope, requireCompletePopulation = false) {
+  return calculateConciliarProjectionPlan(await readConciliarProjectionPlanSourcesTx(base, affected, requireCompletePopulation), affected)
+}
+
+export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClient, rebuiltById: number | null, affected?: ConciliarAffectedProjectionScope) {
+  const tx = asTx(base)
+  await tx.$queryRaw(Prisma.sql`SELECT singleton FROM estado_proyeccion_conciliar WHERE singleton=true LIMIT 1 FOR UPDATE`)
+  await assertProjectionSnapshot(tx)
+  const { rows, emitted, selectedMovementIds, selectedReceivedIds, selectedIssuedIds } = await planConciliarProjectionRowsTx(base, affected)
   // All documentary rows are sealed together after their complete candidate
   // population (including the RECIBIDAS mirror) has been rendered. This is a
   // bounded set preload, not a per-row source-guard query, and occurs before the
@@ -1890,7 +1951,7 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
            rebuilt_at=CURRENT_TIMESTAMP,rebuilt_by_id=${rebuiltById},projection_version=projection_version+1
      WHERE singleton=true
   `)
-  return { rows: sealedRows.length, emitted: bank.invoices.length, rebuiltAt: new Date().toISOString() }
+  return { rows: sealedRows.length, emitted, rebuiltAt: new Date().toISOString() }
 }
 
 export async function rebuildConciliarProjection(rebuiltById: number | null) {
