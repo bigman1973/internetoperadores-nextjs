@@ -458,8 +458,9 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const receiptByRow = useMemo(() => new Map(receipts.map((receipt) => [receipt.rowId, receipt])), [receipts]);
   const identityTransitioning = conciliarIdentityTransitioning(acknowledgedIdentityScope, detailIdentityScope);
   const identityBlocked = !identityScope || identityTransitioning || identityRejected;
-  const undoViewUnknown = pendingOperations.some((operation) => operation.action === 'deshacer') && pendingUndoViewRef.current !== projectionContextRef.current.view;
-  const mutationContextBlocked = identityBlocked || refreshing || retry !== null || remesaPreviewLoading || area3ReviewLoading || undoViewUnknown;
+  // Los destinos persistidos siguen bloqueados aunque cambie la vista. La
+  // nueva vista debe resolver su GET antes de habilitar cualquier decisión.
+  const mutationContextBlocked = identityBlocked || refreshing || retry !== null || remesaPreviewLoading || area3ReviewLoading;
   const mutationsBlocked = mutationContextBlocked || conciliarUiRowBlocked(pendingOperations);
   const rowMutationsBlocked = useCallback((rowId: string) => mutationContextBlocked || conciliarUiRowBlocked(pendingOperations, rowId), [mutationContextBlocked, pendingOperations]);
   const undoBlocked = identityBlocked || sending || retry !== null || remesaPreviewLoading || area3ReviewLoading;
