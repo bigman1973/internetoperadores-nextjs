@@ -38,5 +38,15 @@ const undo = actionResponse({ action: 'deshacer', operationId: receipt.operation
 assert.equal(undo.operationId, receipt.operationId)
 assert.equal(undo.undone, true)
 assert.equal(undo.projection, undefined)
+const deferred = actionResponse(command, { ...receipt, projectionSynchronized: false })
+assert.equal(deferred.operationId, receipt.operationId)
+assert.equal(deferred.projectionSynchronized, false)
+assert.equal(deferred.projection, undefined, 'committed finance is returned without pretending derived rows are fresh')
+const deferredUndo = actionResponse({ action: 'deshacer', operationId: receipt.operationId, responseView: { tab: 'COBROS' } }, {
+  ok: true, projectionSynchronized: false,
+})
+assert.equal(deferredUndo.undone, true)
+assert.equal(deferredUndo.projectionSynchronized, false)
+assert.equal(deferredUndo.projection, undefined, 'undo completion does not promote a dirty queue to a green snapshot')
 assert.throws(() => actionResponse(command, { ...receipt, projection: null }), /provided projection must be valid/)
-console.log('OK: fresh/replay/undo route responses; malformed supplied snapshots still fail closed')
+console.log('OK: fresh/replay/deferred/undo route responses; malformed supplied snapshots still fail closed')

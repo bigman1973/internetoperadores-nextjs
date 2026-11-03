@@ -147,6 +147,7 @@ export async function POST(request: NextRequest) {
   const postStartedAt = Date.now()
   // Staging-only durations. Never log actors, session IDs, request bodies or keys.
   const phase = (name: string) => { if (process.env.FINANCE_STAGING_SANDBOX === '1') console.info('CONCILIAR_POST_PHASE', name, JSON.stringify({ elapsedMs: Date.now() - postStartedAt })) }
+  const actionPhase = (name: import('@/lib/finanzas/conciliar-actions').ConciliarActionPhase, elapsedMs: number) => { if (process.env.FINANCE_STAGING_SANDBOX === '1') console.info('CONCILIAR_ACTION_PHASE', name, JSON.stringify({ elapsedMs })) }
   try {
     phase('handler-start')
     await assertConciliarRuntime()
@@ -175,7 +176,7 @@ export async function POST(request: NextRequest) {
       return streamConciliarConfirmation({
         total: parsed.items.length,
         execute: async onProgress => {
-          const result = await runConciliarAction(access.actor.id, parsed, { onProgress })
+          const result = await runConciliarAction(access.actor.id, parsed, { onProgress, onPhase: actionPhase })
           phase('action-finished')
           if ((result as { projectionSynchronized?: unknown }).projectionSynchronized !== true) {
             scheduleConciliarActionProjectionRefresh(access.actor.id)
@@ -186,7 +187,7 @@ export async function POST(request: NextRequest) {
         actionErrorResponse: error => conciliarActionErrorResponse(error).body,
       })
     }
-    const result = await runConciliarAction(access.actor.id, parsed)
+    const result = await runConciliarAction(access.actor.id, parsed, { onPhase: actionPhase })
     phase('action-finished')
     if ((result as { projectionSynchronized?: unknown }).projectionSynchronized !== true) scheduleConciliarActionProjectionRefresh(access.actor.id)
     return privateJson(actionResponse(parsed, result))

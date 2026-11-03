@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { assertConciliarRuntime } from './conciliar-runtime'
+import { assertConciliarLiveAccessTx } from './conciliar-live-access'
 import { rebuildConciliarProjectionTx, type ConciliarAffectedProjectionScope, type ConciliarProjectionChange } from './conciliar-db'
 
 type Tx = Prisma.TransactionClient & Record<string, any>
@@ -72,8 +73,14 @@ export async function refreshAffectedConciliarProjectionTx(base: Prisma.Transact
 /** Finite existing import-hook consumer; never performs an import, a provider
  * request or a full/onboarding rebuild. Runtime/identity remains fail closed. */
 export async function refreshAffectedConciliarProjection(actorId: number | null) {
+  // The authorized POST owns scheduling, but its financial authorization marker
+  // must never authorize a different transaction. Revalidate the effective actor
+  // in this worker's own SERIALIZABLE snapshot before any derived write.
+  if (!Number.isSafeInteger(actorId) || actorId === null || actorId < 1) throw new Error('CONCILIAR_REFRESH_ACTOR_REQUIRED')
   return (prisma as PrismaClient).$transaction(async base => {
     await assertConciliarRuntime(base)
+    const access = await assertConciliarLiveAccessTx(base, actorId)
+    if ('response' in access) throw new Error('CONCILIAR_REFRESH_ACCESS_REVOKED')
     return refreshAffectedConciliarProjectionTx(base, actorId)
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 90_000 })
 }

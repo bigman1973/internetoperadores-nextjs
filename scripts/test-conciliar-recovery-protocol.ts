@@ -193,7 +193,7 @@ assert.match(runtime, /const liveIdentity = await resolveConciliarRecoveryIdenti
 
 const actions = readFileSync(resolve(root, 'lib/finanzas/conciliar-actions.ts'), 'utf8')
 const preparedAt = actions.indexOf('prepareConciliarRecoveryIntent(actorId, command, recoveryIdentity)')
-const serializableAt = actions.indexOf('const txSerializable = () => db().$transaction')
+const serializableAt = actions.indexOf('const txSerializable = async () => {')
 const transactionSeamAt = actions.indexOf('export async function runConciliarTransactionCommand')
 const commitAt = actions.indexOf('await commitConciliarRecoveryIntentTx(')
 assert.ok(preparedAt >= 0 && serializableAt >= 0 && transactionSeamAt >= 0 && commitAt >= 0 && preparedAt < serializableAt && transactionSeamAt < commitAt && commitAt < serializableAt, 'PENDING se prepara antes del callback financiero y COMMITTED se publica dentro de su costura después del recibo')

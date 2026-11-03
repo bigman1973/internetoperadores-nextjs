@@ -21,7 +21,6 @@ import type { ConciliarBatchProgress } from './conciliar-stream'
 import { confirmConciliarTransferTx, undoConciliarPairedTransferTx } from './conciliar-transfers'
 import { withConciliarHumanOwnTransferBatchTx, assertConciliarHumanOwnTransferPrimaryUndoTx, confirmConciliarHumanOwnTransferTx, humanOwnTransferActionForProjection, lockConciliarHumanOwnTransferUndoTx, parseConciliarHumanOwnTransferSource, undoConciliarHumanOwnTransferTx } from './conciliar-human-own-transfer'
 import { ConciliarDbError, conciliarDbErrorResponse, movementPartyAliases, payrollPeriodMatches, readConciliarProjectionTx, readConciliarRowForAction, readConciliarRowForReviewPreflight, restoreLiveBankFeeProjectionBatchTx, unresolvedMovements } from './conciliar-db'
-import { refreshAffectedConciliarProjectionTx } from './conciliar-affected-refresh'
 import { materializeConciliarReadMetadataTx, rebuildConciliarProjectionTx } from './conciliar-db'
 import { knownBankFeeUndoMovements } from './conciliar-fee-undo'
 import { conciliarDocumentSourceGuardMessage, lockConciliarDocumentSourceForConfirmationTx, supportsConciliarDocumentSourceGuard } from './conciliar-document-source-guard'
@@ -40,6 +39,9 @@ type Tx = Prisma.TransactionClient & Record<string, any>
 type Db = PrismaClient & Record<string, any>
 const db = () => prisma as Db
 const asTx = (tx: Prisma.TransactionClient) => tx as Tx
+
+export type ConciliarActionPhase = 'require-live-write' | 'g7-precheck' | 'apply-writes' | 'receipt-legs' | 'derived-local' | 'receipt' | 'financial-command' | 'business-result-ready' | 'derived-fallback-eliminated' | 'recovery-commit' | 'recovery-committed' | 'response-projection' | 'response-ready' | 'financial-transaction'
+type ConciliarActionPhaseObserver = (phase: ConciliarActionPhase, elapsedMs: number) => void
 
 export class ConciliarActionError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string) {
@@ -533,7 +535,7 @@ async function requireLiveWrite(actorId: number, database: Tx) {
   if ('response' in access) fail(access.response.status, 'ACCESS_REVOKED', 'Tu permiso para conciliar ya no está vigente.')
 }
 
-async function confirmStandard(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar'; items: readonly unknown[] }>, actors: ConciliarHistoryActors, onProgress?: (event: ConciliarBatchProgress) => void, lockedRecoveryKey?: string) {
+async function confirmStandard(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar'; items: readonly unknown[] }>, actors: ConciliarHistoryActors, onProgress?: (event: ConciliarBatchProgress) => void, lockedRecoveryKey?: string, onPhase?: ConciliarActionPhaseObserver) {
   const receipt = await lockOperationOrReplay(tx, actorId, 'CONFIRMAR', command.idempotencyKey, conciliarRequestHash(actorId, command),undefined,lockedRecoveryKey)
   if (receipt.replay) return { operationId: receipt.id, recoveryReceiptOperationId: receipt.id, idempotent: true, ...receipt.result }
   const historyActors = await conciliarHistoryActorSnapshot(tx, actors)
@@ -546,6 +548,7 @@ async function confirmStandard(tx: Tx, actorId: number, command: Extract<Concili
     const g7PrecheckStartedAt = Date.now()
     await assertConciliarGreenPrechecksBatchTx(tx,selectedRows)
     g7PrecheckElapsedMs = Date.now() - g7PrecheckStartedAt
+    onPhase?.('g7-precheck', g7PrecheckElapsedMs)
   }
   // La rama homogénea ejecuta el mismo núcleo G7 dentro del proveedor, sólo
   // después de ACL, locks y la foto final `FOR UPDATE OF m`. La telemetría mide
@@ -554,6 +557,7 @@ async function confirmStandard(tx: Tx, actorId: number, command: Extract<Concili
     const g7PrecheckStartedAt = Date.now()
     await assertConciliarGreenBankFeesFromLockedSourcesTx(tx, selectedRows, sources)
     g7PrecheckElapsedMs = Date.now() - g7PrecheckStartedAt
+    onPhase?.('g7-precheck', g7PrecheckElapsedMs)
   }
   const legs: Array<{
     ordinal: number; rowId: string; movimientoId: string | null; operationB4Id?: string; proposalBlockId?: string; result: Record<string, unknown>
@@ -561,6 +565,7 @@ async function confirmStandard(tx: Tx, actorId: number, command: Extract<Concili
 
   // The reviewed set-based provider is limited to homogeneous bank fees;
   // heterogeneous batches retain their exact existing domain services.
+  const applyWritesStartedAt = Date.now()
   const feeResults = plan.onlyBankFees
     ? await tryConfirmConciliarBankFeeBatchTx(tx, actorId, {
       action: 'confirmar_comisiones_conciliar_lote', operationId: receipt.id,
@@ -605,18 +610,25 @@ async function confirmStandard(tx: Tx, actorId: number, command: Extract<Concili
     // SERIALIZABLE transaction. The route never emits outcomes before COMMIT.
     onProgress?.({ kind: 'row-applied', completed: index + 1, total: selectedRows.length, rowId: row.id })
   }
+  onPhase?.('apply-writes', Date.now() - applyWritesStartedAt)
+  const receiptLegsStartedAt = Date.now()
   await appendLegs(tx, receipt.id, legs)
+  onPhase?.('receipt-legs', Date.now() - receiptLegsStartedAt)
   // Retirada mínima en una sola DML después de registrar todas las patas. El
   // recálculo documental posterior conserva sus propios bloqueos.
+  const derivedLocalStartedAt = Date.now()
   await deleteConciliarBatchProjectionRowsTx(tx, plan.movementIds)
   let projectionSynchronized = await settleKnownFeeOnlyProjection(tx, stateAtStart, plan.kinds, plan.movementIds)
+  onPhase?.('derived-local', Date.now() - derivedLocalStartedAt)
   const result = {
     ok: true, outcomes, applied: command.items.length, failed: 0, reversible: true, projectionSynchronized,
     history: { schema: 'CONCILIAR_HISTORIAL_V1', ...actors, ...historyActors },
     g7PrecheckTelemetry,
     refreshedAt: new Date().toISOString(),
   }
+  const receiptStartedAt = Date.now()
   await complete(tx, receipt.id, 'APLICADA', result)
+  onPhase?.('receipt', Date.now() - receiptStartedAt)
   return { operationId: receipt.id, recoveryReceiptOperationId: receipt.id, idempotent: false, ...result }
 }
 
@@ -797,12 +809,12 @@ async function confirmArea3Review(tx: Tx, actorId: number, command: Extract<Conc
   return { operationId: receipt.id, recoveryReceiptOperationId: receipt.id, idempotent: false, ...result }
 }
 
-async function confirm(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar' }>, actors: ConciliarHistoryActors, onProgress?: (event: ConciliarBatchProgress) => void, lockedRecoveryKey?: string) {
+async function confirm(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar' }>, actors: ConciliarHistoryActors, onProgress?: (event: ConciliarBatchProgress) => void, lockedRecoveryKey?: string, onPhase?: ConciliarActionPhaseObserver) {
   if ('review' in command) {
     if(command.review.kind === 'REVIEW_PREVIEW') return previewArea3Review(tx,{action:'confirmar',review:command.review})
     return confirmArea3Review(tx,actorId,{action:'confirmar',idempotencyKey:'idempotencyKey' in command ? command.idempotencyKey : fail(400,'REVIEW_CONFIRM_INVALIDA','Falta identificar la confirmación humana.'),review:command.review},actors)
   }
-  return confirmStandard(tx, actorId, command, actors, onProgress,lockedRecoveryKey)
+  return confirmStandard(tx, actorId, command, actors, onProgress,lockedRecoveryKey,onPhase)
 }
 
 async function ask(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'pedir' }>) {
@@ -905,7 +917,8 @@ async function undo(tx: Tx, actorId: number, command: Extract<ConciliarCommand, 
  * mandatory rollback. The public host below always performs the same live
  * staging/access checks before opening the SERIALIZABLE transaction. All
  * business services still revalidate the effective actor inside this tx. */
-export async function runConciliarTransactionCommand(tx: Tx, actorId: number, raw: unknown, actors: ConciliarHistoryActors, onProgress?: (event: ConciliarBatchProgress) => void, recoveryContext: ConciliarRecoveryWriteContext | null = null) {
+export async function runConciliarTransactionCommand(tx: Tx, actorId: number, raw: unknown, actors: ConciliarHistoryActors, onProgress?: (event: ConciliarBatchProgress) => void, recoveryContext: ConciliarRecoveryWriteContext | null = null, onPhase?: ConciliarActionPhaseObserver) {
+  const commandStartedAt = Date.now()
   const command = parseConciliarCommand(raw)
   if (command.action === 'confirmar' && 'review' in command && command.review.kind === 'REVIEW_PREVIEW') {
     fail(409, 'REVIEW_PREVIEW_SOLO_LECTURA', 'La previsualización de revisión se ejecuta únicamente en su transacción de sólo lectura.')
@@ -915,33 +928,48 @@ export async function runConciliarTransactionCommand(tx: Tx, actorId: number, ra
   if (recoveryContext && recoveryContext.identity.actorEffectiveId!==actorId) fail(403,'RECOVERY_ACTOR_INVALIDO','La identidad efectiva de recuperación no coincide.')
   const lockedRecoveryKey = await assertConciliarRecoveryIntentExecutableTx(tx, recoveryContext)
   let result: Record<string, any>
-  if (command.action === 'confirmar') result = await confirm(tx, actorId, command, actors, onProgress,recoveryContext?.intent.idempotencyKey)
+  const financialCommandStartedAt = Date.now()
+  if (command.action === 'confirmar') result = await confirm(tx, actorId, command, actors, onProgress,recoveryContext?.intent.idempotencyKey,onPhase)
   else if (command.action === 'confirmar_traspasos_propios_manual') result = await confirmHumanOwnTransfers(tx, actorId, command, actors)
   else if (command.action === 'pedir') result = await ask(tx, actorId, command)
   else result = await undo(tx, actorId, command, lockedRecoveryKey)
-  // Fresh snapshot after all selective DML, never persist it in the idempotency
-  // receipt. Replays receive today's view rather than the original stale page.
+  onPhase?.('financial-command', Date.now() - financialCommandStartedAt)
+  onPhase?.('business-result-ready', Date.now() - commandStartedAt)
+  // Only the already-settled local fastpaths may include a view here. Keep the
+  // durable dirty/change IDs for the authorized POST's native after() consumer;
+  // an affected scope still loads the full population and must not delay COMMIT.
+  // A replay's historical clean flag is not evidence about today's projection.
   if (result.projectionSynchronized !== true || result.idempotent === true) {
-    const refreshed = await refreshAffectedConciliarProjectionTx(tx, actorId)
-    result = { ...result, projectionSynchronized: refreshed.projectionSynchronized }
+    result = { ...result, projectionSynchronized: false }
+    onPhase?.('derived-fallback-eliminated', 0)
   }
   if (recoveryContext) {
     const receiptOperationId = typeof result.recoveryReceiptOperationId === 'string' ? result.recoveryReceiptOperationId : null
     if (!receiptOperationId) fail(503, 'RECOVERY_RECIBO_AUSENTE', 'La acción no devolvió un recibo recuperable.')
+    const recoveryCommitStartedAt = Date.now()
     await commitConciliarRecoveryIntentTx(
       tx,
       recoveryContext,
       receiptOperationId,
       recoveryContext.intent.action === 'DESHACER' ? recoveryContext.intent.targetConfirmationOperationId : null,
     )
+    onPhase?.('recovery-commit', Date.now() - recoveryCommitStartedAt)
+    onPhase?.('recovery-committed', Date.now() - commandStartedAt)
   }
+  // Fresh snapshot after all selective DML, never persist it in the idempotency
+  // receipt. Unsynchronized/replayed results rely on the prepared GET instead.
+  const responseProjectionStartedAt = Date.now()
   const projection = await responseProjection(tx, 'responseView' in command ? command.responseView : undefined, result.projectionSynchronized === true)
+  onPhase?.('response-projection', Date.now() - responseProjectionStartedAt)
+  onPhase?.('response-ready', Date.now() - commandStartedAt)
   return { ...result, ...(projection ? { projection } : {}) }
 }
 
 export type ConciliarActionRunOptions = Readonly<{
   /** Progreso de DML aún no comprometido; el consumidor debe esperar el commit. */
   onProgress?: (event: ConciliarBatchProgress) => void
+  /** Relative stage durations only; the HTTP observer owns staging-only logging. */
+  onPhase?: ConciliarActionPhaseObserver
 }>
 
 /**
@@ -991,13 +1019,24 @@ export async function runConciliarAction(actorId: number, raw: unknown, options:
     if (event.kind === 'row-applied') provisionalCompleted = event.completed
     options.onProgress?.(event)
   }
-  const txSerializable = () => db().$transaction(async base => {
-    const tx = asTx(base)
-    // Runtime identity and the actor's B4 write ACL are both reread in the
-    // SERIALIZABLE transaction immediately before the receipt and business DML.
-    await requireLiveWrite(actorId, tx)
-    return runWithConciliarSerializableAuthorization(tx, () => runConciliarTransactionCommand(tx, actorId, command, actors, command.action === 'confirmar' ? reportProgress : undefined, recoveryContext), actorId)
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 90_000 })
+  const reportPhase: ConciliarActionPhaseObserver = (name, elapsedMs) => {
+    // Diagnostics must never change the financial transaction's outcome.
+    try { options.onPhase?.(name, elapsedMs) } catch {}
+  }
+  const txSerializable = async () => {
+    const financialTransactionStartedAt = Date.now()
+    const result = await db().$transaction(async base => {
+      const tx = asTx(base)
+      // Runtime identity and the actor's B4 write ACL are both reread in the
+      // SERIALIZABLE transaction immediately before the receipt and business DML.
+      const liveWriteStartedAt = Date.now()
+      await requireLiveWrite(actorId, tx)
+      reportPhase('require-live-write', Date.now() - liveWriteStartedAt)
+      return runWithConciliarSerializableAuthorization(tx, () => runConciliarTransactionCommand(tx, actorId, command, actors, command.action === 'confirmar' ? reportProgress : undefined, recoveryContext, reportPhase), actorId)
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 90_000 })
+    reportPhase('financial-transaction', Date.now() - financialTransactionStartedAt)
+    return result
+  }
   return retryConciliarSerializableP2034(txSerializable, waitForSerializableRetry, retrying => {
     if (command.action === 'confirmar' && 'items' in command) {
       options.onProgress?.({ kind: 'attempt-rolled-back', completed: provisionalCompleted, total: command.items.length, retrying })
