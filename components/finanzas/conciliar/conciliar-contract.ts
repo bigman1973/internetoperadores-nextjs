@@ -125,6 +125,7 @@ export type ConciliarHistoryOperation = Readonly<{
   scope: 'single' | 'batch';
   count: number;
   detailsAvailable: boolean;
+  targetRowIds?: readonly string[];
   actorEffectiveDisplay: string | null;
   actorRealDisplay: string | null;
   actorRealStatus: 'VINCULADO' | 'IGUAL_AL_EFECTIVO' | 'NO_DISPONIBLE_HISTORICO';
@@ -532,6 +533,8 @@ export function parseConciliarHistoryResponse(value: unknown): ConciliarHistoryR
       const count = integer(operation.count, 'count', true);
       const detailsAvailable = boolean(operation.detailsAvailable, 'detailsAvailable');
       if ((detailsAvailable && count !== legs.length) || (!detailsAvailable && legs.length !== 0) || count < 1 || count > 100 || (scope === 'single') !== (count === 1)) throw new Error('La respuesta no incluye patas de historial correctas.');
+      const targetRowIds = operation.targetRowIds === undefined ? [] : array(operation.targetRowIds, 'destinos').map(value => text(value, 'destino', 240));
+      if (targetRowIds.length > 0 && (targetRowIds.length !== count || new Set(targetRowIds).size !== count)) throw new Error('El historial no conserva todos los destinos.');
       return {
         operationId: parseOperationId(operation.operationId, 'operationId'),
         confirmedAt: historyTimestamp(operation.confirmedAt, 'confirmedAt')!,
@@ -541,6 +544,7 @@ export function parseConciliarHistoryResponse(value: unknown): ConciliarHistoryR
         scope,
         count,
         detailsAvailable,
+        targetRowIds,
         actorEffectiveDisplay: nullableText(operation.actorEffectiveDisplay, 'actorEffectiveDisplay', 240),
         actorRealDisplay: nullableText(operation.actorRealDisplay, 'actorRealDisplay', 240),
         actorRealStatus: actorRealStatus as ConciliarHistoryOperation['actorRealStatus'],

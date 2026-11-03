@@ -5,6 +5,7 @@ import { CONCILIAR_TABS, type ConciliarReadResponse, type ConciliarTab } from '.
 
 /** Tiempo de espera perceptible pero corto; no hay lectura automática ni fuentes live. */
 export const CONCILIAR_SEARCH_DEBOUNCE_MS = 180
+export const CONCILIAR_SEARCH_READ_TIMEOUT_MS = 45_000
 
 export type ConciliarSearchPhase = 'idle' | 'pending' | 'loading' | 'error'
 type ConciliarSearchHistoryMode = 'none' | 'push' | 'replace'
@@ -33,6 +34,7 @@ export type ConciliarSearchMachineAction =
   | Readonly<{ type: 'FILTERS' }>
   | Readonly<{ type: 'HISTORY'; view: ConciliarSearchView }>
   | Readonly<{ type: 'REFRESH' }>
+  | Readonly<{ type: 'DISCARD' }>
   | Readonly<{ type: 'DEBOUNCE_ELAPSED'; generation: number }>
   | Readonly<{ type: 'RESOLVED'; generation: number }>
   | Readonly<{ type: 'FAILED'; generation: number; error: Error }>
@@ -96,7 +98,7 @@ export type ConciliarGlobalSearch = Readonly<{
   /** Descarta la foto y aborta la lectura sin iniciar una petición nueva. */
   discard: () => void
   /** Adopta sólo una foto ya autorizada para la vista/generación actualmente visible. */
-  adopt: (data: ConciliarReadResponse) => boolean
+  adopt: (data: ConciliarReadResponse, generation: number) => boolean
 }>
 
 export function normalizeConciliarSearchQuery(value: string): string {
@@ -178,6 +180,8 @@ export function reduceConciliarSearchMachine(
       }, 'loading', 'none')
     case 'REFRESH':
       return nextState(state, state.view, 'loading', 'none')
+    case 'DISCARD':
+      return { ...nextState(state, state.view, 'error', 'none'), error: new Error('La lectura se ha cancelado. Actualiza para volver a comprobar la lista.') }
     case 'DEBOUNCE_ELAPSED':
       return state.phase === 'pending' && action.generation === state.generation
         ? { ...state, phase: 'loading' }
@@ -286,6 +290,10 @@ export function useConciliarGlobalSearch(options: UseConciliarGlobalSearchOption
     const pending = cache?.pendingFor?.(view)
     // Aun con hit, se vuelve a leer no-store. El hit solamente evita una pantalla
     // vacía y las acciones siguen bloqueadas hasta RESOLVED.
+    const timeout = window.setTimeout(() => {
+      dispatch({ type: 'FAILED', generation, error: new Error('La lectura está tardando demasiado. Pulsa Actualizar para comprobar la lista; no se ha repetido ninguna acción.') })
+      controller.abort()
+    }, CONCILIAR_SEARCH_READ_TIMEOUT_MS)
     void (pending ?? readRef.current(view, { signal: controller.signal, generation }))
       .then((data) => {
         if (controller.signal.aborted) return
@@ -298,7 +306,7 @@ export function useConciliarGlobalSearch(options: UseConciliarGlobalSearchOption
         if (controller.signal.aborted) return
         dispatch({ type: 'FAILED', generation, error: error instanceof Error ? error : new Error('No se pudo actualizar la conciliación.') })
       })
-    return () => controller.abort()
+    return () => { window.clearTimeout(timeout); controller.abort() }
   }, [abortCurrentRead, state.generation, state.phase, state.view])
 
   useEffect(() => () => abortCurrentRead(), [abortCurrentRead])
@@ -306,6 +314,8 @@ export function useConciliarGlobalSearch(options: UseConciliarGlobalSearchOption
   const transition = useCallback((action: Exclude<ConciliarSearchMachineAction, { type: 'DEBOUNCE_ELAPSED' | 'RESOLVED' | 'FAILED' }>) => {
     const current = stateRef.current
     const next = reduceConciliarSearchMachine(current, action)
+    if (next === current) return
+    stateRef.current = next
     abortCurrentRead()
     // Sólo una variante exacta puede mostrarse antes del GET. Clear y refresh
     // descartan expresamente la pantalla anterior para que q no quede oculto.
@@ -335,6 +345,7 @@ export function useConciliarGlobalSearch(options: UseConciliarGlobalSearchOption
     abortCurrentRead()
     setAcceptedData(null)
     setDataGeneration(null)
+    stateRef.current = reduceConciliarSearchMachine(stateRef.current, { type: 'REFRESH' })
     dispatch({ type: 'REFRESH' })
   }, [abortCurrentRead])
 
@@ -342,13 +353,15 @@ export function useConciliarGlobalSearch(options: UseConciliarGlobalSearchOption
     abortCurrentRead()
     setAcceptedData(null)
     setDataGeneration(null)
+    stateRef.current = reduceConciliarSearchMachine(stateRef.current, { type: 'DISCARD' })
+    dispatch({ type: 'DISCARD' })
   }, [abortCurrentRead])
 
   /** Una mutación puede devolver la foto exacta del mismo servidor. No cambia
    * view, URL ni generación, y se rechaza si ya hay una lectura/transición. */
-  const adopt = useCallback((data: ConciliarReadResponse): boolean => {
+  const adopt = useCallback((data: ConciliarReadResponse, generation: number): boolean => {
     const current = stateRef.current
-    if (current.phase !== 'idle' || dataGeneration !== current.generation) return false
+    if (current.phase !== 'idle' || generation !== current.generation || dataGeneration !== current.generation) return false
     cacheRef.current?.set(current.view, data)
     setAcceptedData(data)
     setDataGeneration(current.generation)

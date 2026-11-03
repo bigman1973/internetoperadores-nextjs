@@ -13,7 +13,7 @@ type Props = Readonly<{
   activeActuationSessionId: string | null;
   busy: boolean;
   refreshKey: number;
-  onUndo: (operationId: string) => void;
+  onUndo: (operationId: string, targetRowIds: readonly string[]) => void;
   onLoadError: (message: string) => void;
 }>;
 
@@ -30,7 +30,7 @@ function actorLabel(operation: ConciliarHistoryOperation): string {
   return `Actor real: ${operation.actorRealDisplay} → efectivo: ${operation.actorEffectiveDisplay}.`;
 }
 
-function Receipt({ operation, busy, onUndo }: Readonly<{ operation: ConciliarHistoryOperation; busy: boolean; onUndo: (operationId: string) => void }>) {
+function Receipt({ operation, busy, onUndo }: Readonly<{ operation: ConciliarHistoryOperation; busy: boolean; onUndo: Props['onUndo'] }>) {
   const status = operation.state === 'REVERTIDA' ? 'Deshecho' : 'Confirmado';
   return <article className="rounded-lg border border-slate-200 p-3 panel-dark:border-slate-700">
     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -39,8 +39,9 @@ function Receipt({ operation, busy, onUndo }: Readonly<{ operation: ConciliarHis
         <p className="mt-1 text-xs text-slate-600 panel-dark:text-slate-300">{actorLabel(operation)}</p>
         {operation.revertedAt && <p className="mt-1 text-xs font-semibold text-slate-600 panel-dark:text-slate-300">Revertido: {new Intl.DateTimeFormat('es-ES', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(operation.revertedAt))}</p>}
       </div>
-      {operation.reversible && <button type="button" disabled={busy} onClick={() => onUndo(operation.operationId)} className="min-h-10 shrink-0 rounded-md border border-slate-300 px-3 py-2 text-left text-xs font-bold text-[#BF3E00] hover:bg-orange-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:opacity-50 panel-dark:border-slate-600 panel-dark:text-orange-200">{scopeUndoLabel(operation)}</button>}
+      {operation.reversible && operation.targetRowIds?.length === operation.count && <button type="button" disabled={busy} onClick={() => onUndo(operation.operationId, operation.targetRowIds!)} className="min-h-10 shrink-0 rounded-md border border-slate-300 px-3 py-2 text-left text-xs font-bold text-[#BF3E00] hover:bg-orange-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:opacity-50 panel-dark:border-slate-600 panel-dark:text-orange-200">{scopeUndoLabel(operation)}</button>}
     </div>
+    {operation.reversible && operation.targetRowIds?.length !== operation.count && <p className="mt-2 text-xs text-slate-600 panel-dark:text-slate-300">Este recibo anterior no conserva todos los movimientos. Pide su revisión antes de deshacerlo.</p>}
     {!operation.detailsAvailable ? <p className="mt-3 rounded-md bg-slate-50 px-2 py-2 text-xs text-slate-600 panel-dark:bg-slate-950 panel-dark:text-slate-300">Este recibo anterior no conserva fecha, concepto, importe o documento. No se reconstruye con datos actuales.</p> : operation.scope === 'single' ? <ReceiptLeg operation={operation} /> : <details className="mt-3"><summary className="cursor-pointer text-xs font-bold text-[#BF3E00]">Ver las {operation.count} confirmaciones del lote</summary><p className="mt-1 text-xs text-slate-600 panel-dark:text-slate-300">El botón deshace el lote completo; no revierte una confirmación aislada.</p><ul className="mt-2 space-y-2">{operation.legs.map(leg => <li key={leg.ordinal} className="rounded-md bg-slate-50 px-2 py-2 panel-dark:bg-slate-950"><p className="text-sm font-semibold text-[#2D2A26] panel-dark:text-white">{formatDate(leg.fecha)} · {leg.concepto}</p><p className="mt-0.5 text-xs text-slate-600 panel-dark:text-slate-300">{formatMoney(leg.importeCentimos)} · {leg.documento ?? 'Sin documento en el recibo'}</p></li>)}</ul></details>}
   </article>;
 }

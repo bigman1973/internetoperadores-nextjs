@@ -531,6 +531,9 @@ function historyOperation(row: ConciliarHistoryOperationRow) {
   const storedLegCount = jsonRecords(row.legs, 'Las patas del historial').length
   const count = durableOutcomes >= 1 && durableOutcomes <= 100 ? durableOutcomes : storedLegCount || 1
   const detailsAvailable = legs.length === count
+  const persistedTargets = jsonRecords(row.legs, 'Las patas del historial').map(leg => leg.rowId)
+  const targetRowIds = persistedTargets.length === count && new Set(persistedTargets).size === count
+    && persistedTargets.every(id => typeof id === 'string' && id.length > 0 && id.length <= 240) ? persistedTargets as string[] : []
   return {
     operationId: row.id,
     confirmedAt: row.createdAt.toISOString(),
@@ -540,6 +543,7 @@ function historyOperation(row: ConciliarHistoryOperationRow) {
     scope: count === 1 ? 'single' as const : 'batch' as const,
     count,
     detailsAvailable,
+    targetRowIds,
     actorEffectiveDisplay,
     actorRealDisplay,
     actorRealStatus: actorRealDisplay ? (actorRealDisplay === actorEffectiveDisplay ? 'IGUAL_AL_EFECTIVO' : 'VINCULADO') : 'NO_DISPONIBLE_HISTORICO',
@@ -568,7 +572,7 @@ export async function readConciliarHistory(actorId: number, limit: number, offse
           ORDER BY created_at DESC,id DESC LIMIT ${limit} OFFSET ${offset}
         )
         SELECT p.id::text,p.estado::text,p.resultado,p.created_at AS "createdAt",p.revertida_at AS "revertedAt",
-          COALESCE(json_agg(jsonb_build_object('ordinal',l.ordinal,'resultado',l.resultado) ORDER BY l.ordinal ASC)
+          COALESCE(json_agg(jsonb_build_object('ordinal',l.ordinal,'resultado',l.resultado,'rowId',l.fila_id) ORDER BY l.ordinal ASC)
             FILTER (WHERE l.ordinal IS NOT NULL),'[]'::json) AS legs
         FROM page p
         LEFT JOIN patas_operacion_conciliar l ON l.operacion_conciliar_id=p.id

@@ -20,6 +20,7 @@ import { ConciliarDetailMemoryCache, conciliarDetailCacheKey, formatConciliarUpd
 import { ConciliarProjectionMemoryCache, conciliarProjectionCacheKey, isCurrentConciliarProjectionResponse } from './conciliar-projection-client';
 import { useConciliarGlobalSearch } from './conciliar-global-search';
 import { conciliarActiveActuationKey, conciliarSessionProofMatchesActiveActuation, useConciliarClientSessionProof } from './conciliar-client-session-proof';
+import { canAdoptConciliarMutationProjection, conciliarUiRowBlocked, conciliarIdentityTransitioning, type ConciliarPendingUiOperation } from './conciliar-mutation-ui';
 import dynamic from 'next/dynamic';
 import { useSession } from 'next-auth/react';
 const loadConciliarDocumentPreview = () => import('./ConciliarDocumentPreview');
@@ -233,12 +234,14 @@ function MovementJump({ row }: { row: ConciliarRow }) {
   return <a href={link.href!} className="truncate text-xs font-bold text-[#FF5300] underline decoration-1 underline-offset-2 focus:outline-none focus:ring-2 focus:ring-[#FF5300]" title={link.etiqueta}>{link.etiqueta || 'Ver movimiento que casa'}</a>;
 }
 
-function ConciliarRowView({ row, selected, selectionNeedsReview = false, receipt, busy, onSelect, onConfirm, onReview, onAsk, onOpen, onPrefetch, onUndo }: {
+function ConciliarRowView({ row, selected, selectionNeedsReview = false, receipt, busy, readBusy = false, undoBusy = busy, onSelect, onConfirm, onReview, onAsk, onOpen, onPrefetch, onUndo }: {
   row: ConciliarRow;
   selected: boolean;
   selectionNeedsReview?: boolean;
   receipt: Receipt | undefined;
   busy: boolean;
+  readBusy?: boolean;
+  undoBusy?: boolean;
   onSelect: (checked: boolean) => void;
   onConfirm: () => void;
   onReview: () => void;
@@ -259,7 +262,7 @@ function ConciliarRowView({ row, selected, selectionNeedsReview = false, receipt
   const requestAlreadyRegistered = management?.estado === 'PEDIDO' || management?.estado === 'PEDIDO_SIN_AUDITORIA';
   const action = canConfirm ? <button type="button" disabled={busy} onClick={onConfirm} className="min-h-9 rounded-md bg-emerald-700 px-2.5 py-1.5 text-xs font-extrabold text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-1 disabled:opacity-50">Confirmar</button>
     : canConfirmHumanOwnTransfer ? <button type="button" disabled={busy} onClick={onConfirm} className="min-h-9 rounded-md bg-emerald-700 px-2.5 py-1.5 text-xs font-extrabold text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-1 disabled:opacity-50">Confirmar pareja</button>
-    : row.color === 'AMBAR' ? <span className="flex items-center gap-1.5"><button type="button" disabled={busy} onClick={() => onOpen(row)} className="min-h-9 rounded-md border border-amber-400 bg-white px-2.5 py-1.5 text-xs font-extrabold text-amber-900 hover:bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-500 panel-dark:bg-slate-900 panel-dark:text-amber-100">Abrir</button>{row.movimientoId && row.documento ? <button type="button" disabled={busy} onClick={onReview} className="min-h-9 rounded-md border border-amber-700 bg-amber-700 px-2.5 py-1.5 text-xs font-extrabold text-white hover:bg-amber-800 focus:outline-none focus:ring-2 focus:ring-amber-600 disabled:opacity-50">Revisar propuesta</button> : null}</span>
+    : row.color === 'AMBAR' ? <span className="flex items-center gap-1.5"><button type="button" disabled={readBusy} onClick={() => onOpen(row)} className="min-h-9 rounded-md border border-amber-400 bg-white px-2.5 py-1.5 text-xs font-extrabold text-amber-900 hover:bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-500 panel-dark:bg-slate-900 panel-dark:text-amber-100">Abrir</button>{row.movimientoId && row.documento ? <button type="button" disabled={busy} onClick={onReview} className="min-h-9 rounded-md border border-amber-700 bg-amber-700 px-2.5 py-1.5 text-xs font-extrabold text-white hover:bg-amber-800 focus:outline-none focus:ring-2 focus:ring-amber-600 disabled:opacity-50">Revisar propuesta</button> : null}</span>
       : isRed && row.movimientoId ? requestAlreadyRegistered
         ? <button type="button" disabled className="min-h-9 rounded-md border border-slate-300 bg-slate-100 px-2.5 py-1.5 text-xs font-extrabold text-slate-600 panel-dark:border-slate-700 panel-dark:bg-slate-800 panel-dark:text-slate-300">Ya pedida</button>
         : <span className="flex flex-col items-end gap-0.5"><button type="button" disabled={busy} onClick={onAsk} className="min-h-9 rounded-md border border-red-300 bg-white px-2.5 py-1.5 text-xs font-extrabold text-red-800 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 panel-dark:bg-slate-900 panel-dark:text-red-100">Marcar como pedida</button><span className="text-[10px] font-medium text-slate-500 panel-dark:text-slate-400">No envía ningún aviso.</span></span>
@@ -279,12 +282,12 @@ function ConciliarRowView({ row, selected, selectionNeedsReview = false, receipt
     <p className="hidden truncate text-xs text-slate-600 panel-dark:text-slate-300 xl:block" title={account}>{account}</p>
     <div className="hidden min-w-0 xl:block"><p data-testid="conciliar-document-reference" className="truncate text-xs font-semibold text-slate-800 panel-dark:text-slate-100" title={`${documentLabel} · ${documentInfo}`}>{documentLabel}</p><MovementJump row={row} /></div>
     <div className="hidden text-right xl:block"><p className="whitespace-nowrap text-sm font-extrabold tabular-nums text-[#2D2A26] panel-dark:text-white">{formatMoney(row.importeCentimos)}</p>{row.diferenciaCentimos !== 0 && <p className="whitespace-nowrap text-xs font-semibold tabular-nums text-amber-800 panel-dark:text-amber-300">Dif. {formatMoney(row.diferenciaCentimos)}</p>}</div>
-    <div className="hidden min-w-0 xl:block"><button type="button" onClick={() => onOpen(row)} title={row.motivo} aria-label="Ver nota completa" className="line-clamp-2 text-left text-xs leading-4 text-slate-600 underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-[#FF5300] panel-dark:text-slate-300">{row.motivo}</button><ResultBadge receipt={receipt} disabled={busy} onUndo={onUndo} /></div>
+    <div className="hidden min-w-0 xl:block"><button type="button" onClick={() => onOpen(row)} title={row.motivo} aria-label="Ver nota completa" className="line-clamp-2 text-left text-xs leading-4 text-slate-600 underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-[#FF5300] panel-dark:text-slate-300">{row.motivo}</button><ResultBadge receipt={receipt} disabled={undoBusy} onUndo={onUndo} /></div>
     <p className="whitespace-nowrap text-sm font-extrabold tabular-nums text-[#2D2A26] panel-dark:text-white xl:hidden">{formatMoney(row.importeCentimos)}</p>
     <div className="flex items-center justify-end gap-1.5">{canSelect && <input type="checkbox" checked={selected} onChange={(event) => onSelect(event.target.checked)} aria-label={`${selectionNeedsReview ? 'Revisar y volver a seleccionar' : 'Seleccionar'} ${row.concepto}`} aria-describedby={selectionNeedsReview ? `conciliar-selection-review-${row.id}` : undefined} disabled={busy} className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600 disabled:opacity-50" />}{action}</div>
     <button type="button" onClick={() => onOpen(row)} title={row.motivo} className="col-span-full line-clamp-2 text-left text-xs text-slate-600 underline decoration-dotted underline-offset-2 panel-dark:text-slate-300 xl:hidden">{row.motivo}</button>
     {selectionNeedsReview && <p id={`conciliar-selection-review-${row.id}`} className="col-span-full px-1 text-xs font-semibold text-amber-800 panel-dark:text-amber-300">La fila cambió desde que la seleccionaste. Desmárcala y vuelve a marcarla tras revisarla; no se confirmará mientras tanto.</p>}
-    {receipt && <p className="col-span-full truncate px-1 text-xs xl:hidden"><ResultBadge receipt={receipt} disabled={busy} onUndo={onUndo} /></p>}
+    {receipt && <p className="col-span-full truncate px-1 text-xs xl:hidden"><ResultBadge receipt={receipt} disabled={undoBusy} onUndo={onUndo} /></p>}
     {requestLabel && <p data-testid="conciliar-request-status" className="col-span-full rounded-md bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-950 panel-dark:bg-sky-950/40 panel-dark:text-sky-100">{requestLabel}</p>}
     {receivedFileHref && <a href={receivedFileHref} target="_blank" rel="noopener noreferrer" className="col-span-full w-fit px-2 text-xs font-bold text-[#BF3E00] underline panel-dark:text-orange-300">Abrir documento recibido</a>}
   </article>;
@@ -323,6 +326,11 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const [receipts, setReceipts] = useState<readonly Receipt[]>([]);
   const [openDocument, setOpenDocument] = useState<OpenDocument>(null);
   const [sending, setSending] = useState(false);
+  const [pendingOperations, setPendingOperations] = useState<readonly ConciliarPendingUiOperation[]>([]);
+  const pendingOperationsRef = useRef<readonly ConciliarPendingUiOperation[]>([]);
+  const mutationSequence = useRef(0);
+  const operationTargetsRef = useRef(new Map<string, readonly string[]>());
+  const pendingUndoViewRef = useRef<string | null>(null);
   const [batchProgress, setBatchProgress] = useState<ConciliarClientBatchProgress | null>(null);
   const [batchResult, setBatchResult] = useState<BatchResult | null>(null);
   const [retry, setRetry] = useState<Retry>(null);
@@ -344,6 +352,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const projectionCache = useRef(new ConciliarProjectionMemoryCache());
   const projectionPrefetchScope = useRef<string | null>(null);
   const identityScopeSeen = useRef<string | null | undefined>(undefined);
+  const [acknowledgedIdentityScope, setAcknowledgedIdentityScope] = useState<string | undefined>(undefined);
   const stableIdentityScope = useRef<string | null>(null);
   const hasTrustedIdentity = useRef(false);
   const discardSearchRef = useRef<() => void>(() => {});
@@ -441,12 +450,19 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const loading = search.searching;
   const refreshing = search.revalidating;
   const requestInput = useMemo(() => ({ tab, from, to, accountId, query, cutoffDate, emitidasGrupo, estado, grupo, ...(orden === 'IMPORTE' && direccion === 'DESC' ? {} : { orden, direccion }), limit: PAGE_SIZE, offset }), [accountId, direccion, emitidasGrupo, estado, from, grupo, offset, orden, query, tab, to, cutoffDate]);
+  const projectionContextRef = useRef({ view: '', generation: 0 });
+  projectionContextRef.current = { view: JSON.stringify(responseViewFor(requestInput)), generation: search.generation };
   const rows = data?.rows ?? [];
   const visibleSelectable = useMemo(() => rows.filter((row) => row.color === 'VERDE' && !remesaHint(row) && (row.seleccionable || hasHumanOwnTransferConfirmation(row))), [rows]);
   const selectionReview = useMemo(() => reviewSelectionForCurrentRows(selected, rows), [rows, selected]);
   const receiptByRow = useMemo(() => new Map(receipts.map((receipt) => [receipt.rowId, receipt])), [receipts]);
-  const identityTransitioning = identityScopeSeen.current !== undefined && identityScopeSeen.current !== detailIdentityScope;
-  const mutationsBlocked = !identityScope || identityTransitioning || identityRejected || refreshing || sending || retry !== null || remesaPreviewLoading || area3ReviewLoading;
+  const identityTransitioning = conciliarIdentityTransitioning(acknowledgedIdentityScope, detailIdentityScope);
+  const identityBlocked = !identityScope || identityTransitioning || identityRejected;
+  const undoViewUnknown = pendingOperations.some((operation) => operation.action === 'deshacer') && pendingUndoViewRef.current !== projectionContextRef.current.view;
+  const mutationContextBlocked = identityBlocked || refreshing || retry !== null || remesaPreviewLoading || area3ReviewLoading || undoViewUnknown;
+  const mutationsBlocked = mutationContextBlocked || conciliarUiRowBlocked(pendingOperations);
+  const rowMutationsBlocked = useCallback((rowId: string) => mutationContextBlocked || conciliarUiRowBlocked(pendingOperations, rowId), [mutationContextBlocked, pendingOperations]);
+  const undoBlocked = identityBlocked || sending || retry !== null || remesaPreviewLoading || area3ReviewLoading;
 
   const closeDetail = useCallback(() => {
     detailSequence.current += 1;
@@ -467,6 +483,9 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     const previousIdentityScope = identityScopeSeen.current;
     if (previousIdentityScope === detailIdentityScope) return;
     identityScopeSeen.current = detailIdentityScope;
+    // El reconocimiento debe provocar render: cambiar sólo el ref deja la
+    // primera identidad válida con el bloqueo calculado como auth-desconocida.
+    setAcknowledgedIdentityScope(detailIdentityScope);
     const previousStableIdentityScope = stableIdentityScope.current;
     if (identityScope) stableIdentityScope.current = identityScope;
     // La foto SSR de 20 filas ya pasó ACL en este render. Se conserva hasta la
@@ -500,6 +519,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     if (identityScope && previousStableIdentityScope && previousStableIdentityScope !== identityScope) {
       setReceipts([]);
       setRetry(null);
+      operationTargetsRef.current.clear();
     }
     setIdentityRejected(true);
     if (identityScope) search.refresh();
@@ -608,6 +628,15 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   }, []);
 
   const finishOutcomes = useCallback((response: ConciliarActionResponse, action: 'confirmar' | 'pedir', rowLabels: ReadonlyMap<string, string>) => {
+    if (action === 'confirmar') {
+      const targets = new Map<string, string[]>();
+      for (const outcome of response.outcomes) {
+        const operationId = outcome.operationId ?? response.operationId;
+        if (!outcome.ok || !operationId) continue;
+        targets.set(operationId, [...(targets.get(operationId) ?? []), outcome.id]);
+      }
+      targets.forEach((ids, operationId) => operationTargetsRef.current.set(operationId, ids));
+    }
     for (const outcome of response.outcomes) {
       const message = safeOutcomeMessage(outcome.message, outcome.ok ? 'Acción realizada.' : 'No se pudo completar esta acción.');
       addReceipt({
@@ -623,15 +652,31 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   }, [addReceipt]);
 
   const post = useCallback(async (payload: ConciliarMutationPayload, label: string) => {
-    if (sending || !identityScope || identityTransitioning || identityRejected) return;
+    if (!identityScope || identityTransitioning || identityRejected) return;
     const operationIdentityScope = identityScope;
     // A retry retains its original view/idempotency payload; a first attempt gets
     // the exact normalized view that was visibly rendered when it was sent.
     const command: ConciliarMutationPayload = payload.responseView ? payload : { ...payload, responseView: responseViewFor(requestInput) };
+    const rowIds = command.action === 'deshacer'
+      ? operationTargetsRef.current.get(command.operationId) ?? []
+      : 'items' in command ? command.items.map((item) => item.id) : 'review' in command ? [command.review.id] : 'id' in command ? [command.id] : [];
+    if (pendingOperationsRef.current.some((operation) => operation.key === command.idempotencyKey || (command.action === 'deshacer' && operation.operationId === command.operationId))) return;
+    if (pendingOperationsRef.current.length && (rowIds.length === 0 || rowIds.some((id) => conciliarUiRowBlocked(pendingOperationsRef.current, id)))) return;
+    const requestGeneration = search.generation;
+    const requestView = JSON.stringify(command.responseView);
+    if (command.action === 'deshacer') pendingUndoViewRef.current = requestView;
+    const requestSequence = ++mutationSequence.current;
+    pendingOperationsRef.current = [...pendingOperationsRef.current, { key: command.idempotencyKey, action: command.action, operationId: command.action === 'deshacer' ? command.operationId : null, rowIds }];
+    setPendingOperations(pendingOperationsRef.current);
+    const adoptProjection = (result: ConciliarActionResponse | ReturnType<typeof parseConciliarUndoResponse>) => result.projection && canAdoptConciliarMutationProjection({
+      synchronized: result.projectionSynchronized, requestIdentity: operationIdentityScope, currentIdentity: currentIdentityScopeRef.current,
+      requestView, currentView: projectionContextRef.current.view, requestGeneration, currentGeneration: projectionContextRef.current.generation,
+      requestSequence, currentSequence: mutationSequence.current, pendingCount: pendingOperationsRef.current.length,
+    }) && search.adopt(result.projection, requestGeneration);
     // Una acción nunca comparte decisiones con otra: se descartan fotos y
     // precargas antes del POST. El servidor vuelve a comprobar actor, permiso,
-    // lock G7 y hash de cada fila; su proyección de respuesta no se adopta para
-    // evitar cruzar una vista o una generación distinta.
+    // lock G7 y hash de cada fila. Sólo se adopta la foto sincronizada si conserva
+    // identidad, vista y generación y no se solapa con otra mutación.
     invalidateProjectionMemory(true);
     const batchItems = command.action === 'confirmar' && 'items' in command ? command.items : null;
     const isBatch = batchItems !== null && batchItems.length > 1;
@@ -681,7 +726,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
         setRetry(null);
         setNotice({ tone: result.undone ? 'success' : 'info', text: safeOutcomeMessage(result.message, result.undone ? 'Acción deshecha.' : 'La acción ya no se puede deshacer.') });
         invalidateProjectionMemory(true);
-        void load(true, true);
+        if (!adoptProjection(result)) void load(true, true);
         setConfirmationHistoryRevision((current) => current + 1);
         return;
       }
@@ -700,7 +745,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       const failed = result.outcomes.length - succeeded;
       setNotice({ tone: failed ? 'info' : 'success', text: failed ? `${succeeded} hecha(s); ${failed} necesita(n) revisión. Consulta la actividad reciente.` : payload.action === 'pedir' ? 'Añadido a Para pedir. No se ha enviado ningún aviso.' : 'Hecho. Puedes deshacerlo aquí o desde la actividad reciente.' });
       invalidateProjectionMemory(true);
-      void load(true, true);
+      if (!adoptProjection(result)) void load(true, true);
       if (payload.action !== 'pedir') setConfirmationHistoryRevision((current) => current + 1);
     } catch (error) {
       if (error instanceof ConciliarStreamRejectedError) {
@@ -714,11 +759,15 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       } else {
         setNotice({ tone: 'error', text: error instanceof Error ? safeOutcomeMessage(error.message, 'No se pudo completar la acción.') : 'No se pudo completar la acción.' });
       }
-    } finally { setBatchProgress(null); setSending(false); }
-  }, [activeActuation, finishOutcomes, identityRejected, identityScope, identityTransitioning, invalidateProjectionMemory, load, rejectIdentity, requestInput, rows, search.discard, sending]);
+    } finally {
+      pendingOperationsRef.current = pendingOperationsRef.current.filter((operation) => operation.key !== command.idempotencyKey);
+      setPendingOperations(pendingOperationsRef.current);
+      setBatchProgress(null); setSending(pendingOperationsRef.current.length > 0);
+    }
+  }, [activeActuation, finishOutcomes, identityRejected, identityScope, identityTransitioning, invalidateProjectionMemory, load, rejectIdentity, requestInput, rows, search.adopt, search.discard, search.generation]);
 
   const confirmRows = useCallback((source: readonly ConciliarRow[]) => {
-    if (mutationsBlocked || remesaPreviewLoading) return;
+    if (source.some((row) => rowMutationsBlocked(row.id)) || remesaPreviewLoading) return;
     const currentRows = new Map(rows.map((row) => [row.id, row]));
     // Un objeto capturado antes de un refresco nunca autoriza una decisión: se
     // vuelve a tomar de la página vigente y se compara el hash del servidor.
@@ -780,7 +829,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       if (sequence === remesaPreviewSequence.current) setRemesaPreviewLoading(false);
       if (remesaPreviewController.current === controller) remesaPreviewController.current = null;
     });
-  }, [mutationsBlocked, post, rejectIdentity, remesaPreviewLoading, rows]);
+  }, [rowMutationsBlocked, post, rejectIdentity, remesaPreviewLoading, rows]);
 
   const confirmSelected = useCallback(() => {
     if (mutationsBlocked) return;
@@ -798,14 +847,14 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   }, [confirmRows, mutationsBlocked, rows, selected]);
 
   const askForDocument = useCallback((row: ConciliarRow) => {
-    if (mutationsBlocked) return;
+    if (rowMutationsBlocked(row.id)) return;
     void post({ action: 'pedir', id: row.id, decisionHash: row.decisionHash, idempotencyKey: makeIdempotencyKey() }, 'solicitud de documento');
-  }, [mutationsBlocked, post]);
+  }, [rowMutationsBlocked, post]);
 
   /** REVIEW_PREVIEW es una lectura sellada: no reutiliza `post`, no lleva
    * idempotencia y no puede añadir una fila ámbar a la selección verde. */
   const reviewArea3Proposal = useCallback(async (requestedRow: ConciliarRow) => {
-    if (mutationsBlocked) return;
+    if (rowMutationsBlocked(requestedRow.id)) return;
     const current = rows.find((row) => row.id === requestedRow.id);
     if (!current || current.decisionHash !== requestedRow.decisionHash) {
       setNotice({ tone: 'info', text: 'La propuesta cambió desde que la abriste. Actualiza y vuelve a revisarla.' });
@@ -834,7 +883,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     } finally {
       setArea3ReviewLoading(false);
     }
-  }, [activeActuation, mutationsBlocked, rejectIdentity, rows]);
+  }, [activeActuation, rowMutationsBlocked, rejectIdentity, rows]);
 
   const confirmArea3Review = useCallback(() => {
     const confirmation = area3ReviewConfirmation;
@@ -887,6 +936,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
 
   /** La precarga sólo pide el DTO privado de la fila autorizada: nunca sigue ni descarga su PDF. */
   const prefetchDetail = useCallback((requestedRow: ConciliarRow) => {
+    if (identityBlocked) return;
     clearDetailCacheForIdentity(detailIdentityScope);
     void loadConciliarDocumentPreview().catch(() => undefined);
     const current = detailRowFromCurrentProjection(requestedRow);
@@ -894,10 +944,11 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     const controller = new AbortController();
     detailPrefetchControllers.current.add(controller);
     void detailCache.current.load(current.key, () => fetchDetail(current.row, controller.signal)).catch(() => undefined).finally(() => detailPrefetchControllers.current.delete(controller));
-  }, [clearDetailCacheForIdentity, detailIdentityScope, detailRowFromCurrentProjection, fetchDetail]);
+  }, [clearDetailCacheForIdentity, detailIdentityScope, detailRowFromCurrentProjection, fetchDetail, identityBlocked]);
 
   /** La fila se vuelve a tomar de la proyección visible antes de abrir; el DTO viaja sólo por la ruta privada dedicada. */
   const openDetail = useCallback(async (requestedRow: ConciliarRow) => {
+    if (identityBlocked) return;
     clearDetailCacheForIdentity(detailIdentityScope);
     void loadConciliarDocumentPreview().catch(() => undefined);
     const current = detailRowFromCurrentProjection(requestedRow);
@@ -922,12 +973,12 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     } finally {
       if (detailController.current === controller) detailController.current = null;
     }
-  }, [clearDetailCacheForIdentity, detailIdentityScope, detailRowFromCurrentProjection, fetchDetail]);
+  }, [clearDetailCacheForIdentity, detailIdentityScope, detailRowFromCurrentProjection, fetchDetail, identityBlocked]);
 
   const undoReceipt = useCallback((receipt: Receipt) => {
-    if (mutationsBlocked || !receipt.operationId) return;
+    if (undoBlocked || !receipt.operationId) return;
     void post({ action: 'deshacer', operationId: receipt.operationId, idempotencyKey: makeIdempotencyKey() }, 'deshacer');
-  }, [mutationsBlocked, post]);
+  }, [undoBlocked, post]);
 
   const toggleAllVisible = useCallback((checked: boolean) => {
     // Una remesa se abre y confirma sola, tras su composición completa. Este
@@ -976,17 +1027,19 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const emitidasGroupLabel = emitidasGrupo ? EMITIDAS_GROUP_COPY[emitidasGrupo].label : '';
   const displayGroups = groupConciliarRows(rows);
   const showGroupedRows = shouldRenderConciliarGroups(displayGroups, globalOrder);
-  const renderRow = (row: ConciliarRow) => <ConciliarRowView key={row.id} row={row} selected={selected.has(row.id)} selectionNeedsReview={selectionNeedsReview(row)} receipt={receiptByRow.get(row.id)} busy={mutationsBlocked} onSelect={(checked) => setSelected((current) => setRowSelected(current, row, checked))} onConfirm={() => confirmRows([row])} onReview={() => void reviewArea3Proposal(row)} onAsk={() => askForDocument(row)} onOpen={openDetail} onPrefetch={prefetchDetail} onUndo={() => { const receipt = receiptByRow.get(row.id); if (receipt) undoReceipt(receipt); }} />;
+  const renderRow = (row: ConciliarRow) => <ConciliarRowView key={row.id} row={row} selected={selected.has(row.id)} selectionNeedsReview={selectionNeedsReview(row)} receipt={receiptByRow.get(row.id)} busy={rowMutationsBlocked(row.id)} readBusy={identityBlocked} undoBusy={undoBlocked} onSelect={(checked) => setSelected((current) => setRowSelected(current, row, checked))} onConfirm={() => confirmRows([row])} onReview={() => void reviewArea3Proposal(row)} onAsk={() => askForDocument(row)} onOpen={openDetail} onPrefetch={prefetchDetail} onUndo={() => { const receipt = receiptByRow.get(row.id); if (receipt) undoReceipt(receipt); }} />;
 
   return <main className="mx-auto w-full max-w-[1700px] min-w-0 overflow-x-hidden space-y-4 px-3 py-4 text-[#2D2A26] panel-dark:text-slate-100 sm:px-5 sm:py-6" style={{ fontFamily: 'var(--font-conciliar), Arial, Helvetica, sans-serif' }} data-testid="conciliar-workspace">
     <header data-conciliar-heading className="flex flex-col gap-3 border-b border-orange-100 pb-4 panel-dark:border-slate-800 lg:flex-row lg:items-end lg:justify-between">
       <div className="min-w-0"><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#FF5300]">Conciliación</p><h1 className="mt-1 text-2xl font-extrabold tracking-tight text-[#2D2A26] panel-dark:text-white sm:text-3xl">Conciliar</h1><p data-conciliar-subtitle className="mt-1 max-w-3xl text-sm text-slate-600 panel-dark:text-slate-300">Una vista directa de lo que queda por casar, revisar o pedir.</p></div>
       <div className="flex flex-wrap items-center gap-3 self-start">{data?.updatedAt && <p data-testid="conciliar-updated-at" className="text-xs text-slate-500 panel-dark:text-slate-400" suppressHydrationWarning>{formatConciliarUpdatedAt(data.updatedAt, { timeZone: 'Europe/Madrid' })}</p>}
-      <button type="button" onClick={() => void load(true)} disabled={loading || refreshing || sending || remesaPreviewLoading || area3ReviewLoading} className="inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-lg border border-[#FFB18C] bg-white px-3 py-2 text-sm font-bold text-[#BF3E00] shadow-sm hover:bg-orange-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 panel-dark:bg-slate-900 panel-dark:text-orange-200"><ArrowPathIcon className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />Actualizar</button>
+      <button type="button" onClick={() => void load(true)} disabled={remesaPreviewLoading || area3ReviewLoading} className="inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-lg border border-[#FFB18C] bg-white px-3 py-2 text-sm font-bold text-[#BF3E00] shadow-sm hover:bg-orange-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 panel-dark:bg-slate-900 panel-dark:text-orange-200"><ArrowPathIcon className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />Actualizar</button>
       </div>
     </header>
 
     <Guide invoicePending={tab === 'EMITIDAS' || tab === 'RECIBIDAS'} />
+
+    {(identityBlocked || search.error || pendingOperations.some((operation) => operation.action === 'deshacer')) && <p role="status" aria-live="polite" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 panel-dark:bg-amber-950 panel-dark:text-amber-100">{identityBlocked ? sessionProof.rejected ? 'No se ha podido acreditar tu sesión. Recarga o vuelve a iniciar sesión; no se enviarán acciones.' : 'La identidad o los permisos de la sesión no están disponibles. No se enviarán acciones hasta acreditarlos.' : search.error ? safeOutcomeMessage(search.error.message, 'No se pudo comprobar la lista. Pulsa Actualizar.') : pendingOperations.some((operation) => operation.action === 'deshacer' && operation.rowIds.length === 0) ? 'Deshacer está pendiente y no se conocen todas sus filas. Puedes consultar; no confirmes hasta comprobar el resultado.' : 'Deshacer está pendiente. Sus filas no se pueden confirmar; puedes seguir consultando las demás.'}</p>}
 
     {batchProgress && <section data-testid="conciliar-batch-progress" role="status" aria-live="polite" className="rounded-xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-950 panel-dark:border-orange-800 panel-dark:bg-orange-950/40 panel-dark:text-orange-100">
       <p className="font-extrabold">{batchProgress.retrying ? 'Reintentando el mismo lote…' : `Confirmando ${batchProgress.completed} de ${batchProgress.total}…`}</p>
@@ -997,7 +1050,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       <details open><summary className="cursor-pointer font-extrabold">Resultado del lote: {batchResult.outcomes.filter((item) => item.ok).length} hecha(s), {batchResult.outcomes.filter((item) => !item.ok).length} para revisar</summary>
         <ul className="mt-3 max-h-64 space-y-2 overflow-y-auto">{batchResult.outcomes.map((item) => <li data-testid="conciliar-batch-result-row" key={item.id} className="rounded-lg border border-slate-200 p-2 panel-dark:border-slate-700"><span className={`font-extrabold ${item.ok ? 'text-emerald-800 panel-dark:text-emerald-200' : 'text-amber-900 panel-dark:text-amber-200'}`}>{item.ok ? 'Hecho' : 'Revisar'}</span><span className="ml-2 break-words">{item.label}</span><p className="mt-1 text-xs text-slate-600 panel-dark:text-slate-300">{item.message}</p></li>)}</ul>
       </details>
-      {batchResult.operationId && <button type="button" disabled={mutationsBlocked} onClick={() => { if (batchResult.operationId) void post({ action: 'deshacer', operationId: batchResult.operationId, idempotencyKey: makeIdempotencyKey() }, 'deshacer lote'); }} className="mt-3 min-h-10 rounded-lg border border-slate-300 px-3 py-2 font-bold focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50 panel-dark:border-slate-600">Deshacer lote completo</button>}
+      {batchResult.operationId && <button type="button" disabled={undoBlocked} onClick={() => { if (batchResult.operationId) void post({ action: 'deshacer', operationId: batchResult.operationId, idempotencyKey: makeIdempotencyKey() }, 'deshacer lote'); }} className="mt-3 min-h-10 rounded-lg border border-slate-300 px-3 py-2 font-bold focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50 panel-dark:border-slate-600">Deshacer lote completo</button>}
     </section>}
 
     {notice && <div role={notice.tone === 'error' ? 'alert' : 'status'} aria-live="polite" className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm ${notice.tone === 'error' ? 'border-red-200 bg-red-50 text-red-900 panel-dark:border-red-900 panel-dark:bg-red-950/45 panel-dark:text-red-100' : notice.tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-950 panel-dark:border-emerald-900 panel-dark:bg-emerald-950/45 panel-dark:text-emerald-100' : 'border-sky-200 bg-sky-50 text-sky-950 panel-dark:border-sky-900 panel-dark:bg-sky-950/45 panel-dark:text-sky-100'}`}><ExclamationTriangleIcon className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" /><span>{notice.text}</span></div>}
@@ -1028,7 +1081,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     <section role="tabpanel" id={`conciliar-panel-${tab}`} aria-labelledby={`conciliar-tab-${tab}`} className="min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm panel-dark:border-slate-700 panel-dark:bg-slate-900">
       <header className="flex flex-col gap-3 border-b border-slate-200 px-3 py-3 panel-dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0"><h2 className="font-extrabold text-[#2D2A26] panel-dark:text-white">{TAB_COPY[tab].title}{tab === 'EMITIDAS' && emitidasGroupLabel ? ` · ${emitidasGroupLabel}` : ''}</h2><p className="truncate text-xs text-slate-600 panel-dark:text-slate-300">{TAB_COPY[tab].question}{data ? ` · ${data.total.toLocaleString('es-ES')} resultado(s)` : ''}{data ? ` · actualizado ${humanUpdatedAt(data.updatedAt)}` : ''}</p></div>
-        <div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => void exportAll()} disabled={!data || exporting || mutationsBlocked} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 panel-dark:border-slate-600 panel-dark:bg-slate-900 panel-dark:text-slate-100"><ArrowDownTrayIcon className="h-4 w-4" aria-hidden="true" />{exporting ? 'Exportando…' : 'Exportar a Excel'}</button>{(visibleSelectable.length > 0 || selected.size > 0) && <><label className="inline-flex min-h-9 items-center gap-1.5 text-xs font-bold text-slate-700 panel-dark:text-slate-200"><input type="checkbox" checked={areAllVisibleGreensSelected(selected, visibleSelectable)} onChange={(event) => toggleAllVisible(event.target.checked)} disabled={mutationsBlocked || visibleSelectable.length === 0} className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600" />Todos los verdes visibles</label><button type="button" onClick={confirmSelected} disabled={mutationsBlocked || selected.size === 0} className="min-h-9 rounded-md bg-emerald-700 px-2.5 py-1.5 text-xs font-extrabold text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 disabled:cursor-not-allowed disabled:opacity-50">Confirmar seleccionados{selected.size ? ` (${selected.size})` : ''}</button></>}</div>
+        <div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => void exportAll()} disabled={!data || exporting || identityBlocked} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 panel-dark:border-slate-600 panel-dark:bg-slate-900 panel-dark:text-slate-100"><ArrowDownTrayIcon className="h-4 w-4" aria-hidden="true" />{exporting ? 'Exportando…' : 'Exportar a Excel'}</button>{(visibleSelectable.length > 0 || selected.size > 0) && <><label className="inline-flex min-h-9 items-center gap-1.5 text-xs font-bold text-slate-700 panel-dark:text-slate-200"><input type="checkbox" checked={areAllVisibleGreensSelected(selected, visibleSelectable)} onChange={(event) => toggleAllVisible(event.target.checked)} disabled={mutationsBlocked || visibleSelectable.length === 0} className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600" />Todos los verdes visibles</label><button type="button" onClick={confirmSelected} disabled={mutationsBlocked || selected.size === 0} className="min-h-9 rounded-md bg-emerald-700 px-2.5 py-1.5 text-xs font-extrabold text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 disabled:cursor-not-allowed disabled:opacity-50">Confirmar seleccionados{selected.size ? ` (${selected.size})` : ''}</button></>}</div>
       </header>
       {selected.size > 0 && (selectionReview.hiddenCount > 0 || selectionReview.changedCount > 0 || selectionReview.unavailableCount > 0) && <div role="status" className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 panel-dark:border-amber-900 panel-dark:bg-amber-950/45 panel-dark:text-amber-100">Selección conservada: {selectionReview.hiddenCount ? `${selectionReview.hiddenCount} fuera del filtro o de esta página. ` : ''}{selectionReview.changedCount ? `${selectionReview.changedCount} cambiada(s): vuelve a seleccionarla(s) tras revisar. ` : ''}{selectionReview.unavailableCount ? `${selectionReview.unavailableCount} ya no confirmable(s).` : ''} Nunca se enviarán automáticamente.</div>}
       <div className="min-w-0">{loading ? <Skeleton /> : !data ? <Empty text="No hay datos validados. Actualiza para volver a intentarlo." /> : rows.length === 0 ? <Empty text="No hay resultados con estos filtros." /> : <>
@@ -1036,7 +1089,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
         {showGroupedRows ? displayGroups.map((group) => group.rows.length > 1 ? <section data-conciliar-group={group.label} key={group.key}><GroupHeader group={group} />{group.rows.map(renderRow)}</section> : group.rows.map(renderRow)) : <div data-testid="conciliar-global-order">{rows.map(renderRow)}</div>}
       </>}</div>
       {openDocument && <ConciliarDocumentPreview document={openDocument} onClose={closeDetail} onRetry={() => { if (openDocument) void openDetail(openDocument.row); }} />}
-      {data && <footer className="flex flex-col gap-2 border-t border-slate-200 px-3 py-3 text-sm panel-dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-slate-600 panel-dark:text-slate-300">Mostrando {data.total === 0 ? 0 : data.offset + 1}–{Math.min(data.offset + data.rows.length, data.total)} de {data.total.toLocaleString('es-ES')}.</p><div className="flex gap-2"><button type="button" disabled={data.offset === 0 || mutationsBlocked} onClick={() => { closeDetail(); search.changeOffset(Math.max(0, data.offset - data.limit)); }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 panel-dark:border-slate-600 panel-dark:text-slate-100"><ChevronLeftIcon className="h-4 w-4" aria-hidden="true" />Anterior</button><button type="button" disabled={data.rows.length === 0 || data.offset + data.rows.length >= data.total || mutationsBlocked} onClick={() => { closeDetail(); search.changeOffset(data.offset + data.rows.length); }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 panel-dark:border-slate-600 panel-dark:text-slate-100">Ver más<ChevronRightIcon className="h-4 w-4" aria-hidden="true" /></button></div></footer>}
+      {data && <footer className="flex flex-col gap-2 border-t border-slate-200 px-3 py-3 text-sm panel-dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-slate-600 panel-dark:text-slate-300">Mostrando {data.total === 0 ? 0 : data.offset + 1}–{Math.min(data.offset + data.rows.length, data.total)} de {data.total.toLocaleString('es-ES')}.</p><div className="flex gap-2"><button type="button" disabled={data.offset === 0 || identityBlocked} onClick={() => { closeDetail(); search.changeOffset(Math.max(0, data.offset - data.limit)); }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 panel-dark:border-slate-600 panel-dark:text-slate-100"><ChevronLeftIcon className="h-4 w-4" aria-hidden="true" />Anterior</button><button type="button" disabled={data.rows.length === 0 || data.offset + data.rows.length >= data.total || identityBlocked} onClick={() => { closeDetail(); search.changeOffset(data.offset + data.rows.length); }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 panel-dark:border-slate-600 panel-dark:text-slate-100">Ver más<ChevronRightIcon className="h-4 w-4" aria-hidden="true" /></button></div></footer>}
     </section>
 
     {tab === 'EMITIDAS' && data && <details onToggle={(event) => setHistoricOpen(event.currentTarget.open)} className="rounded-xl border border-slate-200 bg-white p-3 panel-dark:border-slate-700 panel-dark:bg-slate-900">
@@ -1048,8 +1101,8 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       </>}
     </details>}
 
-    {receipts.length > 0 && <ConciliarRecentHistory receipts={receipts} busy={mutationsBlocked} onUndo={undoReceipt} />}
-    <ConciliarConfirmationHistory activeActuationSessionId={activeActuation?.sessionId ?? null} busy={mutationsBlocked} refreshKey={confirmationHistoryRevision} onUndo={(operationId) => { if (!mutationsBlocked) void post({ action: 'deshacer', operationId, idempotencyKey: makeIdempotencyKey() }, 'deshacer confirmación'); }} onLoadError={(message) => setNotice({ tone: 'error', text: safeOutcomeMessage(message, 'No se pudieron leer las confirmaciones.') })} />
+    {receipts.length > 0 && <ConciliarRecentHistory receipts={receipts} busy={undoBlocked} onUndo={undoReceipt} />}
+    <ConciliarConfirmationHistory activeActuationSessionId={activeActuation?.sessionId ?? null} busy={undoBlocked} refreshKey={confirmationHistoryRevision} onUndo={(operationId, targetRowIds) => { if (!undoBlocked && targetRowIds.length) { operationTargetsRef.current.set(operationId, [...targetRowIds]); void post({ action: 'deshacer', operationId, idempotencyKey: makeIdempotencyKey() }, 'deshacer confirmación'); } }} onLoadError={(message) => setNotice({ tone: 'error', text: safeOutcomeMessage(message, 'No se pudieron leer las confirmaciones.') })} />
     <details onToggle={(event) => setShowInterestInvoices(event.currentTarget.open)} className="rounded-xl border border-slate-200 bg-white p-3 panel-dark:border-slate-700 panel-dark:bg-slate-900"><summary className="cursor-pointer text-sm font-semibold">Facturas bancarias de intereses de confirming</summary>{showInterestInvoices && <ConfirmingInterestInvoices />}</details>
     <p className="px-1 text-xs text-slate-500 panel-dark:text-slate-400">Las confirmaciones se hacen una vez, quedan registradas y se pueden deshacer. Pedir sólo añade la fila a la lista interna; no envía correos ni notificaciones.</p>
     {remesaConfirmation && <ConciliarRemesaConfirmationDialog confirmation={remesaConfirmation} busy={sending} onCancel={() => { if (!sending) setRemesaConfirmation(null); }} onConfirm={() => { if (!sending) { const current = remesaConfirmation; setRemesaConfirmation(null); void post(current.payload, 'confirmación de remesa revisada'); } }} />}
