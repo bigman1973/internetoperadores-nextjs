@@ -1,5 +1,6 @@
 import RootRuntimeSurface from "../components/RootRuntimeSurface";
 import { assistantPublicEnabled } from "../lib/asistente/public-flag";
+import MetricoolHead from "../components/public/MetricoolHead";
 import "./globals.css";
 
 export const metadata = {
@@ -10,6 +11,7 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="es">
+      <head><MetricoolHead /></head>
       <body className="antialiased">
         <RootRuntimeSurface assistantEnabled={assistantPublicEnabled()}>{children}</RootRuntimeSurface>
       </body>
