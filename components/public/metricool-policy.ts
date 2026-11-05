@@ -4,5 +4,7 @@ const PRIVATE_ROOTS = ['/admin', '/cliente', '/empleado', '/login', '/auth', '/a
 
 export function isMetricoolPublicPath(pathname: string | null | undefined): boolean {
   if (!pathname || !pathname.startsWith('/')) return false
+  try { pathname = decodeURIComponent(pathname).toLowerCase() } catch { return false }
+  if (pathname.includes('\\') || pathname.includes('//')) return false
   return !PRIVATE_ROOTS.some(root => pathname === root || pathname.startsWith(`${root}/`))
 }

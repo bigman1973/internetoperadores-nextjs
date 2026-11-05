@@ -15,8 +15,9 @@ function compile(relative, resolve) {
   return module.exports;
 }
 const policy = compile('components/public/metricool-policy.ts');
+const coordinator = compile('components/public/metricool-coordinator.ts');
 let pathname = '/';
-const component = compile('components/public/MetricoolHead.tsx', name => name === 'next/navigation' ? { usePathname: () => pathname } : name === './metricool-policy' ? policy : require(name)).default;
+const component = compile('components/public/MetricoolHead.tsx', name => name === 'next/navigation' ? { usePathname: () => pathname } : name === './metricool-policy' ? policy : name === './metricool-coordinator' ? coordinator : name === './MetricoolSpaObserver' ? { default: () => null } : require(name)).default;
 const literal = 'function loadScript(a){var b=document.getElementsByTagName("head")[0],c=document.createElement("script");c.type="text/javascript",c.src="https://tracker.metricool.com/resources/be.js",c.onreadystatechange=a,c.onload=a,b.appendChild(c)}loadScript(function(){beTracker.t({hash:"512fdb9b70373111e3aad7add4a1990c"})});';
 assert.equal(policy.METRICOOL_INITIAL_SNIPPET, literal);
 for (pathname of ['/', '/tarifas/empresa', '/servicios', '/politica-privacidad', '/politica-cookies']) {
