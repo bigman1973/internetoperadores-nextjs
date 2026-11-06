@@ -454,7 +454,7 @@ export class PrismaFinanceSyncRepository implements FinanceSyncRepository<Prisma
         const ids = exhausted.map((row) => row.id)
         await tx.$executeRaw`
           UPDATE finance_sync_items_p2 SET status='FINAL_ERROR'::"FinanceSyncItemStatusP2",outcome='ERROR'::"FinanceSyncOutcomeP2",
-            confirmed_at=${now},processed_at=${now},retry_at=NULL,lease_token=NULL,lease_until=NULL,last_error='RETRY_EXHAUSTED',updated_at=clock_timestamp()
+            confirmed_at=${now},processed_at=${now},retry_at=NULL,lease_token=NULL,lease_until=NULL,last_error=COALESCE(last_error,'RETRY_EXHAUSTED'),updated_at=clock_timestamp()
           WHERE id=ANY(${ids}::uuid[]) AND job_id=${current.id}::uuid AND confirmed_at IS NULL
         `
         await this.counters(tx, current.id)
@@ -489,14 +489,14 @@ export class PrismaFinanceSyncRepository implements FinanceSyncRepository<Prisma
       await tx.$executeRaw`
         UPDATE finance_sync_items_p2 SET status=${final ? 'FINAL_ERROR' : 'RETRY'}::"FinanceSyncItemStatusP2",
           outcome=${final ? 'ERROR' : null}::"FinanceSyncOutcomeP2",confirmed_at=${final ? now : null},processed_at=${final ? now : null},
-          retry_at=${final ? null : now},lease_token=NULL,lease_until=NULL,last_error=${storedError(input.safeError)},updated_at=clock_timestamp()
+          retry_at=${final ? null : now},lease_token=NULL,lease_until=NULL,last_error=${storedError(input.safeError)},last_error_detail=NULL,updated_at=clock_timestamp()
         WHERE id=${sourceItem.id}::uuid AND job_id=${current.id}::uuid AND confirmed_at IS NULL AND status='PROCESSING'::"FinanceSyncItemStatusP2"
           AND lease_token=${input.token} AND lease_until>clock_timestamp()
       `
       // A prepare failure is durable even while the item is eligible for retry.
       // A later counters refresh derives the latest remaining item failure code.
       await tx.$executeRaw`
-        UPDATE finance_sync_jobs_p2 SET last_error=${storedError(input.safeError)},updated_at=clock_timestamp()
+        UPDATE finance_sync_jobs_p2 SET last_error=${storedError(input.safeError)},last_error_detail=NULL,updated_at=clock_timestamp()
         WHERE id=${current.id}::uuid AND lease_token=${input.token}
       `
       if (final) await this.counters(tx, current.id)
