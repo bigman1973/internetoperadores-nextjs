@@ -14,6 +14,8 @@ import {
   type ManualCreateResult,
 } from './repository'
 import type { JobSummary, SyncItemRecord, SyncJobRecord, SyncOutcome, SyncSource, SyncSourceItem } from './types'
+import { syncFailureDetail, type SyncFailureDetail } from './isp-sync-errors'
+import { buildIspScope } from './isp-sync-scope'
 
 /** PostgreSQL P2 adapter. All state changes use serializable transactions. */
 const READ_LIMIT = 100
@@ -29,7 +31,7 @@ const jobColumns = Prisma.sql`
   j.actualizadas, j.errores, j.unchanged, j.cancelled,
   j.requested_by_id AS "actorId", j.recoveries,
   j.cancel_requested_at AS "cancelRequestedAt", j.lease_token AS "leaseToken",
-  j.lease_until AS "leaseUntil", j.last_error AS "lastError", j.created_at AS "createdAt",
+  j.lease_until AS "leaseUntil", j.last_error AS "lastError", j.last_error_detail AS "lastErrorDetail", j.created_at AS "createdAt",
   j.started_at AS "startedAt", j.finished_at AS "finishedAt",
   COALESCE(r.idempotency_key, CASE WHEN d.date_utc IS NOT NULL
     THEN 'daily:' || d.date_utc || ':' || j.source::text ELSE 'job:' || j.id::text END) AS "idempotencyKey",
@@ -51,7 +53,7 @@ const itemColumns = Prisma.sql`
   i.type::text AS tipo, i.source_data AS data, i.sequence, i.status::text AS status,
   i.outcome::text AS outcome, i.attempts, i.retry_at AS "retryAt",
   i.lease_token AS "leaseToken", i.lease_until AS "leaseUntil",
-  i.confirmed_at AS "confirmedAt", i.last_error AS "lastError", i.created_at AS "createdAt",
+  i.confirmed_at AS "confirmedAt", i.last_error AS "lastError", i.last_error_detail AS "lastErrorDetail", i.created_at AS "createdAt",
   i.processed_at AS "processedAt"
 `
 
@@ -84,7 +86,7 @@ function job(row: Row): SyncJobRecord {
     requestHash: String(row.requestHash), scope: asJson(row.scope), checkpoint: asJson(row.checkpoint),
     actorId: row.actorId == null ? null : num(row.actorId), attempts: 0, recoveries: num(row.recoveries),
     cancelRequestedAt: maybeDate(row.cancelRequestedAt), leaseToken: row.leaseToken == null ? null : String(row.leaseToken),
-    leaseUntil: maybeDate(row.leaseUntil), lastError: row.lastError == null ? null : String(row.lastError),
+    leaseUntil: maybeDate(row.leaseUntil), lastError: row.lastError == null ? null : String(row.lastError), lastErrorDetail: syncFailureDetail({diagnostic:row.lastErrorDetail}),
     total: row.total == null ? null : num(row.total), processed: num(row.processed), nuevas: num(row.nuevas),
     actualizadas: num(row.actualizadas), errores: num(row.errores), unchanged: num(row.unchanged),
     cancelled: num(row.cancelled), createdAt: asDate(row.createdAt), startedAt: maybeDate(row.startedAt), finishedAt: maybeDate(row.finishedAt),
@@ -98,7 +100,7 @@ function item(row: Row): SyncItemRecord {
     outcome: row.outcome == null ? null : String(row.outcome) as SyncOutcome, attempts: num(row.attempts),
     retryAt: maybeDate(row.retryAt), leaseToken: row.leaseToken == null ? null : String(row.leaseToken),
     leaseUntil: maybeDate(row.leaseUntil), confirmedAt: maybeDate(row.confirmedAt),
-    lastError: row.lastError == null ? null : String(row.lastError), createdAt: asDate(row.createdAt), processedAt: maybeDate(row.processedAt),
+    lastError: row.lastError == null ? null : String(row.lastError), lastErrorDetail: syncFailureDetail({diagnostic:row.lastErrorDetail}), createdAt: asDate(row.createdAt), processedAt: maybeDate(row.processedAt),
   }
 }
 
@@ -164,9 +166,12 @@ export class PrismaFinanceSyncRepository implements FinanceSyncRepository<Prisma
         processed=c.processed, nuevas=c.nuevas, actualizadas=c.actualizadas, errores=c.errores,
         unchanged=c.unchanged, cancelled=c.cancelled,
         -- Keep the latest durable per-item code; successful items never carry one.
-        last_error=COALESCE((SELECT i.last_error FROM finance_sync_items_p2 i
+        last_error=(SELECT i.last_error FROM finance_sync_items_p2 i
           WHERE i.job_id=${jobId}::uuid AND i.last_error IS NOT NULL
-          ORDER BY i.updated_at DESC,i.sequence DESC LIMIT 1),j.last_error),
+          ORDER BY i.updated_at DESC,i.sequence DESC LIMIT 1),
+        last_error_detail=(SELECT i.last_error_detail FROM finance_sync_items_p2 i
+          WHERE i.job_id=${jobId}::uuid AND i.last_error IS NOT NULL
+          ORDER BY i.updated_at DESC,i.sequence DESC LIMIT 1),
         updated_at=clock_timestamp()
       FROM (
         SELECT COUNT(*) FILTER (WHERE confirmed_at IS NOT NULL)::int processed,
@@ -215,10 +220,11 @@ export class PrismaFinanceSyncRepository implements FinanceSyncRepository<Prisma
       const active = await this.activeLocked(tx, input.source)
       if (active) return { kind: 'active_job', activeJob: active }
       const jobId = await this.insertJob(tx, input.source, 'MANUAL', input.actorId, input.scope)
+      const receiptScope = input.source === 'ISP' && input.requestIntent ? {scope: input.scope, requestIntent: input.requestIntent} : input.scope
       await tx.$executeRaw`
         INSERT INTO finance_sync_requests_p2 (id,source,kind,idempotency_key,request_hash,actor_id,scope,result,job_id)
         VALUES (gen_random_uuid(),${input.source}::"FinanceSyncSourceP2",'MANUAL'::"FinanceSyncRequestKindP2",${input.idempotencyKey},
-          ${input.requestHash},${input.actorId},${toJson(input.scope)}::jsonb,'CREATED'::"FinanceSyncReceiptResultP2",${jobId}::uuid)
+          ${input.requestHash},${input.actorId},${toJson(receiptScope)}::jsonb,'CREATED'::"FinanceSyncReceiptResultP2",${jobId}::uuid)
       `
       const created = await this.getJobTx(tx, jobId, true)
       if (!created) throw new Error('FINANCE_SYNC_P2_JOB_MISSING_AFTER_INSERT')
@@ -244,7 +250,7 @@ export class PrismaFinanceSyncRepository implements FinanceSyncRepository<Prisma
         return { kind: 'coalesced', job: active }
       }
       const actorId = this.options.dailyActorId ?? null
-      const jobId = await this.insertJob(tx, source, 'DAILY_UTC', actorId, {})
+      const jobId = await this.insertJob(tx, source, 'DAILY_UTC', actorId, source === 'ISP' ? buildIspScope(new Date(dateUtc+'T12:00:00Z')) : {})
       await tx.$executeRaw`
         INSERT INTO finance_sync_daily_receipts_p2 (id,date_utc,source,result,job_id)
         VALUES (gen_random_uuid(),${dateUtc},${source}::"FinanceSyncSourceP2",'CREATED'::"FinanceSyncReceiptResultP2",${jobId}::uuid)
@@ -365,15 +371,19 @@ export class PrismaFinanceSyncRepository implements FinanceSyncRepository<Prisma
     })
   }
 
-  async recordWorkerFailure(input: {jobId:string;token:string;safeError:string;maxRecoveries:number}): Promise<void> {
+  async recordWorkerFailure(input: {jobId:string;token:string;safeError:string;maxRecoveries:number;detail?:SyncFailureDetail|null}): Promise<void> {
     await this.serial(async tx => {
       await tx.$executeRaw`
-        UPDATE finance_sync_jobs_p2 SET recoveries=recoveries+1,last_error=${storedError(input.safeError)},
+        UPDATE finance_sync_jobs_p2 SET recoveries=recoveries+1,last_error=${storedError(input.safeError)},last_error_detail=${input.detail ? JSON.stringify(syncFailureDetail({diagnostic:input.detail})) : null}::jsonb,
           status=CASE WHEN recoveries+1>=${bound(input.maxRecoveries)} THEN 'FAILED'::"FinanceSyncJobStatusP2" ELSE status END,
           finished_at=CASE WHEN recoveries+1>=${bound(input.maxRecoveries)} THEN clock_timestamp() ELSE finished_at END,
           updated_at=clock_timestamp()
         WHERE id=${input.jobId}::uuid AND lease_token=${input.token}
           AND status='RUNNING'::"FinanceSyncJobStatusP2" AND cancel_requested_at IS NULL
+      `
+      await tx.$executeRaw`
+        UPDATE finance_sync_items_p2 SET last_error=${storedError(input.safeError)},last_error_detail=${input.detail ? JSON.stringify(syncFailureDetail({diagnostic:input.detail})) : null}::jsonb,updated_at=clock_timestamp()
+         WHERE job_id=${input.jobId}::uuid AND lease_token=${input.token} AND confirmed_at IS NULL AND status='PROCESSING'::"FinanceSyncItemStatusP2"
       `
     })
   }
@@ -495,7 +505,7 @@ export class PrismaFinanceSyncRepository implements FinanceSyncRepository<Prisma
   }
 
 
-  async applyClaimedItem(input: { jobId: string; itemId: string; token: string; now: Date; deadline: Date; actorId: number | null; authorizeInTx?: (tx: Prisma.TransactionClient) => Promise<void>; safeError?: string | null; apply: (tx: Prisma.TransactionClient, item: SyncSourceItem, actorId: number | null) => Promise<ApplyCallbackResult> }): Promise<AtomicApplyResult> {
+  async applyClaimedItem(input: { jobId: string; itemId: string; token: string; now: Date; deadline: Date; actorId: number | null; authorizeInTx?: (tx: Prisma.TransactionClient) => Promise<void>; safeError?: string | null; appliedSourceHash?: string | null; apply: (tx: Prisma.TransactionClient, item: SyncSourceItem, actorId: number | null) => Promise<ApplyCallbackResult> }): Promise<AtomicApplyResult> {
     try {
       return await this.serial(async (tx) => {
         // Guard locks job then item and uses PostgreSQL's live clock, not caller time.
@@ -515,7 +525,8 @@ export class PrismaFinanceSyncRepository implements FinanceSyncRepository<Prisma
         await tx.$executeRaw`
           UPDATE finance_sync_items_p2 SET outcome=${outcome}::"FinanceSyncOutcomeP2",
             status=${outcome==='ERROR' ? 'FINAL_ERROR' : 'COMPLETED'}::"FinanceSyncItemStatusP2",confirmed_at=${committedAt},processed_at=${committedAt},
-            retry_at=NULL,lease_token=NULL,lease_until=NULL,last_error=${safeOutcomeError},updated_at=clock_timestamp()
+            retry_at=NULL,lease_token=NULL,lease_until=NULL,last_error=${safeOutcomeError},last_error_detail=NULL,
+            applied_source_hash=${current.source === 'ISP' && outcome !== 'ERROR' && outcome !== 'REVISAR' && typeof input.appliedSourceHash === 'string' && /^[0-9a-f]{64}$/.test(input.appliedSourceHash) ? input.appliedSourceHash : null},updated_at=clock_timestamp()
           WHERE id=${sourceItem.id}::uuid AND job_id=${current.id}::uuid AND confirmed_at IS NULL
             AND status='PROCESSING'::"FinanceSyncItemStatusP2" AND lease_token=${input.token}
         `

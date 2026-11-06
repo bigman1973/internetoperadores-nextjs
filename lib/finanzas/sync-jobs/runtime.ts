@@ -48,9 +48,9 @@ export function createProviderFactory(input: {
   const mode = runtimeMode(input.env)
   if (mode === 'production') {
     if (!input.productionFactory) throw new Error('FINANCE_PROVIDER_FACTORY_MISSING')
-    return (source) => {
+    return (source, context) => {
       assertSourceEnabled(input.env, source)
-      return input.productionFactory!(source)
+      return input.productionFactory!(source, context)
     }
   }
   if (mode === 'staging') {

@@ -30,6 +30,8 @@ import { OneDriveSyncProvider } from './providers/onedrive/provider'
 import { createPrismaOneDriveDomain } from './providers/onedrive/prisma-domain'
 import { SyncProviderError } from './providers/onedrive/types'
 import { createIspIssuedInvoiceProvider } from './providers/isp/isp-issued-invoice-provider'
+import { filterIspChangedItems } from './isp-sync-delta'
+import { buildIspScope, normalizeIspJobScope, parseIspSyncIntent, type IspSyncIntent } from './isp-sync-scope'
 import { extraerDatosFactura } from '@/lib/finanzas/ocr-facturas'
 import { validarResultadoOcrNuevo } from '@/lib/finanzas/invoice-quality'
 import { scheduleConciliarProjectionRefresh } from '@/lib/finanzas/conciliar-refresh'
@@ -152,7 +154,7 @@ export function createProductionOneDriveProvider(client: PrismaClient, env: Env 
 }
 
 /** Production-only ISP construction. The provider permits only GET facturacion. */
-export function createProductionIspProvider(env: Env = process.env): SyncProvider {
+export function createProductionIspProvider(env: Env = process.env, client: PrismaClient = prisma, context?: Parameters<SyncProviderFactory>[1]): SyncProvider {
   if (
     env.VERCEL_ENV !== 'production' ||
     env.FINANCE_BACKGROUND_SYNC_ENABLED !== '1' ||
@@ -160,6 +162,8 @@ export function createProductionIspProvider(env: Env = process.env): SyncProvide
   ) throw new Error('FINANCE_ISP_SYNC_DISABLED')
 
   return createIspIssuedInvoiceProvider({
+    scope: context ? normalizeIspJobScope(context) : buildIspScope(new Date()),
+    filterChanged: (items) => filterIspChangedItems(client, items),
     // `createIspIssuedInvoiceProvider` fixes endpoint/method/payload/limit in its
     // typed contract; this is the project's already-demonstrated request adapter,
     // not its legacy batch/remittance synchronizer.
@@ -170,14 +174,14 @@ export function createProductionIspProvider(env: Env = process.env): SyncProvide
 }
 
 function productionProviders(client: PrismaClient, env: Env, trusted: ProviderBuilders): SyncProviderFactory {
-  return (source) => {
+  return (source, context) => {
     // Overrides are reachable only through a direct server-side constructor
     // argument. No route reads providers, flags, scopes, or fixtures from a request.
     const injected = trusted[source]
     if (injected) return injected()
     return source === 'ONEDRIVE'
       ? createProductionOneDriveProvider(client, env)
-      : createProductionIspProvider(env)
+      : createProductionIspProvider(env, client, context)
   }
 }
 
@@ -189,7 +193,7 @@ function productionProviders(client: PrismaClient, env: Env, trusted: ProviderBu
  * still decide whether actor-null work is permissible.
  */
 export async function authorizeP2ActorInTx(
-  input: { actorId: number | null; source: SyncSource; operation: 'create' | 'cancel' | 'apply' },
+  input: { actorId: number | null; source: SyncSource; operation: 'create' | 'cancel' | 'apply'; scope?: Prisma.InputJsonValue; trigger?: string },
   tx: Tx,
 ): Promise<void> {
   if (input.actorId === null) {
@@ -200,6 +204,9 @@ export async function authorizeP2ActorInTx(
     select: { id: true, activo: true, rol: true },
   })
   if (!actor?.activo) throw new Error('SYNC_ACTOR_INACTIVE')
+  if (input.source === 'ISP' && input.scope && typeof input.scope === 'object' && !Array.isArray(input.scope) && (input.scope as Record<string,unknown>).mode === 'YEAR') {
+    if (input.trigger !== 'MANUAL' || actor.rol !== 'SUPER_ADMIN') throw new Error('ISP_YEAR_ADMIN_REQUIRED')
+  }
   const permission = await verificarPermisoServer(actor.id, P2_AREAS[input.source], actor.rol, tx)
   if (!permission.escritura) throw new Error('SYNC_PERMISSION_REVOKED')
 }
@@ -212,7 +219,7 @@ export async function authorizeP2ActorInTx(
  */
 function createP2TransactionAuthorizer(systemActorId?: number) {
   return async (
-    input: { actorId: number | null; source: SyncSource; operation: 'create' | 'cancel' | 'apply' },
+    input: { actorId: number | null; source: SyncSource; operation: 'create' | 'cancel' | 'apply'; scope?: Prisma.InputJsonValue; trigger?: string },
     tx: Tx,
   ) => {
     await authorizeP2ActorInTx(input, tx)
@@ -339,6 +346,7 @@ async function p2RouteAvailable(): Promise<boolean> {
 
 type RouteAccess = {
   actorId: number
+  annualAdmin: boolean
   canRead(source: SyncSource): Promise<boolean>
   canWrite(source: SyncSource): Promise<boolean>
 }
@@ -348,10 +356,11 @@ async function sessionAccess(): Promise<RouteAccess | null> {
   const session = await getServerSession(authOptions)
   const actorId = Number(session?.user?.id)
   if (session?.user?.userType !== 'admin' || !Number.isSafeInteger(actorId) || actorId <= 0) return null
-  const actor = await prisma.usuarioAdmin.findUnique({ where: { id: actorId }, select: { activo: true } })
+  const actor = await prisma.usuarioAdmin.findUnique({ where: { id: actorId }, select: { activo: true, rol: true } })
   if (!actor?.activo) return null
   return {
     actorId,
+    annualAdmin: actor.rol === 'SUPER_ADMIN',
     canRead: async (source) => !(await checkAdminAreaRead(P2_AREAS[source], LEGACY_P2_ROLES, session)),
     canWrite: async (source) => !(await checkAdminAreaWrite(P2_AREAS[source], LEGACY_P2_ROLES, session)),
   }
@@ -396,10 +405,11 @@ export function financeSyncJobsRoute() {
         if (!await access.canRead(requested)) return privateJson({ error: 'FORBIDDEN' }, 403)
         if (!await p2RouteAvailable()) return privateJson({ error: 'SYNC_DISABLED' }, 503)
         const runtime = await createP2RouteRuntime()
-        return privateJson(await runtime.service.dashboard(requested, {
+        const state = await runtime.service.dashboard(requested, {
           enabled: runtime.sourceEnabled(requested),
           canWrite: await access.canWrite(requested),
-        }))
+        })
+        return privateJson({ ...state, ...(requested === 'ISP' ? {canAnnual: access.annualAdmin && state.canWrite} : {}) })
       } catch (cause) { return apiError(cause) }
     },
 
@@ -414,13 +424,21 @@ export function financeSyncJobsRoute() {
         // backwards-compatible UI shape, but server-verified configuration is the
         // sole scope used in the idempotency hash and persisted job.
         if (
-          !hasOnlyKeys(body, ['source', 'idempotencyKey', 'scope']) ||
+          !hasOnlyKeys(body, ['source', 'idempotencyKey', 'scope', 'mode', 'year', 'confirmed']) ||
           !requested || typeof body.idempotencyKey !== 'string' ||
           (Object.prototype.hasOwnProperty.call(body, 'scope') && !isPlainEmptyObject(body.scope))
         ) return privateJson({ error: 'INVALID_REQUEST' }, 400)
+        if (requested === 'ONEDRIVE' && ['mode','year','confirmed'].some(key => Object.prototype.hasOwnProperty.call(body,key))) return privateJson({error:'INVALID_REQUEST'},400)
+        const now = new Date()
+        let intent: IspSyncIntent | null = null
+        if (requested === 'ISP') {
+          try { intent = parseIspSyncIntent(Object.fromEntries(['mode','year','confirmed'].filter(key=>Object.prototype.hasOwnProperty.call(body,key)).map(key=>[key,body[key]])),now) }
+          catch { return privateJson({error:'INVALID_ISP_SYNC_INTENT'},400) }
+        }
         const access = await sessionAccess()
         if (!access) return privateJson({ error: 'UNAUTHORIZED' }, 401)
         if (!await access.canWrite(requested)) return privateJson({ error: 'FORBIDDEN', area: P2_AREAS[requested] }, 403)
+        if (intent?.mode === 'YEAR' && !access.annualAdmin) return privateJson({error:'ISP_YEAR_ADMIN_REQUIRED'},403)
         if (!await p2RouteAvailable()) return privateJson({ error: 'SYNC_DISABLED' }, 503)
         const runtime = await createP2RouteRuntime()
         if (!runtime.sourceEnabled(requested)) return privateJson({ error: 'SYNC_DISABLED' }, 503)
@@ -428,7 +446,8 @@ export function financeSyncJobsRoute() {
           actorId: access.actorId,
           source: requested,
           idempotencyKey: body.idempotencyKey,
-          scope: {},
+          scope: intent ? buildIspScope(now, intent.mode === 'YEAR' ? intent.year : undefined) : {},
+          ...(intent ? {requestIntent: intent} : {}),
         })
         return privateJson({ job: created.job, replay: created.replay }, 202)
       } catch (cause) { return apiError(cause) }
@@ -473,7 +492,7 @@ export function financeSyncWorkerCronRoute() {
       const systemActorId = await requireProductionSystemActor()
       const runtime = await createP2RouteRuntime({ systemActorId })
       if (!runtime.productionBackgroundEnabled()) return privateJson({ error: 'SYNC_DISABLED' }, 503)
-      const result = await runtime.service.runBudgetedWorker({ budgetMs: 220_000, itemLimit: 80, inventoryPageLimit: 16 })
+      const result = await runtime.service.runBudgetedWorker({ budgetMs: 220_000, itemLimit: 80, ispItemLimit: 500, inventoryPageLimit: 16 })
       imported = result.appliedItems > 0
       return privateJson(result)
     } catch {
