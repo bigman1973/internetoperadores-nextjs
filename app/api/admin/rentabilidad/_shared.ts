@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { RentabilidadError, monthSchema, INITIAL_PRODUCTS } from '@/lib/rentabilidad/types';
 import { getRentabilidadReport } from '@/lib/rentabilidad/report';
-import { ispAvailability } from '@/lib/rentabilidad/isp';
+import { rentabilidadAutomationStatus } from '@/lib/rentabilidad/status';
 
 export const headers = { 'Cache-Control': 'private, no-store, max-age=0', 'X-Content-Type-Options': 'nosniff' };
 export const reply = (data: unknown, status = 200) => NextResponse.json(data, { status, headers });
@@ -88,8 +88,7 @@ export function decorateReport(report: any) {
   return {
     ...report,
     productCatalog: report.productCatalog ?? INITIAL_PRODUCTS,
-    syncStatus: { isp: ispAvailability(), scheduled: false, environment: process.env.VERCEL_ENV ?? 'staging',
-      reason: 'Las sincronizaciones programadas no están activas en Vercel preview. La API avanzada de contratos ISP está bloqueada (403).' },
+    syncStatus: report.syncStatus ?? rentabilidadAutomationStatus(report.runs ?? []),
   };
 }
 export function assertProduct(productoId: string) {

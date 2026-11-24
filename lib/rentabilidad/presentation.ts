@@ -2,7 +2,7 @@
  * Each contract is retained exactly once under its client, with all cost sources.
  * Monthly matrix sources duplicate the selected-product drilldown and are omitted.
  */
-export function compactReportPresentation<T extends Record<string, any>>(report: T): T {
+export function compactReportPresentation<T extends Record<string, any>>(report: T): Omit<T, 'contracts'> & { monthly: any[] } {
   const { contracts: _duplicatedContracts, ...rest } = report;
   const monthly = (report.monthly || []).map((month: any) => ({
     ...month,
@@ -11,5 +11,5 @@ export function compactReportPresentation<T extends Record<string, any>>(report:
       return metrics;
     }),
   }));
-  return { ...rest, monthly } as T;
+  return { ...rest, monthly };
 }

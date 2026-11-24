@@ -1,7 +1,7 @@
 import { requireRentabilidadPage } from '@/lib/rentabilidad/auth';
 import { getRentabilidadReport } from '@/lib/rentabilidad/report';
 import { INITIAL_PRODUCTS } from '@/lib/rentabilidad/types';
-import { ispAvailability } from '@/lib/rentabilidad/isp';
+import { rentabilidadAutomationStatus } from '@/lib/rentabilidad/status';
 import RentabilidadClient from './RentabilidadClient';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -12,8 +12,7 @@ export default async function RentabilidadPage({ searchParams }: { searchParams:
   const mode = params.mode === 'contratado' ? 'contratado' : 'real';
   const report = await getRentabilidadReport(month, mode);
   const initialReport = { ...report, productCatalog: report.productCatalog ?? INITIAL_PRODUCTS,
-    syncStatus: { isp: ispAvailability(), scheduled: false, environment: process.env.VERCEL_ENV ?? 'staging',
-      reason: 'Las sincronizaciones programadas no están activas en Vercel preview. La API avanzada de contratos ISP está bloqueada (403).' },
+    syncStatus: report.syncStatus ?? rentabilidadAutomationStatus(report.runs ?? []),
   };
   return <RentabilidadClient initialReport={initialReport} />;
 }

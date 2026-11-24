@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
     const result = await rebuildRentabilidadReport(input.month, auth.userId, input.kind);
     const live = await getRentabilidadReport(input.month);
     return reply(decorateReport(compactReportPresentation(applyReportMode({ ...result, runs: live.runs, snapshots: live.snapshots,
-      ruleHistory: live.ruleHistory, externalCostHistory: live.externalCostHistory, resolvedExceptions: live.resolvedExceptions,
+      ruleHistory: live.ruleHistory, externalCostHistory: live.externalCostHistory, resolvedExceptions: live.resolvedExceptions, syncStatus: live.syncStatus,
     }, input.mode))));
   } catch (error) { return failure(error); }
 }

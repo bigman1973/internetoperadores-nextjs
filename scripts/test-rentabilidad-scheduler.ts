@@ -80,3 +80,12 @@ test('completado y provisional preservan metadatos, no datos de factura', async 
     assert.equal(result.code, 0); assert.equal(result.logs[0].includes('NOT-TO-LOG'), false);
   }
 });
+
+test('API y SSR conservan el estado vivo, sin el decorador estático antiguo', async () => {
+  const { decorateReport } = await import('../app/api/admin/rentabilidad/_shared');
+  const syncStatus = rentabilidadAutomationStatus([], env);
+  assert.deepEqual(decorateReport({ runs: [], syncStatus }).syncStatus, syncStatus);
+  const page = readFileSync(new URL('../app/admin/rentabilidad/page.tsx', import.meta.url), 'utf8');
+  assert.ok(page.includes('syncStatus: report.syncStatus ?? rentabilidadAutomationStatus(report.runs ?? [])'));
+  assert.equal(page.includes('scheduled: false'), false);
+});

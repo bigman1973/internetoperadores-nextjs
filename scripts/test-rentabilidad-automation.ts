@@ -32,6 +32,7 @@ test('aprobación explícita precede cualquier lectura y bloqueos reales registr
  let reads=0;const runs:any[]=[];
  const dependencies={env:lineEnv,lines:async()=>{reads++;throw Error('must not read')},append:async(row:any)=>{runs.push(row);return {} as any}};
  const blocked=await synchronizeRentabilidad(1,{...dependencies,env:{...lineEnv,RENTABILIDAD_SYNC_APPROVED:'0'}});
+ assert.ok('reason' in blocked);
  assert.equal(blocked.reason,'SYNC_EXPLICIT_APPROVAL_REQUIRED');assert.equal(reads,0);
  const unavailable=await synchronizeRentabilidad(1,{...dependencies,env:{...env,RENTABILIDAD_SYNC_APPROVED:'1'}});
  assert.equal(unavailable.estado,'BLOQUEADO');assert.equal(unavailable.rows,0);assert.equal(reads,0);assert.equal(runs.length,2);
