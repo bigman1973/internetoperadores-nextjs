@@ -52,8 +52,10 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
     key: 'crm', areaCode: 'admin.crm', group: 'Comercial',
     surfaces: [
       { path: '/admin/crm', kind: 'page' },
+      { path: '/admin/crm/hubspot-historial', kind: 'page' },
       { path: '/admin/crm/pipelines', kind: 'page' },
       { path: '/api/admin/crm/brevo/estado', kind: 'api' },
+      { path: '/api/admin/crm/hubspot/historial', kind: 'api' },
       { path: '/api/admin/crm/leads/[tipo]/[id]', kind: 'api' },
       { path: '/api/admin/crm/negocios/sync', kind: 'api' },
       { path: '/api/admin/crm/pipelines', kind: 'api' },

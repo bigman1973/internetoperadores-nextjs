@@ -3802,6 +3802,7 @@ model CrmRegistroHubspot {
   ispClientesArea1     IspClienteArea1[]
   negociosArea1        Area1CrmNegocio[]
 
+  consentimientosArea1 Area1CrmConsentimiento[]
   @@unique([objectTypeId, hubspotId])
   @@index([email])
   @@index([clienteWebId])
@@ -6196,4 +6197,25 @@ model Area1CrmNegocioMovimiento {
   negocio      Area1CrmNegocio @relation(fields: [negocioId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   @@index([negocioId, createdAt], map: "area1_crm_negocio_movimientos_negocio_idx")
   @@map("area1_crm_negocio_movimientos")
+}
+
+// Área 1: consentimiento y estado de suscripción por contacto (fuente HUBSPOT o BREVO).
+model Area1CrmConsentimiento {
+  id          String             @id
+  contactoId  String             @map("contacto_id")
+  canal       String             @default("EMAIL")
+  fuente      String
+  estado      String
+  baseLegal   String?            @map("base_legal")
+  bajasTipos  String[]           @default([]) @map("bajas_tipos")
+  rebote      Boolean            @default(false)
+  marketing   Boolean?
+  fechaOrigen DateTime?          @map("fecha_origen")
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @default(now()) @updatedAt @map("updated_at")
+  contacto    CrmRegistroHubspot @relation(fields: [contactoId], references: [id], onDelete: Cascade)
+
+  @@unique([contactoId, canal, fuente])
+  @@index([estado])
+  @@map("area1_crm_consentimientos")
 }
