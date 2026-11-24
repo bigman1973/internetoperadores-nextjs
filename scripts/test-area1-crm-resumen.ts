@@ -77,7 +77,19 @@ t('la página no contiene cifras de ejemplo de la maqueta ni la etiqueta «ejemp
 t('el CSS está todo acotado a .io-ui.area1-resumen', () => {
   const css = readFileSync('app/admin/crm/area1-resumen.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
   const sels = [...css.matchAll(/(^|\}|\{)\s*([^{}@][^{}]*)\{/g)].map((m) => m[2].trim()).filter((s) => !s.startsWith('@'))
-  assert.ok(sels.length > 100)
+  assert.ok(sels.length > 20)
   for (const s of sels) for (const p of s.split(',')) assert.ok(p.trim().startsWith('.io-ui.area1-resumen'), p)
 })
-console.log(`\n${ok}/13 ok`)
+t('sin reglas repetidas de components/io-ui y con la raíz del kit', () => {
+  const norm = (x: string) => x.replace(/\s+/g, '').replace(/"/g, "'")
+  const io = readFileSync('components/io-ui/io-ui.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+  const base = new Set([...io.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => norm(m[1]) + '{' + norm(m[2])))
+  const css = readFileSync('app/admin/crm/area1-resumen.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+  for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    if (m[1].trim().startsWith('@')) continue
+    assert.ok(!base.has(norm(m[1].replace(/\.io-ui\.area1-resumen/g, '.io-ui')) + '{' + norm(m[2])), m[1])
+  }
+  const page = readFileSync('app/admin/crm/page.tsx', 'utf8')
+  assert.ok(page.includes("import '@/components/io-ui/io-ui.css'") && page.includes('io-ui area1-resumen ${ioFontClasses}') && !page.includes('fonts.googleapis.com'))
+})
+console.log(`\n${ok}/14 ok`)

@@ -5,6 +5,8 @@ import prisma from '../../../lib/prisma'
 import { cargarResumenCrm, fmtEur } from '../../../lib/area1-crm-resumen'
 import { nivelDe, resolverVista, type NivelResumen } from '../../../lib/area1-crm-resumen-vista'
 import { AlcanceSeg, TareaHecho, VerComo } from './ResumenControles'
+import '@/components/io-ui/io-ui.css'
+import { ioFontClasses } from '@/components/io-ui/fonts'
 import './area1-resumen.css'
 
 export const dynamic = 'force-dynamic'
@@ -68,10 +70,9 @@ export default async function CrmPage({ searchParams }: { searchParams: Promise<
     ...usuarios.map((u) => ({ id: u.id, etiqueta: `Ver como: ${u.nombre} (${NIVEL_TXT[nivelDe(u.rol, u.roles)]})` })),
   ]
 
+  // Misma raíz que <IoShell> (io-ui + fuentes de next/font) con la clase propia del Resumen
   return (
-    <div className="io-ui area1-resumen">
-      <link rel="preconnect" href="https://fonts.googleapis.com" />
-      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@500;700&family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" />
+    <div className={`io-ui area1-resumen ${ioFontClasses}`}>
       <header className="top">
         <div className="wrap">
           <div className="bar">

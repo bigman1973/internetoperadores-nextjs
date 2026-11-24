@@ -40,10 +40,50 @@ def walk(block):
         i=k+1
     return '\n'.join(res)
 out=walk(css)
+
+# Quitar lo que ya da components/io-ui/io-ui.css (misma regla con .io-ui en lugar de .io-ui.area1-resumen).
+import os
+def norm(x): return re.sub(r'\s+','',x).replace('"',"'")
+def reglas(block, media=''):
+    res=[];i=0
+    while i<len(block):
+        j=block.find('{',i)
+        if j<0: break
+        head=block[i:j].strip();d=0;k=j
+        while True:
+            if block[k]=='{': d+=1
+            elif block[k]=='}':
+                d-=1
+                if d==0: break
+            k+=1
+        body=block[j+1:k]
+        if head.startswith('@media'): res+=reglas(body, norm(head))
+        else: res.append((media, head, body))
+        i=k+1
+    return res
+IOUI=os.path.join(os.path.dirname(__file__),'..','components','io-ui','io-ui.css')
+quitadas=0
+if os.path.exists(IOUI):
+    base=re.sub(r'/\*.*?\*/','',open(IOUI).read(),flags=re.S)
+    conocidas={(m,norm(h),norm(b)) for m,h,b in reglas(base)}
+    def filtra(block):
+        global quitadas
+        res=[]
+        for m,h,b in reglas(block):
+            if (m,norm(h.replace(R,'.io-ui')),norm(b)) in conocidas: quitadas+=1; continue
+            res.append((m,h,b))
+        return res
+    propias=filtra(out)
+    top=[f'{h}{{{b}}}' for m,h,b in propias if not m]
+    medias={}
+    for m,h,b in propias:
+        if m: medias.setdefault(m,[]).append(f'{h}{{{b}}}')
+    out='\n'.join(top+[f'{m}{{{"".join(v)}}}' for m,v in medias.items()])
 hdr="""/* Área 1 · Resumen del CRM. CSS copiado literal de maqueta_crm_resumen_aprobada.html (aprobada por Víctor),
    con todos los selectores bajo .io-ui.area1-resumen. Generado con: python3 scripts/area1-resumen-css.py app/admin/crm/area1-resumen.css (lee la maqueta); no editar a mano.
-   Cuando la integradora publique components/io-ui (io-ui.css), se quitan de aquí las reglas repetidas
-   y quedan solo las propias del Resumen (.g2, .g3, .item, .due, .pipe, .prow, .pbar, .stages, .q, .seg3, .ex, .searchbig, .subnav).
+   Las reglas idénticas a components/io-ui/io-ui.css se quitan al generar: aquí quedan solo las propias
+   del Resumen o las que la maqueta define distinto (p. ej. .g2, .g3, .item, .due, .pipe, .prow, .pbar, .stages, .q, .seg3, .ex, .searchbig, .subnav).
    Cambios respecto a la maqueta: sin modo oscuro automático (el panel es claro) y sin body::before. */
 """
 open(sys.argv[1],'w').write(hdr+out+"\n")
+print(f"reglas quitadas por repetidas con io-ui.css: {quitadas}")
