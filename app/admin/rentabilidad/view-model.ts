@@ -9,25 +9,57 @@ export function numeric(value: unknown): number | null {
 }
 export const isPending = (row: Row) => row.pending === true || row.pendingCost === true || row.status === 'PENDIENTE' || row.estado === 'PENDIENTE';
 export const isEstimated = (row: Row) => row.status === 'ESTIMADO' || row.estado === 'ESTIMADO';
-export function amount(row: Row, field: 'income' | 'cost' | 'margin' | 'marginPct', mode: Mode): number | null {
+const r2 = (n: number) => Math.round(n * 100) / 100;
+/** Coste estimado del periodo (nunca real). */
+export const estimatedOf = (row: Row): number => numeric(row.rawEstimatedCost ?? row.estimatedCost) ?? 0;
+export const hasEstimate = (row: Row) => isEstimated(row) || estimatedOf(row) > 0;
+/** Sin ningún coste conocido (ni real ni estimado) y pendiente: el margen sería ingreso puro, no se muestra como margen. */
+export const noKnownCost = (row: Row) => (numeric(row.rawCost ?? row.cost) ?? 0) === 0 && estimatedOf(row) === 0 && isPending(row);
+/** Calidad del coste: porcentaje del coste conocido que es real (factura, nómina o regla firmada). */
+export function costQuality(row: Row): number | null {
+  const real = numeric(row.rawCost ?? row.cost) ?? 0, total = real + estimatedOf(row);
+  return total > 0 ? Math.round(1000 * real / total) / 10 : null;
+}
+export function amount(row: Row, field: 'income' | 'cost' | 'costTotal' | 'margin' | 'marginPct', mode: Mode): number | null {
   const income = numeric(row.income);
   if (field === 'income') return income;
-  if (isPending(row) || isEstimated(row) || mode === 'real' && Number(row.estimatedCost) > 0) return null;
+  if (mode === 'contratado') {
+    if (isPending(row) || isEstimated(row)) return null;
+    if (field === 'cost' || field === 'costTotal') return numeric(row.cost);
+    if (income === null || numeric(row.cost) === null) return null;
+    return numeric(row[field]);
+  }
+  // Modo real: el coste real y el estimado se ven siempre; el estado es un indicador de calidad, no un motivo para ocultar cifras.
+  const cost = numeric(row.rawCost ?? row.cost);
+  if (cost === null) return null;
   if (field === 'cost') return numeric(row.cost);
-  if (income === null || numeric(row.cost) === null) return null;
-  // Margins are calculated before presentation rounding by the financial engine.
-  return numeric(row[field]);
+  const total = cost + estimatedOf(row);
+  if (field === 'costTotal') return r2(total);
+  const rawIncome = numeric(row.rawIncome) ?? income;
+  if (rawIncome === null || noKnownCost(row)) return null;
+  const margin = rawIncome - total;
+  if (field === 'margin') return r2(margin);
+  return rawIncome ? r2(100 * margin / rawIncome) : null;
+}
+export function rowStatus(row: Row, mode: Mode): string {
+  if (mode === 'contratado') return isPending(row) ? 'PENDIENTE' : 'CONTRATADO';
+  if (noKnownCost(row)) return 'SIN COSTE';
+  if (hasEstimate(row)) return 'ESTIMADO';
+  return isPending(row) ? 'PENDIENTE' : 'REAL';
 }
 export function financialColumns(mode: Mode): Column[] {
+  const real = mode === 'real';
   return [
-    { key: 'income', label: mode === 'real' ? 'Ingreso facturado' : 'Ingreso contratado', kind: 'money', value: row => amount(row, 'income', mode) },
-    { key: 'otherIncome', label: mode === 'real' ? 'Ingreso contratado' : 'Ingreso real (contraste)', kind: 'money', value: row => numeric(mode === 'real' ? row.rawContractedIncome ?? row.contractedIncome : row.actualIncome) },
-    { key: 'cost', label: mode === 'real' ? 'Coste real completo' : 'Coste proveedor firmado', kind: 'money', value: row => amount(row, 'cost', mode) },
-    { key: 'otherCost', label: mode === 'real' ? 'Coste proveedor firmado' : 'Coste real (contraste)', kind: 'money', value: row => mode === 'real' ? row.contractedCostPending ? null : numeric(row.contractedCost) : row.actualPending ? null : numeric(row.actualCost) },
+    { key: 'income', label: real ? 'Ingreso facturado' : 'Ingreso contratado', kind: 'money', value: row => amount(row, 'income', mode) },
+    { key: 'otherIncome', label: real ? 'Ingreso contratado' : 'Ingreso real (contraste)', kind: 'money', value: row => numeric(real ? row.rawContractedIncome ?? row.contractedIncome : row.actualIncome) },
+    { key: 'cost', label: real ? 'Coste real (facturas)' : 'Coste proveedor firmado', kind: 'money', value: row => amount(row, 'cost', mode) },
+    { key: 'otherCost', label: real ? 'Coste proveedor firmado' : 'Coste real (contraste)', kind: 'money', value: row => real ? row.contractedCostPending ? null : numeric(row.contractedCost) : row.actualPending ? null : numeric(row.actualCost) },
     { key: 'estimatedCost', label: 'Coste estimado (no real)', kind: 'money', estimated: () => true },
-    { key: 'margin', label: 'Margen verificable', kind: 'money', value: row => amount(row, 'margin', mode) },
-    { key: 'marginPct', label: 'Margen %', kind: 'percent', value: row => amount(row, 'marginPct', mode) },
-    { key: 'status', label: 'Estado', kind: 'status', value: row => isPending(row) ? 'PENDIENTE' : isEstimated(row) || mode === 'real' && Number(row.estimatedCost) > 0 ? 'ESTIMADO' : mode === 'contratado' ? 'CONTRATADO' : 'REAL' },
+    ...(real ? [{ key: 'costTotal', label: 'Coste total (real + estimado)', kind: 'money' as const, value: (row: Row) => amount(row, 'costTotal', mode), estimated: (row: Row) => hasEstimate(row) }] : []),
+    { key: 'margin', label: real ? 'Margen (con estimado)' : 'Margen verificable', kind: 'money', value: row => amount(row, 'margin', mode), estimated: (row: Row) => real && hasEstimate(row) },
+    { key: 'marginPct', label: 'Margen %', kind: 'percent', value: row => amount(row, 'marginPct', mode), estimated: (row: Row) => real && hasEstimate(row) },
+    ...(real ? [{ key: 'quality', label: 'Calidad (% coste real)', kind: 'percent' as const, value: (row: Row) => costQuality(row) }] : []),
+    { key: 'status', label: 'Estado', kind: 'status', value: row => rowStatus(row, mode) },
   ];
 }
 export const euro = (value: unknown) => { const n = numeric(value); return n === null ? '—' : new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n); };

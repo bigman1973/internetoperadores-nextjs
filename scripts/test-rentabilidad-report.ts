@@ -3,7 +3,7 @@ import test from 'node:test';
 import { calculateReport } from '../lib/rentabilidad/report';
 import { serviceMonths, imputeInvoices } from '../lib/rentabilidad/engine';
 import { INITIAL_COST_RULES } from '../lib/rentabilidad/defaults';
-import { amount } from '../app/admin/rentabilidad/view-model';
+import { amount, rowStatus } from '../app/admin/rentabilidad/view-model';
 const base=()=>({contracts:[{contractCode:'1',clientCode:'A',clientName:'Cliente de prueba',provider:'Aire Networks',tariff:'CANARIO',price:'60',discount:'-10',periodMonths:1,active:true,startDate:'2026-01-01',source:'LORENA'}],lines:[{contractCode:'1',clientCode:'A',date:'2026-10-01',concept:'Cuota',baseAmount:'55',month:'2026-10'}],costs:[],rules:INITIAL_COST_RULES,references:[],decisions:[]});
 const result=(input:any,extra:any={})=>calculateReport(input,'2026-10','real',extra);
 test('cuatro decimales se suman antes del redondeo',()=>{const i=base();i.lines=[{...i.lines[0],baseAmount:'0.0049'},{...i.lines[0],concept:'otra',baseAmount:'0.0049'}];assert.equal(result(i).products.find((p:any)=>p.product==='Aire Networks').income,0.01);});
@@ -181,7 +181,7 @@ test('R5 componente estimado existente no se añade otra vez desde su histórico
 
 test('R5 piezas históricas anónimas parcialmente observadas no acreditan coste completo ni estimación inventada',()=>{
   const i:any=base();i.costs=[{...syntheticCost('Aire Networks','2026-09',10),product:'Aire Networks',source:'SYNTH-P1'},{...syntheticCost('Aire Networks','2026-09',20),product:'Aire Networks',source:'SYNTH-P2'},{...syntheticCost('Aire Networks','2026-10',10),product:'Aire Networks'}];
-  const r=result(i),p=product(r,'Aire Networks');assert.equal(p.pending,true);assert.equal(p.estimatedCost,0);assert.equal(amount(p,'margin','real'),null);assert.equal(r.clients[0].pending,true);
+  const r=result(i),p=product(r,'Aire Networks');assert.equal(p.pending,true);assert.equal(p.estimatedCost,0);assert.notEqual(amount(p,'margin','real'),null);assert.equal(rowStatus(p,'real'),'PENDIENTE');assert.equal(r.clients[0].pending,true);
 });
 test('porcentaje de previsión usa precisión original y queda nulo cuando la cobertura está pendiente',()=>{
   const i=noSupplierIncome();Object.assign(i.contracts[0],{price:0.0149,discount:0});i.costs=[{month:'2026-12',product:'Servicios IO sin coste de proveedor',provider:'IO',amount:0.0049,status:'REAL',payer:'IO',source:'SYNTH-DEC'}];

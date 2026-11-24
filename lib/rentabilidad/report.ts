@@ -47,6 +47,29 @@ function draxtonTelecoInForce(ggcc:any[],month:string){
 function supplierContracts(g:any,month:string){return (g.contratosProveedor||[]).filter((p:any)=>p.estado==='Activo'&&activeInMonth({startDate:p.fechaInicioServicio||p.fechaInicio,endDate:p.fechaFin,active:true},month));}
 const costActive=(c:any,m:string)=>activeInMonth({startDate:c.startDate||c.fechaAlta||c.fechaInicio,endDate:c.endDate||c.fechaBaja||c.fechaFin,active:c.active??c.activo},m);
 const recurringCost=(c:any)=>c.recurring!==false&&c.recurrent!==false&&c.nonRecurrent!==true&&!/\b(one off|puntual|instalacion|setup|alta unica)\b/.test(normalize(c.description));
+/** Estimación de hueco: si el mes trae menos factura REAL que la referencia reciente de su proveedor, estima solo la diferencia (siempre ESTIMADO, nunca real). */
+function shortfallEstimates(product:string,month:string,costs:any[],rules:any[],invoices:Map<string,any>,existing:any[]):any[] {
+  const fam=(c:any)=>{const inv=invoices.get(String(c.sourceId)),rule=inv?invoiceRule(inv,rules):null;return rule?{key:normalize(rule.provider),name:String(rule.provider)}:null;};
+  const from=shiftMonth(month,-6),by=new Map<string,{name:string;months:Map<string,number>;now:number;est:number}>();
+  const bucket=(f:{key:string;name:string})=>{let b=by.get(f.key);if(!b){b={name:f.name,months:new Map(),now:0,est:0};by.set(f.key,b);}return b;};
+  for(const c of costs){
+    if(c.product!==product||c.status!=='REAL'||!String(c.source||'').startsWith('factura:')||!recurringCost(c)||c.nonRecurrent===true||c.periodBasis!=='INVOICE_MONTH')continue;
+    const f=fam(c);if(!f)continue;const b=bucket(f);
+    if(c.month===month)b.now+=c.amount;else if(c.month<month&&c.month>=from)b.months.set(c.month,(b.months.get(c.month)||0)+c.amount);
+  }
+  for(const c of existing){if(c.product!==product)continue;const f=fam(c);if(f)bucket(f).est+=c.amount;}
+  const out:any[]=[];
+  for(const b of by.values()){
+    const all=Array.from({length:6},(_,i)=>b.months.get(shiftMonth(month,-6+i))||0),positive=all.filter(v=>v>0);
+    if(positive.length<2)continue;
+    const max=Math.max(...positive),solid=positive.filter(v=>v>=max*0.1).sort((x,y)=>x-y);
+    const stable=solid.length>=3&&solid[solid.length-1]/solid[0]<=4;
+    const ref=stable?(solid.length%2?solid[(solid.length-1)/2]:(solid[solid.length/2-1]+solid[solid.length/2])/2):all.reduce((t,v)=>t+v,0)/6;
+    const gap=ref-b.now-b.est;
+    if(gap>Math.max(1,ref*0.2))out.push({month,product,provider:b.name,status:'ESTIMADO',amount:money(gap),payer:'IO',allocation:'REVENUE',commonCost:product==='Draxton telecomunicaciones'||undefined,source:`estimacion:${month}:${normalize(b.name)}:referencia`,sourceDate:null,periodBasis:stable?'MEDIAN_RECENT_MONTHS':'MEAN_6_MONTHS',description:`Estimación del hueco: referencia ${stable?'(mediana de los meses recientes)':'(media de los últimos 6 meses)'} ${money(ref)} € menos factura real recibida ${money(b.now)} €`});
+  }
+  return out;
+}
 /** A rule states a supplier expectation, never documentary coverage or an amount. */
 function supplierCoverage(product:string,month:string,costs:any[],rules:any[],invoices:Map<string,any>,hasContracts:boolean,identities:WeakMap<object,any>) {
   const applicable=(r:any)=>canonicalProduct(r.product)===product||product==='Wildix Borges'&&canonicalProduct(r.product)==='Wildix';
@@ -62,6 +85,8 @@ function supplierCoverage(product:string,month:string,costs:any[],rules:any[],in
     // Annual coverage is a distinct service, not satisfied by a monthly line of that client.
     // Do not use invoice IDs/dates as recurrence identities; they change every document.
     const annual=/\b(1 year|12 month|panda)\b/.test(normalize(c.description))||c.periodBasis==='DOCUMENT_PERIOD'&&(rule?.period==='YEAR'||/20\d{2}/.test(String(c.description)));
+    // Draxton: la misma cuota se factura con distinto literal de sede/cliente cada mes; la identidad estable es la descripción sin fechas.
+    if(!annual&&c.product==='Draxton telecomunicaciones'&&c.description)component=normalize(c.description).replace(/\b\d{1,2} \d{1,2}( \d{2,4})? a \d{1,2} \d{1,2}( \d{2,4})?\b/g,'').replace(/\b20\d{2}\b/g,'').replace(/\s+/g,' ').trim();
     if(annual)component=`${component}:annual`;
     const recurrent=recurringCost(c)&&(!invoice||recurringCost(invoice))&&(!rule||recurringCost(rule));
     const value={family,component,recurrent,key:JSON.stringify([family,normalize(c.payer||'IO'),component])};identities.set(c,value);return value;
@@ -78,6 +103,12 @@ function supplierCoverage(product:string,month:string,costs:any[],rules:any[],in
     if(!previous||c.month>previous.month)expected.set(id,c);
   }
   for(const [id,c] of expected)if(!costActive(c,month))expected.delete(id);
+  // Un componente sin factura REAL en los últimos 3 meses se considera terminado (no se repite una línea de hace medio año); los anuales conservan su ciclo.
+  for(const [id,c] of expected)if(!id.includes(':annual')&&c.month<shiftMonth(month,-3))expected.delete(id);
+  // Si el proveedor ya facturó un mes más reciente sin ese componente, el componente terminó: no se mezclan líneas de facturas distintas.
+  const latestByFamily=new Map<string,string>();
+  for(const c of expected.values()){const k=`${family(c)}|${normalize(c.payer||'IO')}`;if(!latestByFamily.has(k)||c.month>latestByFamily.get(k)!)latestByFamily.set(k,c.month);}
+  for(const [id,c] of expected)if(!id.includes(':annual')&&!(c.componentId||c.component||c.componente)&&c.month<latestByFamily.get(`${family(c)}|${normalize(c.payer||'IO')}`)!)expected.delete(id);
   if(hasContracts&&!noSupplierCost.has(product))for(const r of activeRules){
     // Pattern variants are required only for an evidenced service, not every invoice number.
     if(r.invoicePattern||r.conceptPattern||r.pattern||r.recurring===false||r.recurrent===false)continue;
@@ -153,17 +184,20 @@ function supplierSiteComparison(suppliers:any[], monthCosts:any[]) {
     return {id:p.id,title:p.titulo,provider:p.proveedor,contractedCost:Number(p.importeMensual||0),actualCost:actual==null?null:money(actual),difference:actual==null?null:money(actual-Number(p.importeMensual||0)),services:parts,note:actual==null?'Falta una o más sedes o la factura del contrato de proveedor. No se usa la cuota firmada como real.':'Todas las sedes de este contrato tienen coste documental de este mes.'};
   });
 }
+/** Cambia cuando cambia la lógica de imputación o estimación: un motor nuevo debe producir un snapshot nuevo aunque los datos de entrada sean idénticos. */
+export const RENTABILIDAD_ENGINE_VERSION='2026-11-24.cost-real-estimado-v2';
 /** Economic identity does not depend on materialising the derived queue or import/run timestamps. */
 export function economicSourceHash(input:any,extra:any):string {
   const volatile=new Set(['version','sourceHash','createdAt','updatedAt','created_at','updated_at','importedAt','lastSeenAt','generatedAt','_id']);
   const clean=(value:any):any=>Array.isArray(value)?value.map(clean):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().filter(k=>!volatile.has(k)&&value[k]!==undefined).map(k=>[k,clean(value[k])])):value;
   const effective=(input.decisions||[]).filter((d:any)=>d.action || d.estado==='RESUELTA');
-  return hash(clean({contracts:input.contracts||[],lines:input.lines||[],costs:input.costs||[],rules:input.rules||[],decisions:effective,invoices:extra.invoices||[],ggcc:extra.ggcc||[],series:extra.series||[]}));
+  return hash(clean({engine:RENTABILIDAD_ENGINE_VERSION,contracts:input.contracts||[],lines:input.lines||[],costs:input.costs||[],rules:input.rules||[],decisions:effective,invoices:extra.invoices||[],ggcc:extra.ggcc||[],series:extra.series||[]}));
 }
 /** Immutable, prepared projections. Reference invoice-date totals never feed actual service-period costs. */
 export function calculateReport(input:any,month:string,mode='real',extra:any={}):any {
   if (!MONTH.test(month)) throw new Error('Mes inválido');
-  const rules=(input.rules||[]).map(ruleDTO),lines=(input.lines||[]).map(lineDTO),contracts=(input.contracts||[]).map(contractDTO);
+  // Las reglas por defecto aprobadas rigen aunque aún no estén guardadas; una regla guardada con la misma clave (edición del superadmin) siempre prevalece.
+  const storedRules=(input.rules||[]).map(ruleDTO),storedKeys=new Set(storedRules.map((r:any)=>r.key||r.ruleKey)),rules=[...storedRules,...INITIAL_COST_RULES.map(ruleDTO).filter((r:any)=>!storedKeys.has(r.key))],lines=(input.lines||[]).map(lineDTO),contracts=(input.contracts||[]).map(contractDTO);
   const coverageRules=[...new Map([...INITIAL_COST_RULES.map(ruleDTO),...rules].map(r=>[r.key||r.ruleKey||hash(r),r])).values()];
   const byCode=new Map<string,any>(contracts.map((c:any)=>[c.contractCode,c])),lineMap=new Map<string,any[]>();
   for(const l of lines){const bucket=lineMap.get(l.contractCode)||[];bucket.push(l);lineMap.set(l.contractCode,bucket);if(!byCode.has(l.contractCode)){const c={contractCode:l.contractCode,clientCode:l.clientCode,clientName:l.clientName,tariff:l.tariff,provider:null,active:true,source:'ISP_LISTADO299_SIN_LORENA',unknownDates:true};contracts.push(c);byCode.set(c.contractCode,c);}}
@@ -202,10 +236,11 @@ export function calculateReport(input:any,month:string,mode='real',extra:any={})
     for(const r of rows){const p=pm.get(r.product)!;p.contracts++;p.income+=r.income;p.incomeIT+=r.incomeIT;p.incomeOneOff+=r.incomeOneOff;p.contractedIncomePending ||= r.contractedIncomePending;p.contractedIncome=p.contractedIncomePending?null:p.contractedIncome+r.contractedIncome;p.forecastIncome+=r.forecastIncome||0;}
     const relevant=costs.filter((c:any)=>c.month===m&&costActive(c,m));
     const coverage=new Map(products.map(p=>[p.product,supplierCoverage(p.product,m,costs,coverageRules,invoiceMap,p.contracts>0,coverageIdentities)]));
-    const inferred=[...coverage.values()].flatMap(v=>v.estimates);
+    const inferredBase=[...coverage.values()].flatMap(v=>v.estimates);
+    const inferred=[...inferredBase,...products.flatMap(p=>shortfallEstimates(p.product,m,costs,coverageRules,invoiceMap,inferredBase))];
     for(const cost of [...relevant,...inferred]){
       const p=pm.get(cost.product);if(!p)continue;
-      const estimated=cost.status!=='REAL',field=estimated?'estimatedCost':'cost';p[field]+=cost.amount;p.sources.push({source:cost.source,sourceId:cost.sourceId,sourceDate:cost.sourceDate,description:cost.description,periodBasis:cost.periodBasis,historicalMonth:cost.historicalMonth,amount:cost.amount,provider:cost.provider,status:cost.status,payer:cost.payer,sourceCell:cost.sourceCell});
+      const estimated=cost.status!=='REAL',field=estimated?'estimatedCost':'cost';p[field]+=cost.amount;if(cost.nonRecurrent===true&&!estimated)p.oneOffCost=(p.oneOffCost||0)+cost.amount;p.sources.push({source:cost.source,sourceId:cost.sourceId,sourceDate:cost.sourceDate,description:cost.description,periodBasis:cost.periodBasis,historicalMonth:cost.historicalMonth,amount:cost.amount,provider:cost.provider,status:cost.status,payer:cost.payer,sourceCell:cost.sourceCell});
       let candidates=rows.filter((r:any)=>r.product===cost.product);
       const direct=cost.allocation==='DIRECT'||cost.allocation==='DIRECTA'||cost.directClient||cost.directContract||cost.directLineId||cost.lineId||cost.clientIdentity||cost.directSite||cost.site||cost.product==='Draxton telecomunicaciones';
       if(direct)candidates=directCandidates(cost,rows);
@@ -253,7 +288,7 @@ export function calculateReport(input:any,month:string,mode='real',extra:any={})
       }
       p.rawIncome=p.income;p.rawCost=p.cost;p.rawEstimatedCost=p.estimatedCost;p.rawContractedIncome=p.contractedIncome;p.rawForecastIncome=p.forecastIncome;
       p.margin=money(p.income-p.cost);p.forecastMargin=money(p.forecastIncome-p.cost-p.estimatedCost);p.marginPct=p.pending||p.estimatedCost||!p.income?null:money(100*(p.income-p.cost)/p.income);p.status=p.pending?'PENDIENTE':p.estimatedCost?'ESTIMADO':'REAL';
-      p.incomeIT=money(p.incomeIT);p.incomeOneOff=money(p.incomeOneOff);p.incomeRecurring=money(p.income-p.incomeIT-p.incomeOneOff);p.income=money(p.income);p.cost=money(p.cost);p.estimatedCost=money(p.estimatedCost);p.contractedIncome=p.contractedIncome==null?null:money(p.contractedIncome);p.forecastIncome=money(p.forecastIncome);
+      p.oneOffCost=money(p.oneOffCost||0);p.incomeIT=money(p.incomeIT);p.incomeOneOff=money(p.incomeOneOff);p.incomeRecurring=money(p.income-p.incomeIT-p.incomeOneOff);p.income=money(p.income);p.cost=money(p.cost);p.estimatedCost=money(p.estimatedCost);p.contractedIncome=p.contractedIncome==null?null:money(p.contractedIncome);p.forecastIncome=money(p.forecastIncome);
     }
     for(const r of rows){
       if(noSupplierCost.has(r.product)){r.contractedCost=0;r.contractedCostPending=false;}

@@ -7,6 +7,7 @@ export const INITIAL_COST_RULES=[
   rule('ripe','RIPE','RED_PROPIA','MB','ANUAL'),
   rule('decix','DE-CIX','RED_PROPIA','MB'),
   rule('telefonica','Telefónica de España','TELEFONICA'),
+  rule('telefonica-moviles','Telefónica Móviles','TELEFONICA'),
   rule('td-draxton','Telefónica de España','DRAXTON_TELECO','DIRECTA','MES',{invoicePattern:'TD',priority:100}),
   rule('va-draxton','Telefónica','DRAXTON_TELECO','DIRECTA','BIMESTRAL_VENCIDO',{invoicePattern:'VA',priority:100}),
   rule('aire','Aire Networks','AIRE'),

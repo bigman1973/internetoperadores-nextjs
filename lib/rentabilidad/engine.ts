@@ -176,6 +176,7 @@ export function invoiceRule(invoice: any, rules: any[]): any | null {
     return ((cifPattern&&cif===cifPattern)||(!cifPattern&&supplierPattern&&supplier.includes(supplierPattern)))&&(!pattern||concept.includes(pattern))&&(!numberPattern||normalize(invoice.number||invoice.numFactura).startsWith(numberPattern));
   }).sort((a,b)=>Number(b.priority||0)-Number(a.priority||0))[0]||null;
 }
+const noDetailFallbackOf=(direct:boolean,lines:any[],ruleProduct:string)=>direct&&!lines.length&&ruleProduct!=='Draxton telecomunicaciones';
 export function imputeInvoices(invoices: any[], rules: any[]): { costs: any[]; alerts: any[]; commissions: any[] } {
   const costs:any[]=[]; const alerts:any[]=[]; const commissions:any[]=[];
   for(const invoice of invoices){
@@ -192,9 +193,12 @@ export function imputeInvoices(invoices: any[], rules: any[]): { costs: any[]; a
     const period=({MES:'MONTH',BIMESTRAL_VENCIDO:'BIMONTH',ANUAL:'YEAR'} as any)[rule.period]||rule.period||rule.periodType||'MONTH'; const allocation=({DIRECTA:'DIRECT',INGRESO:'REVENUE',MB:'MB'} as any)[rule.method]||rule.allocation || 'REVENUE';
     const direct=allocation==='DIRECT';
     const ruleProduct=canonicalProduct(rule.product||rule.productoId||provider);
-    const detail=direct||period==='BIMONTH'||period==='YEAR'||ruleProduct==='Acens'||lines.some(l=>/1 year|12 month/.test(normalize(l.descripcion||l.description)));
+    const detail=(direct&&!noDetailFallbackOf(direct,lines,ruleProduct))||period==='BIMONTH'||period==='YEAR'||ruleProduct==='Acens'||lines.some(l=>/1 year|12 month/.test(normalize(l.descripcion||l.description)));
     let pieces:any[]=detail&&lines.length?lines:[{descripcion:invoice.concepto || invoice.concept || '',importeNeto:base}];
-    if(direct&&!lines.length){alerts.push({key:`detalle:${invoice.id}`,type:'FALTA_DETALLE',sourceId:invoice.id,title:`Factura ${number}: falta el detalle para asignarla directamente`,provider,amount:base});continue;}
+    // Sin líneas, la factura de un proveedor «directo» no se puede repartir por cliente, pero SÍ es coste real del producto:
+    // se imputa el total al producto (reparto por ingreso) y la falta de detalle queda como excepción para el superadmin.
+    const noDetailFallback=direct&&!lines.length&&ruleProduct!=='Draxton telecomunicaciones';
+    if(direct&&!lines.length){alerts.push({key:`detalle:${invoice.id}`,type:'FALTA_DETALLE',sourceId:invoice.id,title:`Factura ${number}: falta el detalle por cliente; el total se imputa al producto sin repartir por cliente`,provider,amount:base,noDetailFallback});if(!noDetailFallback)continue;}
     const lineAmounts=pieces.map(l=>Number(l.importeNeto??l.netAmount??l.importe??l.amount));
     if(lineAmounts.some(x=>!Number.isFinite(x))){alerts.push({key:`importe:${invoice.id}`,type:'DETALLE_NO_CUADRA',title:`Factura ${number}: hay líneas sin importe neto`,provider});continue;}
     const sum=lineAmounts.reduce((s,n)=>s+n,0);
@@ -222,10 +226,12 @@ export function imputeInvoices(invoices: any[], rules: any[]): { costs: any[]; a
       const lineId=line.lineId||line.lineIdentifier||line.identificadorLinea||line.numeroLinea||line.telefono||line.serviceId||null;
       let product=canonicalProduct(rule.product || rule.productoId || provider);
       if(product==='Wildix'&&normalize(client).includes('borges'))product='Wildix Borges';
-      const commonCost=product==='Draxton telecomunicaciones'&&/cex premium|gestion personalizada/.test(normalize(text));
-      if(direct&&!commonCost&&!client&&!directContract&&!directSite&&!clientIdentity&&!lineId){alerts.push({key:`cliente:${invoice.id}:${i}`,type:'CLIENTE_PENDIENTE',title:`Factura ${number}: una línea no identifica cliente, sede, contrato o línea`,provider,amount});return;}
+      const oneOff=/penalizacion/.test(normalize(`${text} ${invoice.concepto||invoice.concept||''}`))||product==='Starlink'&&/entregas? intracomunitarias? de bienes|\bhardware\b|\bkit\b/.test(normalize(`${text} ${invoice.concepto||invoice.concept||''}`));
+      const commonCost=product=='Draxton telecomunicaciones'&&/cex premium|gestion personalizada|circuitos internacionales|cuota periodica bimestral|int190|orbinet/.test(normalize(`${text} ${invoice.concepto||invoice.concept||''}`));
+      const revenueFallback=noDetailFallback||direct&&oneOff&&!commonCost&&!client&&!directContract&&!directSite&&!clientIdentity&&!lineId;
+      if(direct&&!revenueFallback&&!commonCost&&!client&&!directContract&&!directSite&&!clientIdentity&&!lineId){alerts.push({key:`cliente:${invoice.id}:${i}`,type:'CLIENTE_PENDIENTE',title:`Factura ${number}: una línea no identifica cliente, sede, contrato o línea`,provider,amount});return;}
       if(coverage.status==='ESTIMADO')alerts.push({key:`periodo-anual:${invoice.id}:${i}`,type:'PERIODO_ANUAL_PENDIENTE',title:`Factura ${number}: reparto anual estimado, falta confirmar la cobertura o el anclaje de la regla`,provider,sourceId:invoice.id,amount});
-      for(const portion of splitPeriod(amount,months))costs.push({month:portion.month,amount:portion.amount,provider,product,status:coverage.status,periodBasis:coverage.periodBasis,allocation,directClient:commonCost?null:client||null,directContract:commonCost?null:directContract,directSite:commonCost?null:directSite,clientIdentity:commonCost?null:clientIdentity,lineId,commonCost,description:text,source:`factura:${invoice.id}:linea:${i}`,sourceId:invoice.id,ruleId:rule.ruleKey||rule.id,sourceDate:date,payer:'IO'});
+      for(const portion of splitPeriod(amount,months))costs.push({month:portion.month,amount:portion.amount,provider,product,status:coverage.status,periodBasis:coverage.periodBasis,allocation:revenueFallback?'REVENUE':allocation,oneOff:oneOff||undefined,nonRecurrent:oneOff||undefined,directClient:commonCost?null:client||null,directContract:commonCost?null:directContract,directSite:commonCost?null:directSite,clientIdentity:commonCost?null:clientIdentity,lineId,commonCost,description:text,source:`factura:${invoice.id}:linea:${i}`,sourceId:invoice.id,ruleId:rule.ruleKey||rule.id,sourceDate:date,payer:'IO'});
     });
   }
   return {costs,alerts,commissions};
