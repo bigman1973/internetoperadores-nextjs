@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { calcularImpuestos, clasificarRecibida, fechaLimite, type EmitidaIn, type RecibidaIn, type PresentadoIn } from '../lib/impuestos/calc';
 import { permisosFin } from '../lib/impuestos/auth-permisos';
 import { generarLineas, totales, seguimiento, mesesAplicables, type EntradaPresupuesto } from '../lib/presupuesto/calc';
@@ -116,4 +117,25 @@ t('seguimiento: real mensual frente a presupuesto/12, solo meses cerrados, sin c
   const ing = s.filas.find(f => f.tipo === 'INGRESO')!; assert.equal(ing.presupuestoAcum, 2000); assert.equal(ing.realAcum, 2400); assert.equal(ing.diferencia, 400);
   const gas = s.filas.find(f => f.tipo === 'GASTO')!; assert.equal(gas.realAcum, 100); assert.equal(gas.presupuestoAcum, 200);
 });
+t('middleware: Impuestos y Presupuesto registrados y escrituras del sandbox acotadas', () => {
+  const src = readFileSync(new URL('../middleware.js', import.meta.url), 'utf8');
+  const st = src.indexOf('function financeAreas(pathname) {'); const en = src.indexOf('\nexport async function middleware', st);
+  const areas = new Function(`${src.slice(st, en)};return financeAreas`)() as (p: string) => string[];
+  assert.deepEqual(areas('/api/admin/finanzas/impuestos'), ['admin.finanzas.impuestos']);
+  assert.deepEqual(areas('/api/admin/finanzas/impuestos/presentados'), ['admin.finanzas.impuestos']);
+  assert.deepEqual(areas('/api/admin/finanzas/presupuesto/versiones/3/lineas'), ['admin.finanzas.presupuesto']);
+  const a0 = src.indexOf('const allowed = '); const a1 = src.indexOf("\n    if ((path.startsWith('/api/cron/')", a0);
+  const expr = src.slice(a0 + 'const allowed = '.length, a1).trim().replace(/;$/, '');
+  const allowed = new Function('path', 'request', 'isAuthorizedP2Path', `return ${expr}`) as (p: string, r: { method: string }, f: (p: string) => boolean) => boolean;
+  const ok2 = (p: string, m: string) => allowed(p, { method: m }, () => false);
+  assert.equal(ok2('/api/admin/finanzas/impuestos/presentados', 'POST'), true);
+  assert.equal(ok2('/api/admin/finanzas/impuestos/presentados', 'DELETE'), true);
+  assert.equal(ok2('/api/admin/finanzas/presupuesto/versiones', 'POST'), true);
+  assert.equal(ok2('/api/admin/finanzas/presupuesto/versiones/3', 'PATCH'), true);
+  assert.equal(ok2('/api/admin/finanzas/presupuesto/versiones/3/lineas', 'DELETE'), true);
+  assert.equal(ok2('/api/admin/finanzas/presupuesto/versiones/3/aprobar', 'POST'), true);
+  assert.equal(ok2('/api/admin/finanzas/presupuesto/versiones/3/otra', 'POST'), false);
+  assert.equal(ok2('/api/admin/finanzas/impuestos', 'POST'), false);
+});
+
 console.log(`\n${ok} pruebas OK`);

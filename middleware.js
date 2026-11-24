@@ -366,6 +366,9 @@ function financeAreas(pathname) {
     nominas: ['admin.finanzas.conciliacion'],
     'nominas-propuestas': ['admin.finanzas.conciliacion'],
     tickets: ['admin.finanzas.tickets'],
+    // E (24/11): la autorización real (rol, edición, aprobación) la hace cada handler con lib/impuestos/auth.ts.
+    impuestos: ['admin.finanzas.impuestos'],
+    presupuesto: ['admin.finanzas.presupuesto'],
   };
   return aliases[section] || [];
 }
@@ -472,6 +475,8 @@ export async function middleware(request) {
       || (path === '/api/admin/finanzas/conciliar' && request.method === 'POST')
       || (['/api/admin/rentabilidad/recalculate', '/api/admin/rentabilidad/rules', '/api/admin/rentabilidad/exceptions', '/api/admin/rentabilidad/external-costs', '/api/admin/rentabilidad/sync'].includes(path) && request.method === 'POST')
       || (path === '/api/cron/rentabilidad-daily' && request.method === 'GET')
+      || (path === '/api/admin/finanzas/impuestos/presentados' && ['POST', 'DELETE'].includes(request.method))
+      || (/^\/api\/admin\/finanzas\/presupuesto\/versiones(\/[^/]{1,100}(\/(lineas|aprobar))?)?$/.test(path) && ['POST', 'PATCH', 'DELETE'].includes(request.method))
       || (['/api/asistente/chat', '/api/asistente/valoracion', '/api/asistente/escalado', '/api/asistente/lead'].includes(path) && request.method === 'POST')
       || (['/api/admin/asistente/chat', '/api/admin/asistente/conocimiento', '/api/admin/asistente/conocimiento/web-publica'].includes(path) && request.method === 'POST')
       || (/^\/api\/admin\/asistente\/conocimiento\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
