@@ -1,4 +1,4 @@
-import { evaluateArea4Capability, grantAllowsArea4Capability, isArea4OwnerOnlyArea } from '@/lib/area4/policy'
+import { evaluateArea4Capability, grantAllowsArea4Capability, isArea4OwnerOnlyArea, area4FinanceModuleAllows } from '@/lib/area4/policy'
 import { area4SectionByKey } from '@/lib/area4/section-registry'
 
 export type AdminSidebarPermission = Readonly<{
@@ -86,6 +86,8 @@ export function hasAccess(input: AdminSidebarAccessInput): boolean {
   const grants = rolePreview ? [] : input.permisosGranulares
 
   const owner = input.isArea4Owner && role === 'SUPER_ADMIN' && !preview
+  const moduleRoles = input.isViewingAsUser ? input.viewingUser?.roles || [] : preview ? [] : input.userRoles
+  if (!area4FinanceModuleAllows({ principal: { id: 0, activo: true, rol: role, roles: moduleRoles }, codigoArea, capability: 'lectura', isImpersonating: preview })) return false
   // Los módulos de staging conservan propietario real, sin actuación ni grants.
   if (['admin.rentabilidad', 'admin.sistemas'].some(area => codigoArea === area || codigoArea.startsWith(`${area}.`))) return owner
   if (owner) return true
@@ -104,6 +106,7 @@ export function hasAccess(input: AdminSidebarAccessInput): boolean {
     codigoArea,
     capability: 'lectura',
     ownerId: null,
+    permissionsAdopted: !rolePreview && input.tienePermisosGranulares,
   })
 
   // Si existen grants (también los denegados), no se recurre a roles secundarios legacy.

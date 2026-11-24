@@ -3800,6 +3800,7 @@ model CrmRegistroHubspot {
   leadsPartners        LeadPartner[]
   altasServicio        AltaServicio[]
   ispClientesArea1     IspClienteArea1[]
+  negociosArea1        Area1CrmNegocio[]
 
   @@unique([objectTypeId, hubspotId])
   @@index([email])
@@ -3868,6 +3869,7 @@ model CrmEmpresa {
   contactos          CrmEmpresaContacto[]
   clientes           CrmEmpresaCliente[]
   ispClientesArea1   IspClienteArea1[]
+  negociosArea1      Area1CrmNegocio[]
 
   @@index([nombre])
   @@index([nifNormalizado])
@@ -6115,4 +6117,83 @@ model RentabilidadSnapshot {
   createdAt  DateTime @default(now()) @map("created_at")
   @@unique([month, kind, version])
   @@map("rentabilidad_snapshots")
+}
+
+// Área 1: pipelines de venta propios del panel. Independientes de crm_*_hubspot (la sync de HubSpot borra aquellas).
+model Area1CrmPipeline {
+  id                 String                   @id
+  nombre             String
+  producto           String
+  segmentoCrm        String                   @map("segmento_crm")
+  orden              Int                      @default(0)
+  activo             Boolean                  @default(true)
+  hubspotPipelineIds String[]                 @default([]) @map("hubspot_pipeline_ids")
+  createdAt          DateTime                 @default(now()) @map("created_at")
+  updatedAt          DateTime                 @default(now()) @updatedAt @map("updated_at")
+  etapas             Area1CrmPipelineEtapa[]
+  negocios           Area1CrmNegocio[]
+  @@map("area1_crm_pipelines")
+}
+
+model Area1CrmPipelineEtapa {
+  id             String            @id
+  pipelineId     String            @map("pipeline_id")
+  nombre         String
+  orden          Int
+  probabilidad   Int               @default(0)
+  resultado      String            @default("ABIERTA")
+  criterio       String?
+  requiereMotivo Boolean           @default(false) @map("requiere_motivo")
+  activo         Boolean           @default(true)
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @default(now()) @updatedAt @map("updated_at")
+  pipeline       Area1CrmPipeline  @relation(fields: [pipelineId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  negocios       Area1CrmNegocio[]
+  @@index([pipelineId, orden], map: "area1_crm_pipeline_etapas_pipeline_orden_idx")
+  @@map("area1_crm_pipeline_etapas")
+}
+
+model Area1CrmNegocio {
+  id                  String                        @id
+  pipelineId          String                        @map("pipeline_id")
+  etapaId             String                        @map("etapa_id")
+  nombre              String
+  importe             Decimal?                      @db.Decimal(14, 2)
+  contactoId          String?                       @map("contacto_id")
+  empresaId           String?                       @map("empresa_id")
+  propietarioId       Int?                          @map("propietario_id")
+  propietarioNombre   String?                       @map("propietario_nombre")
+  fechaCierrePrevista DateTime?                     @db.Date @map("fecha_cierre_prevista")
+  resultado           String                        @default("ABIERTO")
+  motivoPerdida       String?                       @map("motivo_perdida")
+  cerradoAt           DateTime?                     @map("cerrado_at")
+  notas               String?
+  origen              String                        @default("PANEL")
+  hubspotDealId       String?                       @unique(map: "area1_crm_negocios_hubspot_deal_id_key") @map("hubspot_deal_id")
+  activo              Boolean                       @default(true)
+  creadoPor           String?                       @map("creado_por")
+  createdAt           DateTime                      @default(now()) @map("created_at")
+  updatedAt           DateTime                      @default(now()) @updatedAt @map("updated_at")
+  pipeline            Area1CrmPipeline              @relation(fields: [pipelineId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  etapa               Area1CrmPipelineEtapa         @relation(fields: [etapaId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  contacto            CrmRegistroHubspot?           @relation(fields: [contactoId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  empresa             CrmEmpresa?                   @relation(fields: [empresaId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  movimientos         Area1CrmNegocioMovimiento[]
+  @@index([pipelineId, etapaId, activo], map: "area1_crm_negocios_pipeline_etapa_idx")
+  @@index([contactoId], map: "area1_crm_negocios_contacto_idx")
+  @@index([empresaId], map: "area1_crm_negocios_empresa_idx")
+  @@map("area1_crm_negocios")
+}
+
+model Area1CrmNegocioMovimiento {
+  id           String          @id
+  negocioId    String          @map("negocio_id")
+  etapaDesdeId String?         @map("etapa_desde_id")
+  etapaHastaId String          @map("etapa_hasta_id")
+  motivo       String?
+  actor        String
+  createdAt    DateTime        @default(now()) @map("created_at")
+  negocio      Area1CrmNegocio @relation(fields: [negocioId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  @@index([negocioId, createdAt], map: "area1_crm_negocio_movimientos_negocio_idx")
+  @@map("area1_crm_negocio_movimientos")
 }

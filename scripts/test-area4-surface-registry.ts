@@ -77,6 +77,12 @@ test('CRM, Rentabilidad y Subida de precios incorporan las superficies reales de
     ['/admin/crm/isp', 'page', 'admin.crm'],
     ['/api/admin/crm/isp/importar', 'api', 'admin.crm'],
     ['/api/admin/crm/isp/vinculos', 'api', 'admin.crm'],
+    ['/admin/crm/pipelines', 'page', 'admin.crm'],
+    ['/api/admin/crm/pipelines', 'api', 'admin.crm'],
+    ['/api/admin/crm/pipelines/123', 'api', 'admin.crm'],
+    ['/api/admin/crm/pipelines/123/negocios', 'api', 'admin.crm'],
+    ['/api/admin/crm/pipelines/buscar', 'api', 'admin.crm'],
+    ['/api/admin/crm/pipelines/negocios/123', 'api', 'admin.crm'],
     ['/api/admin/crm/leads/soluciones/123', 'api', 'admin.crm'],
     ['/admin/crm/contactos', 'page', 'admin.crm.contactos'],
     ['/api/admin/crm/contactos/123/actividades', 'api', 'admin.crm.contactos'],
@@ -104,6 +110,15 @@ test('CRM, Rentabilidad y Subida de precios incorporan las superficies reales de
     ['/api/admin/sistemas/costes', 'api', 'admin.sistemas'],
     ['/api/admin/sistemas/incidencias', 'api', 'admin.sistemas'],
     ['/api/admin/sistemas/tasas', 'api', 'admin.sistemas'],
+    ['/admin/finanzas/impuestos', 'page', 'admin.finanzas.impuestos'],
+    ['/api/admin/finanzas/impuestos', 'api', 'admin.finanzas.impuestos'],
+    ['/api/admin/finanzas/impuestos/presentados', 'api', 'admin.finanzas.impuestos'],
+    ['/admin/finanzas/presupuesto', 'page', 'admin.finanzas.presupuesto'],
+    ['/api/admin/finanzas/presupuesto/versiones', 'api', 'admin.finanzas.presupuesto'],
+    ['/api/admin/finanzas/presupuesto/versiones/123', 'api', 'admin.finanzas.presupuesto'],
+    ['/api/admin/finanzas/presupuesto/versiones/123/lineas', 'api', 'admin.finanzas.presupuesto'],
+    ['/api/admin/finanzas/presupuesto/versiones/123/aprobar', 'api', 'admin.finanzas.presupuesto'],
+    ['/api/admin/finanzas/presupuesto/versiones/123/seguimiento', 'api', 'admin.finanzas.presupuesto'],
   ]
   for (const [path, kind, area] of expected) assert.equal(area4RegisteredSurfaceArea(path, kind), area, path)
   // La rentabilidad financiera anterior no se reclasifica como el nuevo módulo aislado.
@@ -124,11 +139,14 @@ test('la guardia global de páginas/APIs usa el registro y evalúa V/E/C/X antes
   assert.match(boundary, /area4CanReadOwnPermissionSnapshot/)
   assert.match(boundary, /effectiveId: userId/)
   assert.match(boundary, /if \(!marker\?\.permisosArea4Vivos\) return null/)
-  assert.match(boundary, /error\?\.code === 'P2022'.*permisos_area4_vivos/)
+  assert.match(boundary, /isArea4MissingAdoptionColumn\(error\)/)
+  assert.doesNotMatch(boundary, /includes\('permisos_area4_vivos'\)/)
   assert.ok(boundary.indexOf('isArea4OwnerOnlyArea(codigoArea)') < boundary.indexOf('if (!marker?.permisosArea4Vivos)'), 'las áreas de control se protegen incluso antes de adopción')
   assert.match(boundary, /area4RequestCapabilities/)
   assert.match(boundary, /for \(const capability of capabilities\)/)
-  assert.match(boundary, /evaluateArea4Capability\(\{ principal: user, grants, codigoArea, capability \}\)/)
+  assert.match(boundary, /evaluateArea4Capability\(\{ principal: user, grants, codigoArea, capability, isImpersonating, permissionsAdopted: true \}\)/)
+  assert.match(boundary, /area4FinanceModuleAllows\(\{ principal, codigoArea, capability, isImpersonating \}\)/)
+  assert.ok(boundary.indexOf('area4FinanceModuleAllows') < boundary.indexOf('if (!marker?.permisosArea4Vivos)'), 'las restricciones E preceden a la compatibilidad pre-migración')
   assert.match(boundary, /if \(pathname === '\/api\/admin\/actuar-como'\) return null/)
   assert.doesNotMatch(boundary, /pathname\.startsWith\('\/api\/admin\/finanzas/)
   const dispatch = middleware.slice(end)
@@ -184,9 +202,11 @@ test('las peticiones propias nunca se confunden con la lista administrativa', ()
   assert.equal(area4RegisteredSurfaceArea('/api/admin/peticiones', 'api'), 'admin.peticiones')
 })
 
-test('Sistemas usa solo su URL real; Presupuesto e Impuestos no se inventan como páginas activas', () => {
-  for (const path of ['/admin/sistemas-servicios', '/admin/sistemas-y-servicios', '/admin/presupuesto', '/admin/impuestos']) {
+test('Sistemas usa solo su URL real y Finanzas exige las URLs reales de Presupuesto e Impuestos', () => {
+  for (const path of ['/admin/sistemas-servicios', '/admin/sistemas-y-servicios', '/admin/presupuesto', '/admin/impuestos', '/admin/impuestos/presupuesto', '/admin/finanzas/impuesto', '/admin/finanzas/presupuestos']) {
     assert.equal(area4RegisteredSurfaceArea(path, 'page'), null, path)
   }
   assert.equal(area4RegisteredSurfaceArea('/admin/aapp/hacienda', 'page'), 'admin.aapp')
+  assert.equal(area4RegisteredSurfaceArea('/admin/finanzas/impuestos', 'page'), 'admin.finanzas.impuestos')
+  assert.equal(area4RegisteredSurfaceArea('/admin/finanzas/presupuesto', 'page'), 'admin.finanzas.presupuesto')
 })

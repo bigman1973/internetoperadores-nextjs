@@ -73,13 +73,13 @@ function set(role = 'VISOR', id = 100) {
 async function run() {
   const pages = registry.AREA4_SECTION_REGISTRY.flatMap(s => s.surfaces.filter(p => p.kind === 'page' && p.path.startsWith('/admin')).map(p => ({ ...p, area: s.areaCode })))
   for (const template of AREA4_TEMPLATES) {
-    set(template.id === 'area4-gerente-operativo' ? 'GERENTE' : 'VISOR')
+    set(template.id === 'area4-gerente-operativo' ? 'GERENTE' : template.id === 'area4-contabilidad-clientes-rrhh' ? 'CONTABILIDAD' : 'VISOR')
     grants = template.permisos.map(({ areaCodigo, ...p }) => ({ codigo: areaCodigo, ...p }))
     for (const page of pages) {
       const path = page.path.replace(/\[[^\]]+\]/g, 'area4-synthetic-resource')
       const expected = page.path === '/admin'
         ? (principal.rol === 'GERENTE' || grants.some(p => p.codigo.startsWith('admin.') && p.lectura))
-        : policy.evaluateArea4Capability({ principal, grants, codigoArea: page.area, capability: 'lectura', ownerId: 3 })
+        : policy.evaluateArea4Capability({ principal, grants, codigoArea: page.area, capability: 'lectura', ownerId: 3, permissionsAdopted: true })
       assert.equal(await status(path), expected ? 200 : 403, `${template.id} ${page.path}`)
     }
   }
@@ -141,8 +141,58 @@ async function run() {
   assert.equal(await status('/admin/clientes'), 200, 'exact pre-migration compatibility')
   dbError = { code: 'P2022', meta: { column: 'other_missing_column' } }
   assert.equal(await status('/admin/clientes'), 503, 'other schema errors never authorize')
+  for (const column of ['usuarios_admin.permisos_area4_vivos_backup', 'other_table.permisos_area4_vivos', 'prefix_permisos_area4_vivos']) {
+    dbError = { code: 'P2022', meta: { column } }
+    assert.equal(await status('/admin/clientes'), 503, 'substring and other-table P2022 cannot authorize')
+  }
   dbError = { code: 'P1001' }
   assert.equal(await status('/admin/clientes'), 503)
+  set('GERENTE')
+  for (const path of ['/admin', '/admin/clientes', '/admin/finanzas/impuestos', '/admin/finanzas/presupuesto']) {
+    assert.equal(await status(path), 403, 'Gerente with an adopted empty ACL cannot fall back to its role')
+  }
+  adopted = false
+  assert.equal(await status('/admin/clientes'), 200, 'unadopted historical Gerente retains role compatibility')
+  const fullFinance = () => [{ codigo: 'admin.finanzas', lectura: true, escritura: true, confirmar: true, exportar: true }]
+  const approval = '/api/admin/finanzas/presupuesto/versiones/area4-synthetic-version/aprobar'
+  for (const role of ['VISOR', 'VENTAS', 'RRHH']) {
+    set(role); grants = fullFinance()
+    assert.equal(await status('/admin/finanzas/impuestos'), 403, `${role}: a finance grant does not delegate taxes`)
+    assert.equal(await status('/admin/finanzas/presupuesto'), 403, `${role}: a finance grant does not delegate budget`)
+    adopted = false
+    assert.equal(await status('/api/admin/finanzas/impuestos'), 403, `${role}: module role limit precedes adoption`)
+    dbError = { code: 'P2022', meta: { column: 'usuarios_admin.permisos_area4_vivos' } }
+    assert.equal(await status('/api/admin/finanzas/presupuesto/versiones'), 403, `${role}: schema compatibility cannot bypass module`)
+  }
+  for (const secondary of [false, true]) {
+    set(secondary ? 'VISOR' : 'CONTABILIDAD'); principal.roles = secondary ? ['CONTABILIDAD'] : []; grants = fullFinance()
+    assert.equal(await status('/admin/finanzas/impuestos'), 200, 'primary or secondary accounting reads taxes')
+    assert.equal(await status('/api/admin/finanzas/impuestos/presentados'), 200)
+    assert.equal(await status('/api/admin/finanzas/impuestos/presentados', 'POST', { modelo: 'synthetic' }), 403, 'accounting cannot edit despite E')
+    assert.equal(await status('/api/admin/finanzas/impuestos/presentados', 'DELETE'), 403)
+    assert.equal(await status('/admin/finanzas/presupuesto'), 403)
+    assert.equal(await status(approval, 'POST', { confirmo: true }), 403)
+    grants.push({ codigo: 'admin.finanzas.impuestos', lectura: false, escritura: false, confirmar: false, exportar: false })
+    assert.equal(await status('/admin/finanzas/impuestos'), 403, 'explicit child revocation still prevails')
+    adopted = false
+    assert.equal(await status('/api/admin/finanzas/impuestos/presentados', 'POST', {}), 403, 'accounting read-only restriction precedes adoption')
+  }
+  set('GERENTE'); grants = fullFinance()
+  assert.equal(await status('/admin/finanzas/impuestos'), 200)
+  assert.equal(await status('/admin/finanzas/presupuesto'), 200)
+  assert.equal(await status('/api/admin/finanzas/presupuesto/versiones', 'POST', {}), 200)
+  assert.equal(await status(approval, 'POST', { confirmo: true }), 403, 'Gerente C grant does not delegate approval')
+  grants.push({ codigo: 'admin.finanzas.presupuesto', lectura: false, escritura: false, confirmar: false, exportar: false })
+  assert.equal(await status('/admin/finanzas/presupuesto'), 403)
+  set('SUPER_ADMIN', 3)
+  assert.equal(await status(approval, 'POST', { confirmo: true }), 200, 'canonical real owner dispatches approval; not a completed operation')
+  for (const role of ['GERENTE', 'CONTABILIDAD', 'SUPER_ADMIN']) {
+    set(role, role === 'SUPER_ADMIN' ? 3 : 100); grants = fullFinance(); token.impersonation = { actorId: '3', syntheticOnly: true }
+    assert.equal(await status('/admin/finanzas/impuestos'), 403, 'signed actuation presence denies module before grants')
+    assert.equal(await status('/admin/finanzas/presupuesto'), 403)
+    adopted = false
+    assert.equal(await status('/api/admin/finanzas/impuestos'), 403)
+  }
   assert.equal(policy.grantAllowsArea4Capability([
     { codigo: 'admin.clientes', lectura: true, escritura: true },
     { codigo: 'admin.clientes.ggcc.draxton', lectura: false, escritura: false },

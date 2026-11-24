@@ -3,7 +3,7 @@
  * No cambia URLs ni autoriza por sí mismo: la política de servidor se resuelve aparte.
  * La batería verifica cada página y API administrativa, portal y peticiones propias.
  * Sistemas se registra con sus rutas reales y guardia exclusiva del propietario.
- * Presupuesto e Impuestos todavía no tienen rutas propias; no se fabrican URLs ni códigos.
+ * Las superficies se descubren desde rutas reales; no se fabrican URLs ni códigos.
  */
 export const AREA4_MENU_GROUPS = ['Inicio', 'Comercial', 'Clientes y contratos', 'Finanzas', 'Personas', 'Operación', 'Administración'] as const
 export type Area4MenuGroup = typeof AREA4_MENU_GROUPS[number]
@@ -52,8 +52,14 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
     key: 'crm', areaCode: 'admin.crm', group: 'Comercial',
     surfaces: [
       { path: '/admin/crm', kind: 'page' },
+      { path: '/admin/crm/pipelines', kind: 'page' },
       { path: '/api/admin/crm/leads/[tipo]/[id]', kind: 'api' },
       { path: '/api/admin/crm/negocios/sync', kind: 'api' },
+      { path: '/api/admin/crm/pipelines', kind: 'api' },
+      { path: '/api/admin/crm/pipelines/[id]', kind: 'api' },
+      { path: '/api/admin/crm/pipelines/[id]/negocios', kind: 'api' },
+      { path: '/api/admin/crm/pipelines/buscar', kind: 'api' },
+      { path: '/api/admin/crm/pipelines/negocios/[negocioId]', kind: 'api' },
       { path: '/api/admin/crm/tareas/[id]', kind: 'api' },
       { path: '/api/admin/hubspot-create-list', kind: 'api' },
       { path: '/api/admin/integraciones/outlook', kind: 'api' },
@@ -286,6 +292,25 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
       { path: '/api/admin/finanzas/rentabilidad/servicios', kind: 'api' },
       { path: '/api/admin/finanzas/sincronizar-onedrive', kind: 'api' },
       { path: '/api/admin/finanzas/sync-jobs', kind: 'api' },
+    ],
+  },
+  {
+    key: 'finanzas.impuestos', areaCode: 'admin.finanzas.impuestos', group: 'Finanzas',
+    surfaces: [
+      { path: '/admin/finanzas/impuestos', kind: 'page' },
+      { path: '/api/admin/finanzas/impuestos', kind: 'api' },
+      { path: '/api/admin/finanzas/impuestos/presentados', kind: 'api' },
+    ],
+  },
+  {
+    key: 'finanzas.presupuesto', areaCode: 'admin.finanzas.presupuesto', group: 'Finanzas',
+    surfaces: [
+      { path: '/admin/finanzas/presupuesto', kind: 'page' },
+      { path: '/api/admin/finanzas/presupuesto/versiones', kind: 'api' },
+      { path: '/api/admin/finanzas/presupuesto/versiones/[id]', kind: 'api' },
+      { path: '/api/admin/finanzas/presupuesto/versiones/[id]/lineas', kind: 'api' },
+      { path: '/api/admin/finanzas/presupuesto/versiones/[id]/aprobar', kind: 'api' },
+      { path: '/api/admin/finanzas/presupuesto/versiones/[id]/seguimiento', kind: 'api' },
     ],
   },
   {
@@ -890,6 +915,8 @@ export const AREA4_GROUPED_MENU: Readonly<Record<Area4MenuGroup, readonly Area4M
       { name: 'Datos fiscales', href: '/admin/finanzas/datos-fiscales', icon: 'buildingOffice', section: 'finanzas-fiscal' },
       { name: 'Cobros pendientes', href: '/admin/finanzas/cobros-pendientes', icon: 'banknotes', section: 'finanzas-cobros' },
       { name: 'GGCC Draxton', href: '/admin/finanzas/clientes/ggcc-draxton', icon: 'buildingOffice', section: 'finanzas-draxton' },
+      { name: 'Impuestos', href: '/admin/finanzas/impuestos', icon: 'documentText', section: 'finanzas.impuestos' },
+      { name: 'Presupuesto', href: '/admin/finanzas/presupuesto', icon: 'calculator', section: 'finanzas.presupuesto' },
     ] },
     { name: 'Rentabilidad · staging', href: '/admin/rentabilidad', icon: 'arrowTrendingUp', section: 'rentabilidad' },
   ],

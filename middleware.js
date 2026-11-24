@@ -496,12 +496,20 @@ async function area4RegisteredAdminApiBoundary(request) {
       return ownAcl || policy.isArea4Owner(principal) ? null : privateBoundary({ error: 'Solo Víctor puede acceder a esta sección' }, 403);
     }
     if (principal.rol === 'SUPER_ADMIN' && !policy.isArea4Owner(principal)) return privateBoundary({ error: 'Esta cuenta no es el propietario autorizado' }, 403);
+    const isImpersonating = token.impersonation !== undefined && token.impersonation !== null;
+    const moduleCapabilities = requestPolicy.area4RequestCapabilities({ path: pathname, method: request.method,
+      queryAction: query.get('action') || query.get('accion') });
+    for (const capability of moduleCapabilities) {
+      if (!policy.area4FinanceModuleAllows({ principal, codigoArea, capability, isImpersonating })) {
+        return privateBoundary({ error: 'Tu perfil no permite esta operación en el módulo' }, 403);
+      }
+    }
     let marker;
     try {
       marker = await prisma.usuarioAdmin.findUnique({ where: { id: userId }, select: { permisosArea4Vivos: true } });
     } catch (error) {
       // Only the exact absent adoption column permits historical compatibility.
-      if (error?.code === 'P2022' && String(error?.meta?.column || '').includes('permisos_area4_vivos')) return null;
+      if (policy.isArea4MissingAdoptionColumn(error)) return null;
       throw error;
     }
     if (!marker?.permisosArea4Vivos) return null;
@@ -522,7 +530,7 @@ async function area4RegisteredAdminApiBoundary(request) {
     const capabilities = requestPolicy.area4RequestCapabilities({ path: pathname, method: request.method, action: command.action,
       body: command.body, queryAction: query.get('action') || query.get('accion') });
     for (const capability of capabilities) {
-      if (!policy.evaluateArea4Capability({ principal: user, grants, codigoArea, capability })) {
+      if (!policy.evaluateArea4Capability({ principal: user, grants, codigoArea, capability, isImpersonating, permissionsAdopted: true })) {
         return privateBoundary({ error: `Sin permiso de ${capability}` }, 403);
       }
     }

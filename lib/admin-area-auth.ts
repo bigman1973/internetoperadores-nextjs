@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import prisma from '@/lib/prisma'
 import { requireAuth } from '@/lib/middleware/auth'
 import { verificarPermisoServer } from '@/lib/permisos'
+import { isArea4MissingAdoptionColumn } from '@/lib/area4/policy'
 
 /**
  * Autoriza datos sensibles en páginas server-side.
@@ -31,8 +32,7 @@ export async function requireAdminAreaRead(codigoArea: string, legacyRoles: stri
     const marker = await prisma.usuarioAdmin.findUnique({ where: { id: userId }, select: { permisosArea4Vivos: true } })
     if (marker?.permisosArea4Vivos) redirect('/admin')
   } catch (error) {
-    if (!(error && typeof error === 'object' && 'code' in error && error.code === 'P2022'
-      && 'meta' in error && String((error.meta as { column?: string })?.column || '').includes('permisos_area4_vivos'))) throw error
+    if (!isArea4MissingAdoptionColumn(error)) throw error
   }
   const roles = new Set([principal.rol, ...(principal.roles || [])].filter(Boolean))
   if (legacyRoles.some((role) => roles.has(role))) return session

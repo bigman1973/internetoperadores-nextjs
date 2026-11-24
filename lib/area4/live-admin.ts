@@ -9,6 +9,7 @@ import {
   type Area4Grant,
   type Area4Principal,
   isArea4Owner,
+  isArea4MissingAdoptionColumn,
 } from './policy'
 
 export type Area4Database = Pick<PrismaClient, 'usuarioAdmin' | 'permisoArea' | 'permisoUsuario'>
@@ -69,8 +70,7 @@ export async function readLiveArea4Adoption(database: Area4Database, userId: num
     const marker = await database.usuarioAdmin.findUnique({ where: { id: userId }, select: { permisosArea4Vivos: true } })
     return marker?.permisosArea4Vivos === true
   } catch (error) {
-    const missing = error as { code?: string; meta?: { column?: string } }
-    if (missing.code === 'P2022' && String(missing.meta?.column || '').includes('permisos_area4_vivos')) return false
+    if (isArea4MissingAdoptionColumn(error)) return false
     throw error
   }
 }
@@ -130,6 +130,7 @@ export async function requireArea4Capability(
     codigoArea,
     capability,
     ownerId: configuredArea4OwnerId(),
+    permissionsAdopted: await readLiveArea4Adoption(database, resolved.principal.id),
   })
   return allowed ? { ok: true, ...resolved } : { ok: false, response: forbidden() }
 }

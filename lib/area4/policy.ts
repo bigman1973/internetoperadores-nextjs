@@ -1,3 +1,5 @@
+import { permisosFin } from '../impuestos/auth-permisos'
+
 export const AREA4_CAPABILITIES = ['lectura', 'escritura', 'confirmar', 'exportar'] as const
 
 export type Area4Capability = typeof AREA4_CAPABILITIES[number]
@@ -54,6 +56,13 @@ export function isArea4OwnerOnlyArea(codigoArea: string): boolean {
   return AREA4_OWNER_ONLY_PREFIXES.some(prefix => codigoArea === prefix || codigoArea.startsWith(`${prefix}.`))
 }
 
+export function isArea4MissingAdoptionColumn(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const missing = error as { code?: string; meta?: { column?: unknown } }
+  if (missing.code !== 'P2022' || typeof missing.meta?.column !== 'string') return false
+  return /^(?:(?:public|"public")\.)?(?:(?:usuarios_admin|"usuarios_admin")\.)?(?:permisos_area4_vivos|"permisos_area4_vivos")$/.test(missing.meta.column)
+}
+
 export function inheritedAreaCodes(codigoArea: string): string[] {
   const parts = codigoArea.split('.').filter(Boolean)
   return parts.map((_, index) => parts.slice(0, index + 1).join('.'))
@@ -72,6 +81,25 @@ export function grantAllowsArea4Capability(
   return matches.length > 0 && Boolean(matches[0][capability])
 }
 
+/** Existing module restrictions are an intersection, never a new grant.
+ * A general finance grant cannot delegate these role-only modules or approval.
+ */
+export function area4FinanceModuleAllows(input: Readonly<{
+  principal: Area4Principal
+  codigoArea: string
+  capability: Area4Capability
+  isImpersonating?: boolean
+}>): boolean {
+  const module = ['impuestos', 'presupuesto'].find(name => input.codigoArea === `admin.finanzas.${name}` || input.codigoArea.startsWith(`admin.finanzas.${name}.`))
+  if (!module) return true
+  if (!input.principal.activo || input.isImpersonating) return false
+  const allowed = permisosFin(module as 'impuestos' | 'presupuesto', input.principal.rol, [...(input.principal.roles || [])])
+  if (!allowed.acceso) return false
+  if (input.capability === 'lectura') return true
+  if (module === 'presupuesto' && input.capability === 'confirmar') return allowed.puedeAprobar
+  return allowed.puedeEditar
+}
+
 /**
  * Política única, reusable por SSR, APIs y menú. El menú solo la representa;
  * cada ruta sensible debe volver a resolver la identidad viva antes de invocarla.
@@ -82,9 +110,12 @@ export function evaluateArea4Capability(input: Readonly<{
   codigoArea: string
   capability: Area4Capability
   ownerId?: number | null
+  isImpersonating?: boolean
+  permissionsAdopted?: boolean
 }>): boolean {
   const { principal, grants, codigoArea, capability } = input
   if (!principal.activo) return false
+  if (!area4FinanceModuleAllows(input)) return false
 
   const ownerId = input.ownerId === undefined ? configuredArea4OwnerId() : input.ownerId
   if (principal.rol === 'SUPER_ADMIN') {
@@ -92,6 +123,9 @@ export function evaluateArea4Capability(input: Readonly<{
   }
 
   if (isArea4OwnerOnlyArea(codigoArea)) return false
+
+  // Una ACL adoptada vacía es una denegación, también para Gerente.
+  if (input.permissionsAdopted && grants.length === 0) return false
 
   // Decisión de Víctor: Gerente opera todo el negocio, pero nunca usuarios,
   // perfiles/permisos, auditoría ni Actuar como.

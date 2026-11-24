@@ -1,6 +1,6 @@
 import prisma from '@/lib/prisma'
 import type {Prisma} from '@prisma/client'
-import { evaluateArea4Capability, isArea4Owner, isArea4OwnerOnlyArea } from './area4/policy'
+import { evaluateArea4Capability, isArea4Owner, isArea4OwnerOnlyArea, isArea4MissingAdoptionColumn } from './area4/policy'
 
 // Solo se almacenan códigos de áreas públicas, nunca identidades ni permisos.
 // La TTL permite revalidar un área si la configuración cambia en otra instancia.
@@ -70,8 +70,7 @@ export async function verificarPermisoServer(
     const marker = await database.usuarioAdmin.findUnique({ where: { id: usuarioId }, select: { permisosArea4Vivos: true } })
     adopted = marker?.permisosArea4Vivos === true
   } catch (error) {
-    if (!(error && typeof error === 'object' && 'code' in error && error.code === 'P2022'
-      && 'meta' in error && String((error.meta as { column?: string })?.column || '').includes('permisos_area4_vivos'))) throw error
+    if (!isArea4MissingAdoptionColumn(error)) throw error
   }
   if (!adopted) {
     // Historical V/E only; C/X are not invented from a legacy write grant.
@@ -82,7 +81,7 @@ export async function verificarPermisoServer(
     select: { lectura: true, escritura: true, confirmar: true, exportar: true, area: { select: { codigo: true } } } })
   const grants = liveRows.map(p => ({ codigo: p.area.codigo, lectura: p.lectura, escritura: p.escritura, confirmar: p.confirmar, exportar: p.exportar }))
   return Object.fromEntries(['lectura', 'escritura', 'confirmar', 'exportar'].map(capability => [capability,
-    evaluateArea4Capability({ principal, grants, codigoArea, capability: capability as 'lectura' | 'escritura' | 'confirmar' | 'exportar' })])) as typeof denied
+    evaluateArea4Capability({ principal, grants, codigoArea, capability: capability as 'lectura' | 'escritura' | 'confirmar' | 'exportar', permissionsAdopted: true })])) as typeof denied
 }
 
 /**

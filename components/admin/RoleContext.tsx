@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
-import { grantAllowsArea4Capability, isArea4OwnerOnlyArea, type Area4Capability } from '@/lib/area4/policy'
+import { grantAllowsArea4Capability, isArea4OwnerOnlyArea, area4FinanceModuleAllows, type Area4Capability } from '@/lib/area4/policy'
 import {
   decideAdminPermissionSeedLoad,
   type AdminPermissionSsrSeed,
@@ -84,7 +84,7 @@ export function RoleProvider({
   initialPermissions,
   initialPermissionsLoaded,
   skipPermissionLoad,
-  permissionsAdopted = false,
+  permissionsAdopted,
   actingUser,
 }: {
   children: React.ReactNode
@@ -109,7 +109,7 @@ export function RoleProvider({
     (initialPermissions || []).map(permission => ({ ...permission })),
   )
   const [permisosLoaded, setPermisosLoaded] = useState(initialPermissionsLoaded === true)
-  const [adopted, setAdopted] = useState(permissionsAdopted)
+  const [adopted, setAdopted] = useState(permissionsAdopted === true)
   // Una previsualización es local y no cambia la sesión. Tras usarla no se puede
   // restaurar una ACL serializada al hidratar: incluso al volver al actor inicial
   // se consulta de nuevo la API, que vuelve a validar la sesión.
@@ -150,6 +150,7 @@ export function RoleProvider({
     if (mode === 'idle') return
 
     if (mode === 'seed' || mode === 'skip' || mode === 'privileged') {
+      if (permissionsAdopted !== undefined) setAdopted(permissionsAdopted)
       setPermisosGranulares(mode === 'seed' ? (initialPermissions || []).map(permission => ({ ...permission })) : [])
       setPermisosLoaded(true)
       return
@@ -192,7 +193,7 @@ export function RoleProvider({
       current = false
       controller.abort()
     }
-  }, [effectiveUserId, initialPermissions, initialPermissionsLoaded, initialSeedInvalidated, isPrivilegedRealRole, isViewingAs, skipPermissionLoad, userId])
+  }, [effectiveUserId, initialPermissions, initialPermissionsLoaded, initialSeedInvalidated, isPrivilegedRealRole, isViewingAs, skipPermissionLoad, userId, permissionsAdopted])
 
   const setViewAsRole = useCallback((role: RolId | null) => {
     if (role !== null) setInitialSeedInvalidated(true)
@@ -223,6 +224,9 @@ export function RoleProvider({
 
   // Verificación granular por código de área
   const hasAreaAccess = useCallback((codigoArea: string, tipo: Area4Capability = 'lectura') => {
+    const moduleRoles = isViewingAsUser ? effectiveViewingUser?.roles || [] : isViewingAs ? [] : userRoles
+    if (!area4FinanceModuleAllows({ principal: { id: effectiveUserId || 0, activo: true, rol: effectiveRole, roles: moduleRoles },
+      codigoArea, capability: tipo, isImpersonating: isViewingAs })) return false
     if (isArea4Owner && !isViewingAs) return true
     if (isArea4OwnerOnlyArea(codigoArea)) return false
     if (!permisosLoaded) return false
@@ -232,7 +236,7 @@ export function RoleProvider({
     if (effectiveRole === 'GERENTE' && matches.length === 0) return true
     // Un hijo sólo abre su enlace; nunca concede datos ni edición del padre.
     return grantAllowsArea4Capability(permisosGranulares, codigoArea, tipo)
-  }, [isArea4Owner, isViewingAs, effectiveRole, permisosLoaded, permisosGranulares, hasAccess])
+  }, [isArea4Owner, isViewingAs, effectiveRole, permisosLoaded, permisosGranulares, hasAccess, isViewingAsUser, effectiveViewingUser, userRoles, effectiveUserId])
 
   return (
     <RoleContext.Provider value={{
