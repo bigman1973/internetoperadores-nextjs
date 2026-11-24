@@ -17,7 +17,7 @@ export async function GET(request:NextRequest){
   const actor=await prisma.usuarioAdmin.findUnique({where:{id:Number(session!.user.id)},select:{activo:true}})
   if(!actor?.activo)return NextResponse.json({error:'Usuario no activo.'},{status:403,headers})
   await assertFinanceRuntimeReady()
-  const data=await prisma.$transaction(tx=>readBankInvoicing(tx,{enabled:true,assertIsolatedStaging:async()=>{}},request.nextUrl.searchParams),{isolationLevel:'RepeatableRead',maxWait:10000,timeout:60000})
+  const data=await prisma.$transaction(tx=>readBankInvoicing(tx,{enabled:true,assertIsolatedStaging:async()=>{}},request.nextUrl.searchParams,{analytics:true}),{isolationLevel:'RepeatableRead',maxWait:10000,timeout:60000})
   return NextResponse.json(data,{headers})
  }catch(error){
   if(error instanceof B7QueryError)return NextResponse.json({error:error.message,codigo:error.code},{status:400,headers})

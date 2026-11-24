@@ -6,6 +6,8 @@
  * navegador sólo acepte el DTO JSON ya calculado por el servidor.
  */
 
+import type { BankInvoicingAnalytics } from '@/lib/finanzas/bank-invoicing-analytics'
+export type B7Analytics = BankInvoicingAnalytics
 export const B7_AREA_PERMISO = 'admin.facturacion'
 export const B7_PAGE_SIZE = 50
 export const B7_MAX_PAGE_SIZE = 100
@@ -69,6 +71,7 @@ export interface B7InvoiceSettlement {
 export interface B7GetQueryDto {
   q: string | null
   mes: string | null
+  anio: number | null
   estado: B7PaymentState | null
   limit: number
   offset: number
@@ -82,6 +85,8 @@ export interface B7ReadDto {
   summary: B7Summary
   bankCoverage: B7BankCoverage
   items: B7InvoiceSettlement[]
+  /** Gráficas calculadas en servidor sobre la misma población que la tabla. */
+  analitica: B7Analytics | null
   calculationBasis: 'B4_ACTIVE_APLICADA_NO_REVERTIDA_JUSTIFICADO_DOCUMENTO__B6_EXPLICITA__RECIBO_REMESA_B7_V1'
 }
 
@@ -182,6 +187,76 @@ function summary(value: unknown): B7Summary {
   }
 }
 
+function cents(value: unknown, path: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value)) throw new Error(`${path} debe ser un entero seguro de céntimos.`)
+  return value
+}
+function analyticsAggregate(value: unknown, path: string): { cents: number; count: number } {
+  const row = recordAt(value, path)
+  return { cents: cents(row.cents, `${path}.cents`), count: safeInteger(row.count, `${path}.count`, 0) }
+}
+function analytics(value: unknown): B7Analytics | null {
+  if (value === undefined || value === null) return null
+  const row = recordAt(value, 'analitica')
+  const cut = recordAt(row.corte, 'analitica.corte')
+  if (typeof cut.estado !== 'string' || !COVERAGE_STATUSES.includes(cut.estado as B7CoverageStatus)) throw new Error('analitica.corte.estado no es válido.')
+  const pend = recordAt(row.desglosePendiente, 'analitica.desglosePendiente')
+  const clientRow = (item: unknown, path: string) => {
+    const r = recordAt(item, path)
+    return {
+      cliente: text(r.cliente, `${path}.cliente`),
+      facturado: cents(r.facturado, `${path}.facturado`),
+      facturas: safeInteger(r.facturas, `${path}.facturas`, 0),
+      pendienteReal: cents(r.pendienteReal, `${path}.pendienteReal`),
+      sinExtracto: cents(r.sinExtracto, `${path}.sinExtracto`),
+      sociedades: safeInteger(r.sociedades, `${path}.sociedades`, 0),
+    }
+  }
+  const year = (v: unknown, path: string) => (v === null ? null : safeInteger(v, path, 2000, 2099))
+  return {
+    anioGrafico: year(row.anioGrafico, 'analitica.anioGrafico'),
+    anioPrevio: year(row.anioPrevio, 'analitica.anioPrevio'),
+    aniosDisponibles: arrayAt(row.aniosDisponibles, 'analitica.aniosDisponibles', 50).map((y, i) => safeInteger(y, `analitica.aniosDisponibles[${i}]`, 2000, 2099)),
+    corte: {
+      estado: cut.estado as B7CoverageStatus,
+      fecha: dateOrNull(cut.fecha, 'analitica.corte.fecha'),
+      cuentasVerificadas: safeInteger(cut.cuentasVerificadas, 'analitica.corte.cuentasVerificadas', 0),
+      cuentasActivas: safeInteger(cut.cuentasActivas, 'analitica.corte.cuentasActivas', 0),
+    },
+    desglosePendiente: {
+      real: analyticsAggregate(pend.real, 'analitica.desglosePendiente.real'),
+      sinExtracto: analyticsAggregate(pend.sinExtracto, 'analitica.desglosePendiente.sinExtracto'),
+      revision: analyticsAggregate(pend.revision, 'analitica.desglosePendiente.revision'),
+    },
+    mensual: arrayAt(row.mensual, 'analitica.mensual', 12).map((item, i) => {
+      const r = recordAt(item, `analitica.mensual[${i}]`)
+      return {
+        mes: safeInteger(r.mes, `analitica.mensual[${i}].mes`, 1, 12),
+        facturado: cents(r.facturado, 'facturado'), facturadoPrevio: cents(r.facturadoPrevio, 'facturadoPrevio'),
+        cobrado: cents(r.cobrado, 'cobrado'), pendienteReal: cents(r.pendienteReal, 'pendienteReal'),
+        sinExtracto: cents(r.sinExtracto, 'sinExtracto'), revision: cents(r.revision, 'revision'),
+        facturas: safeInteger(r.facturas, 'facturas', 0),
+      }
+    }),
+    porSerie: arrayAt(row.porSerie, 'analitica.porSerie', 200).map((item, i) => {
+      const r = recordAt(item, `analitica.porSerie[${i}]`)
+      return {
+        serie: text(r.serie, 'serie'), facturado: cents(r.facturado, 'facturado'), facturas: safeInteger(r.facturas, 'facturas', 0),
+        cobrado: cents(r.cobrado, 'cobrado'), pendienteReal: cents(r.pendienteReal, 'pendienteReal'), sinExtracto: cents(r.sinExtracto, 'sinExtracto'),
+      }
+    }),
+    topClientes: arrayAt(row.topClientes, 'analitica.topClientes', 10).map((item, i) => clientRow(item, `analitica.topClientes[${i}]`)),
+    restoClientes: row.restoClientes === null || row.restoClientes === undefined ? null : clientRow(row.restoClientes, 'analitica.restoClientes'),
+    antiguedad: arrayAt(row.antiguedad, 'analitica.antiguedad', 12).map((item, i) => {
+      const r = recordAt(item, `analitica.antiguedad[${i}]`)
+      return {
+        tramo: text(r.tramo, 'tramo'), pendienteReal: cents(r.pendienteReal, 'pendienteReal'), sinExtracto: cents(r.sinExtracto, 'sinExtracto'),
+        facturasReal: safeInteger(r.facturasReal, 'facturasReal', 0), facturasSinExtracto: safeInteger(r.facturasSinExtracto, 'facturasSinExtracto', 0),
+      }
+    }),
+    sinImporte: safeInteger(row.sinImporte, 'analitica.sinImporte', 0),
+  }
+}
 function coverage(value: unknown): B7BankCoverage {
   const row = recordAt(value, 'bankCoverage')
   if (typeof row.status !== 'string' || !COVERAGE_STATUSES.includes(row.status as B7CoverageStatus)) {
@@ -232,6 +307,7 @@ function query(value: unknown): B7GetQueryDto {
   return {
     q,
     mes,
+    anio: row.anio === undefined || row.anio === null ? null : safeInteger(row.anio, 'query.anio', 2000, 2099),
     estado: row.estado === null ? null : paymentState(row.estado, 'query.estado'),
     limit: safeInteger(row.limit, 'query.limit', 1, B7_MAX_PAGE_SIZE),
     offset: safeInteger(row.offset, 'query.offset', 0, B7_MAX_OFFSET),
@@ -271,6 +347,7 @@ export function parseBankInvoicingDto(value: unknown): B7ParseResult {
         summary: summary(row.summary),
         bankCoverage: coverage(row.bankCoverage),
         items: rows.map((item, index) => invoice(item, index)),
+        analitica: analytics(row.analitica),
         calculationBasis: CALCULATION_BASIS,
       },
     }

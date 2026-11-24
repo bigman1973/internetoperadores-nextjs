@@ -19,6 +19,7 @@ import {
   type B7GetQuery,
   type B7ReadDto,
 } from './bank-invoicing-contract'
+import { buildBankInvoicingAnalytics } from './bank-invoicing-analytics'
 import {
   associationSourceHash,
   facturaSourceFingerprint,
@@ -221,6 +222,18 @@ const INVOICES_SQL = `
   ORDER BY fe.fecha DESC, fe.id ASC
   LIMIT ${B7_READ_LIMIT}
 `
+
+const SERIES_SQL = `
+  SELECT id, serie
+  FROM facturas_emitidas
+  ORDER BY id ASC
+  LIMIT ${B7_READ_LIMIT}
+`
+
+function madridToday(): string {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+  return parts
+}
 
 /**
  * Each FI B4 wrapper is read by actual FK only. The live B4 proof includes the
@@ -761,6 +774,7 @@ export async function readBankInvoicing(
   db: B7ReadDatabase,
   options: B7ReaderOptions,
   rawQuery: URLSearchParams | B7GetQuery = new URLSearchParams(),
+  extras: { analytics?: boolean; today?: string } = {},
 ): Promise<B7ReadResponse> {
   const calculated = await readBankInvoicingPopulation(db, options)
   const query = rawQuery instanceof URLSearchParams ? parseB7GetQuery(rawQuery) : rawQuery
@@ -769,15 +783,29 @@ export async function readBankInvoicing(
   // Bank-only differences have no FI filter key. A month/q/state subset cannot
   // claim their total belongs to that subset; publish unknown rather than 0 or a
   // page-derived allocation. The unfiltered whole population keeps its exact value.
-  const isWholePopulation = query.q === null && query.mes === null && query.estado === null
+  const isWholePopulation = query.q === null && query.mes === null && query.anio === null && query.estado === null
   const summary = summarizeBankInvoicing(
     matching,
     isWholePopulation ? calculated.summary.diferenciasCaja.sinAtribuir.cents : null,
   )
 
+  let analitica: B7ReadResponse['analitica']
+  if (extras.analytics) {
+    // Sólo lectura de la serie nativa; las cifras salen de los mismos céntimos del cálculo B7.
+    const serieRows = await db.$queryRawUnsafe<Array<{ id: string; serie: string | null }>>(SERIES_SQL)
+    assertCompleteBoundedPopulation('SERIES_FACTURAS_EMITIDAS', serieRows)
+    analitica = buildBankInvoicingAnalytics({
+      settlements: calculated.invoices,
+      serieById: new Map(serieRows.map((row) => [row.id, row.serie])),
+      coverage: calculated.bankCoverage,
+      query: { q: query.q, mes: query.mes, anio: query.anio, estado: query.estado },
+      today: extras.today ?? madridToday(),
+      matching,
+    })
+  }
   return {
     recurso: 'facturacionBancoB7', query, pagination: { limit: query.limit, offset: query.offset, total: matching.length },
-    summary, bankCoverage: calculated.bankCoverage, items, calculationBasis: calculated.calculationBasis,
+    summary, bankCoverage: calculated.bankCoverage, items, ...(analitica ? { analitica } : {}), calculationBasis: calculated.calculationBasis,
     diagnostics: {
       canonicalPopulation: 'FACTURAS_EMITIDAS_TODAS',
       ispIdentity: 'FACTURA_EMITIDA_FACTURA_ISP_ID_EXPLICITA_SOLO_METADATA',
