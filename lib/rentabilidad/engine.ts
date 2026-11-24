@@ -70,6 +70,19 @@ export function activeInMonth(contract: any, month: string) {
 export function shiftMonth(month: string, shift: number): string {
   const d = new Date(`${month}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth()+shift); return d.toISOString().slice(0,7);
 }
+/** Contratos genéricos («SERVICIOS VARIOS») se asignan por lo que dice la línea facturada, nunca por importe. */
+export function classifyByConcept(concept: unknown): { provider: string | null; product: string } | null {
+  const c = normalize(concept); if (!c) return null;
+  if (/servicio de horas mensuales|recurso it\b/.test(c)) return {provider:'IO',product:'Servicios IT'};
+  if (/ip transito|interconexion de (virtual )?mmr|interconexion de operador/.test(c)) return {provider:'IO',product:'Red propia'};
+  if (/copias remotas|servidor cloud|servidor virtual|io backup|backup nube|cloud gestion presencia|licencia de gestion \d+ usuarios/.test(c)) return {provider:'Cloud 101',product:'Cloud 101'};
+  if (/bols[ao] horas tecnico|bola horas tecnico/.test(c)) return {provider:'Telefónica',product:'Telefónica'};
+  if (/microsoft 365|office 365|panda /.test(c)) return {provider:'Acens',product:'Acens'};
+  if (/sheetgo/.test(c)) return {provider:'Sheetgo',product:'Sheetgo'};
+  if (/dominio|business domain/.test(c)) return {provider:'Nominalia',product:'Dominios'};
+  if (/pool ip|ffth empresarial|\bffth\b/.test(c)) return {provider:'Aire Networks',product:'Aire Networks'};
+  return null;
+}
 export function classifyContract(contract: any, rules: any[] = []): { provider: string | null; product: string; origin: string; pending: boolean } {
   const tariff = String(contract.tariff || contract.tarifa || ''); const name = normalize(`${contract.clientName || ''} ${contract.description || ''} ${tariff}`);
   if (/mantenimiento informatico|servicio.*externalizacion|servicios it/.test(normalize(tariff))) return {provider:contract.provider||'IO',product:'Servicios IT',origin:'tipología IT del contrato',pending:false};
@@ -77,6 +90,8 @@ export function classifyContract(contract: any, rules: any[] = []): { provider: 
   if (normalize(contract.provider)==='io') {
     if (contract.product) { const product=canonicalProduct(contract.product); return {provider:contract.provider,product,origin:contract.source||'producto propio acreditado en carga inicial',pending:product==='Otros'}; }
     if (/volibri|perdiu|radio|transito|transit/.test(normalize(tariff))) return {provider:contract.provider,product:'Red propia',origin:'tipología acreditada de red propia',pending:false};
+    const byConceptIo=classifyByConcept(contract.lastConcept);
+    if(byConceptIo)return {provider:byConceptIo.provider,product:byConceptIo.product,origin:'concepto de la línea facturada',pending:false};
     return {provider:contract.provider,product:'Otros',origin:'servicio propio sin producto acreditado; no se presume coste cero',pending:true};
   }
   if (contract.product) return { provider: contract.provider || null, product: canonicalProduct(contract.product), origin: contract.source || 'metadato', pending: false };
@@ -95,6 +110,8 @@ export function classifyContract(contract: any, rules: any[] = []): { provider: 
   if (candidates.length) {
     const r = candidates[0]; return { provider: r.provider || r.proveedor || null, product: canonicalProduct(r.product || r.productoId || r.provider || r.proveedor), origin: `regla ${r.ruleKey || r.id || r.pattern}`, pending: false };
   }
+  const byConcept=classifyByConcept(contract.lastConcept);
+  if(byConcept)return {provider:byConcept.provider,product:byConcept.product,origin:'concepto de la línea facturada',pending:false};
   return { provider: null, product: 'Otros', origin: 'pendiente de regla', pending: true };
 }
 /** Largest remainder apportionment. Credit notes retain their sign. Every cent is conserved. */
@@ -148,7 +165,20 @@ export function serviceMonths(invoiceDate: string, text: string, period: 'MONTH'
   return [start,end];
 }
 /** Invoice month is not evidence of annual service coverage unless an approved rule opts in. */
-export function servicePeriod(invoiceDate: string, text: string, period: 'MONTH'|'BIMONTH'|'YEAR', periodAnchor?: string): {months:string[]|null;status:'REAL'|'ESTIMADO';periodBasis:string} {
+/** Mes natural completo declarado en el documento («del 01/09/2026 al 30/09/2026»). Solo un único mes natural exacto; cualquier otra cosa se ignora. */
+export function documentMonth(text: unknown): string | null {
+  const m=String(text??'').match(/\b(\d{1,2})\/(\d{1,2})\/(20\d{2})\s*(?:-|–|al|a)\s*(\d{1,2})\/(\d{1,2})\/(20\d{2})\b/);
+  if(!m)return null;
+  const [d1,m1,y1,d2,m2,y2]=m.slice(1).map(Number);
+  if(y1!==y2||m1!==m2||m1<1||m1>12||d1!==1)return null;
+  return d2===new Date(Date.UTC(y1,m1,0)).getUTCDate()?`${y1}-${String(m1).padStart(2,'0')}`:null;
+}
+export function servicePeriod(invoiceDate: string, text: string, period: 'MONTH'|'BIMONTH'|'YEAR', periodAnchor?: string, invoiceConcept?: string): {months:string[]|null;status:'REAL'|'ESTIMADO';periodBasis:string} {
+  if (period === 'MONTH' && periodAnchor === 'DOCUMENT_PERIOD_MONTH') {
+    // Opt-in por regla: por defecto, como el resto de proveedores y el Excel de costes, el mes es el de la fecha de factura.
+    const own=documentMonth(invoiceConcept)||documentMonth(text);
+    if (own) return {months:[own],status:'REAL',periodBasis:'DOCUMENT_PERIOD_MONTH'};
+  }
   if (period === 'YEAR') {
     const documented = annualDocumentMonths(text);
     if (documented) return {months:documented,status:'REAL',periodBasis:'DOCUMENT_PERIOD'};
@@ -216,7 +246,7 @@ export function imputeInvoices(invoices: any[], rules: any[]): { costs: any[]; a
       const annual=normalize(text).includes('12 month')||normalize(text).includes('1 year');const monthly=normalize(text).includes('1 month');
       const linePeriod=ruleProduct==='Acens'&&lines.length?(normalize(text).includes('panda')?'YEAR':'MONTH'):annual?'YEAR':monthly?'MONTH':period;
       const periodText=linePeriod==='YEAR'?`${text} ${invoice.servicePeriod || invoice.periodoServicio || invoice.concepto || invoice.concept || ''}`:text;
-      const coverage=servicePeriod(date,periodText,linePeriod,rule.periodAnchor);
+      const coverage=servicePeriod(date,periodText,linePeriod,rule.periodAnchor,String(invoice.concepto || invoice.concept || ''));
       const months=coverage.months;
       if(!months){alerts.push({key:`periodo:${invoice.id}:${i}`,type:'PERIODO_PENDIENTE',title:`Factura ${number}: no se identifica el periodo bimestral`,provider,sourceId:invoice.id});return;}
       const client=line.clienteNombreBd||line.cliente||line.clientName||rule.directClient;

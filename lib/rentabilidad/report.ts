@@ -53,7 +53,7 @@ function shortfallEstimates(product:string,month:string,costs:any[],rules:any[],
   const from=shiftMonth(month,-6),by=new Map<string,{name:string;months:Map<string,number>;now:number;est:number}>();
   const bucket=(f:{key:string;name:string})=>{let b=by.get(f.key);if(!b){b={name:f.name,months:new Map(),now:0,est:0};by.set(f.key,b);}return b;};
   for(const c of costs){
-    if(c.product!==product||c.status!=='REAL'||!String(c.source||'').startsWith('factura:')||!recurringCost(c)||c.nonRecurrent===true||c.periodBasis!=='INVOICE_MONTH')continue;
+    if(c.product!==product||c.status!=='REAL'||!String(c.source||'').startsWith('factura:')||!recurringCost(c)||c.nonRecurrent===true||!['INVOICE_MONTH','DOCUMENT_PERIOD_MONTH'].includes(c.periodBasis))continue;
     const f=fam(c);if(!f)continue;const b=bucket(f);
     if(c.month===month)b.now+=c.amount;else if(c.month<month&&c.month>=from)b.months.set(c.month,(b.months.get(c.month)||0)+c.amount);
   }
@@ -185,7 +185,7 @@ function supplierSiteComparison(suppliers:any[], monthCosts:any[]) {
   });
 }
 /** Cambia cuando cambia la lógica de imputación o estimación: un motor nuevo debe producir un snapshot nuevo aunque los datos de entrada sean idénticos. */
-export const RENTABILIDAD_ENGINE_VERSION='2026-11-24.cost-real-estimado-v2';
+export const RENTABILIDAD_ENGINE_VERSION='2026-11-24.cost-real-estimado-v3-devengo-ingreso';
 /** Economic identity does not depend on materialising the derived queue or import/run timestamps. */
 export function economicSourceHash(input:any,extra:any):string {
   const volatile=new Set(['version','sourceHash','createdAt','updatedAt','created_at','updated_at','importedAt','lastSeenAt','generatedAt','_id']);
@@ -202,6 +202,7 @@ export function calculateReport(input:any,month:string,mode='real',extra:any={})
   const byCode=new Map<string,any>(contracts.map((c:any)=>[c.contractCode,c])),lineMap=new Map<string,any[]>();
   for(const l of lines){const bucket=lineMap.get(l.contractCode)||[];bucket.push(l);lineMap.set(l.contractCode,bucket);if(!byCode.has(l.contractCode)){const c={contractCode:l.contractCode,clientCode:l.clientCode,clientName:l.clientName,tariff:l.tariff,provider:null,active:true,source:'ISP_LISTADO299_SIN_LORENA',unknownDates:true};contracts.push(c);byCode.set(c.contractCode,c);}}
   for(const c of contracts){
+    const lsEarly=(lineMap.get(c.contractCode)||[]).slice().sort((a:any,b:any)=>a.date.localeCompare(b.date));c.lastConcept=lsEarly.at(-1)?.concept||'';
     const cl=classifyContract(c,rules);c.product=cl.product;c.provider=cl.provider;c.classification=cl.origin;c.pendingProvider=cl.pending;
     const ls=(lineMap.get(c.contractCode)||[]).sort((a,b)=>a.date.localeCompare(b.date));c.lastLine=ls.at(-1)||null;c.clientCode ||= c.lastLine?.clientCode || c.clientName;
     if(c.clientName==='Cliente sin identificar')c.clientName=c.lastLine?.clientName||c.clientName;
@@ -227,10 +228,12 @@ export function calculateReport(input:any,month:string,mode='real',extra:any={})
   const monthResults=months.map(m=>{
     const draxtonGgcc=draxtonTelecoInForce(extra.ggcc||[],m),overridden=new Set<string>();
     const isActive=(c:any,mm:string)=>{const natural=activeInMonth(c,mm);if(natural)return true;if(c.product!=='Draxton telecomunicaciones'||!draxtonGgcc)return false;const start=String(c.startDate||c.fechaAlta||'').slice(0,10),last=new Date(Date.UTC(Number(mm.slice(0,4)),Number(mm.slice(5,7)),0)).toISOString().slice(0,10);if(start&&start>last)return false;overridden.add(c.contractCode);return true;};
-    const rows=contracts.filter((c:any)=>isActive(c,m)||(lineMap.get(c.contractCode)||[]).some((l:any)=>l.month===m)||c.ggccId).map((c:any)=>({contractCode:c.contractCode,clientCode:c.clientCode,clientName:c.clientName,product:c.product,provider:c.provider,tariff:c.tariff,description:c.description,directSite:c.directSite||c.sede||null,site:c.site||c.ubicacion||null,operatorLineId:c.operatorLineId||c.identificadorLinea||null,clientCif:c.cif||c.clienteCif||null,speedMbps:c.speedMbps||0,active:isActive(c,m),income:0,contractedIncome:isActive(c,m)?c.monthlyContracted:0,contractedIncomePending:isActive(c,m)&&c.monthlyContracted==null,forecastIncome:isActive(c,m)?c.monthlyForecast:0,contractedCost:null as number|null,contractedCostPending:true,cost:0,estimatedCost:0,costSources:[] as any[],hasCost:false,pendingCost:false,origin:c.source,ggccId:c.ggccId,pendingProvider:c.pendingProvider,datesPending:!c.startDate,personalCost:0}));
+    // Cuotas trimestrales/semestrales/anuales: se reparten por meses cubiertos desde el mes de facturación (devengo), para que el margen mensual sea comparable.
+    const coverShare=(l:any)=>{const k=Number(l.periodicityMonths)>1?Number(l.periodicityMonths):1;if(k===1)return l.month===m?l.baseAmount:0;return l.month<=m&&m<shiftMonth(l.month,k)?l.baseAmount/k:0;};
+    const rows=contracts.filter((c:any)=>isActive(c,m)||(lineMap.get(c.contractCode)||[]).some((l:any)=>coverShare(l)!==0)||c.ggccId).map((c:any)=>({contractCode:c.contractCode,clientCode:c.clientCode,clientName:c.clientName,product:c.product,provider:c.provider,tariff:c.tariff,description:c.description,directSite:c.directSite||c.sede||null,site:c.site||c.ubicacion||null,operatorLineId:c.operatorLineId||c.identificadorLinea||null,clientCif:c.cif||c.clienteCif||null,speedMbps:c.speedMbps||0,active:isActive(c,m),income:0,contractedIncome:isActive(c,m)?c.monthlyContracted:0,contractedIncomePending:isActive(c,m)&&c.monthlyContracted==null,forecastIncome:isActive(c,m)?c.monthlyForecast:0,contractedCost:null as number|null,contractedCostPending:true,cost:0,estimatedCost:0,costSources:[] as any[],hasCost:false,pendingCost:false,origin:c.source,ggccId:c.ggccId,pendingProvider:c.pendingProvider,datesPending:!c.startDate,personalCost:0}));
     const map=new Map<string,any>(rows.map((r:any)=>[r.contractCode,r]));
     for(const r of rows){r.incomeIT=0;r.incomeOneOff=0;}
-    for(const l of lines)if(l.month===m){const r=map.get(l.contractCode);if(r){r.income+=l.baseAmount;const nature=classifyIncomeLine(l.concept,l.tariff||r.tariff,r.product);if(nature==='SERVICIOS_IT')r.incomeIT+=l.baseAmount;else if(nature==='INSTALACION_PUNTUAL')r.incomeOneOff+=l.baseAmount;}}
+    for(const l of lines){const part=coverShare(l);if(part===0)continue;const r=map.get(l.contractCode);if(r){r.income+=part;const nature=classifyIncomeLine(l.concept,l.tariff||r.tariff,r.product);if(nature==='SERVICIOS_IT')r.incomeIT+=part;else if(nature==='INSTALACION_PUNTUAL')r.incomeOneOff+=part;}}
     const products:any[]=PRODUCT_LABELS.map(product=>({product,contracts:0,income:0,incomeIT:0,incomeOneOff:0,contractedIncome:0,contractedIncomePending:false,forecastIncome:0,contractedCost:null as number|null,contractedCostPending:true,cost:0,estimatedCost:0,unallocatedCost:0,unallocatedEstimatedCost:0,commission:0,pending:false,sources:[] as any[]}));
     const pm=new Map<string,any>(products.map(p=>[p.product,p]));
     for(const r of rows){const p=pm.get(r.product)!;p.contracts++;p.income+=r.income;p.incomeIT+=r.incomeIT;p.incomeOneOff+=r.incomeOneOff;p.contractedIncomePending ||= r.contractedIncomePending;p.contractedIncome=p.contractedIncomePending?null:p.contractedIncome+r.contractedIncome;p.forecastIncome+=r.forecastIncome||0;}
@@ -288,7 +291,7 @@ export function calculateReport(input:any,month:string,mode='real',extra:any={})
       }
       p.rawIncome=p.income;p.rawCost=p.cost;p.rawEstimatedCost=p.estimatedCost;p.rawContractedIncome=p.contractedIncome;p.rawForecastIncome=p.forecastIncome;
       p.margin=money(p.income-p.cost);p.forecastMargin=money(p.forecastIncome-p.cost-p.estimatedCost);p.marginPct=p.pending||p.estimatedCost||!p.income?null:money(100*(p.income-p.cost)/p.income);p.status=p.pending?'PENDIENTE':p.estimatedCost?'ESTIMADO':'REAL';
-      p.oneOffCost=money(p.oneOffCost||0);p.incomeIT=money(p.incomeIT);p.incomeOneOff=money(p.incomeOneOff);p.incomeRecurring=money(p.income-p.incomeIT-p.incomeOneOff);p.income=money(p.income);p.cost=money(p.cost);p.estimatedCost=money(p.estimatedCost);p.contractedIncome=p.contractedIncome==null?null:money(p.contractedIncome);p.forecastIncome=money(p.forecastIncome);
+      p.oneOffCost=money(p.oneOffCost||0);p.costRecurring=money(p.cost-p.oneOffCost);p.marginRecurring=money(p.income-p.costRecurring-p.estimatedCost);p.incomeIT=money(p.incomeIT);p.incomeOneOff=money(p.incomeOneOff);p.incomeRecurring=money(p.income-p.incomeIT-p.incomeOneOff);p.income=money(p.income);p.cost=money(p.cost);p.estimatedCost=money(p.estimatedCost);p.contractedIncome=p.contractedIncome==null?null:money(p.contractedIncome);p.forecastIncome=money(p.forecastIncome);
     }
     for(const r of rows){
       if(noSupplierCost.has(r.product)){r.contractedCost=0;r.contractedCostPending=false;}

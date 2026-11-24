@@ -55,6 +55,7 @@ export function financialColumns(mode: Mode): Column[] {
     { key: 'cost', label: real ? 'Coste real (facturas)' : 'Coste proveedor firmado', kind: 'money', value: row => amount(row, 'cost', mode) },
     { key: 'otherCost', label: real ? 'Coste proveedor firmado' : 'Coste real (contraste)', kind: 'money', value: row => real ? row.contractedCostPending ? null : numeric(row.contractedCost) : row.actualPending ? null : numeric(row.actualCost) },
     { key: 'estimatedCost', label: 'Coste estimado (no real)', kind: 'money', estimated: () => true },
+    ...(real ? [{ key: 'oneOffCost', label: 'De ello, coste puntual (no recurrente)', kind: 'money' as const, value: (row: Row) => numeric(row.oneOffCost) }] : []),
     ...(real ? [{ key: 'costTotal', label: 'Coste total (real + estimado)', kind: 'money' as const, value: (row: Row) => amount(row, 'costTotal', mode), estimated: (row: Row) => hasEstimate(row) }] : []),
     { key: 'margin', label: real ? 'Margen (con estimado)' : 'Margen verificable', kind: 'money', value: row => amount(row, 'margin', mode), estimated: (row: Row) => real && hasEstimate(row) },
     { key: 'marginPct', label: 'Margen %', kind: 'percent', value: row => amount(row, 'marginPct', mode), estimated: (row: Row) => real && hasEstimate(row) },
