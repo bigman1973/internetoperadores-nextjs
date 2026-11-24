@@ -53,6 +53,7 @@ model UsuarioAdmin {
   nombre           String
   rol              RolAdmin          @default(VISOR)
   roles            String[]           @default([])  // Multi-rol: ["VENTAS", "MARKETING", etc.]
+  peticionesArea8Responsable PeticionInterna[] @relation("Area8Responsable")
   activo           Boolean           @default(true)
   ultimoAcceso     DateTime?         @map("ultimo_acceso")
   createdAt        DateTime          @default(now()) @map("created_at")
@@ -3629,12 +3630,37 @@ model PeticionInterna {
   fechaCierre         DateTime? @map("fecha_cierre")
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
+  paginaUrl           String?   @map("area8_pagina_url")
+  urgencia            String    @default("media") @map("area8_urgencia")
+  responsableId       Int?      @map("area8_responsable_id")
+  tramitadaAt         DateTime? @map("area8_tramitada_at")
+  responsable         UsuarioAdmin? @relation("Area8Responsable", fields: [responsableId], references: [id], onDelete: SetNull, map: "area8_responsable_fk")
+  eventos             Area8PeticionEvento[]
+  publicacionesArea9  Area9PublicacionPeticion[]
   mensajes            PeticionMensaje[]
 
   @@index([usuarioEmail])
   @@index([estado])
   @@index([tipo])
+  @@index([responsableId], map: "area8_peticiones_responsable_idx")
   @@map("peticiones_internas")
+}
+
+model Area8PeticionEvento {
+  id              String @id @default(cuid())
+  peticionId      Int @map("peticion_id")
+  peticion        PeticionInterna @relation(fields: [peticionId], references: [id], onDelete: Restrict, map: "area8_evento_peticion_fk")
+  usuarioEmail    String @map("usuario_email")
+  actorId         Int @map("actor_id")
+  estadoAnterior  String @map("estado_anterior")
+  estadoNuevo     String @map("estado_nuevo")
+  mensaje         String
+  createdAt       DateTime @default(now()) @map("created_at")
+  leidoAt         DateTime? @map("leido_at")
+
+  @@index([peticionId, createdAt], map: "area8_eventos_peticion_fecha_idx")
+  @@index([usuarioEmail, createdAt], map: "area8_eventos_usuario_fecha_idx")
+  @@map("area8_peticion_eventos")
 }
 
 model PeticionMensaje {
@@ -6218,4 +6244,55 @@ model Area1CrmConsentimiento {
   @@unique([contactoId, canal, fuente])
   @@index([estado])
   @@map("area1_crm_consentimientos")
+}
+
+model Area9Publicacion {
+  id               String                     @id @default(cuid())
+  deploymentKey    String                     @unique @map("deployment_key") @db.VarChar(240)
+  entorno          String                     @db.VarChar(20)
+  commitHash       String                     @map("commit_hash") @db.VarChar(40)
+  fechaPublicacion DateTime                   @map("fecha_publicacion")
+  titulo           String                     @db.VarChar(200)
+  resumen          String
+  fuente           String                     @db.VarChar(20)
+  url              String                     @db.VarChar(1000)
+  migraciones      Json                       @default("[]")
+  createdAt        DateTime                   @default(now()) @map("created_at")
+  peticiones       Area9PublicacionPeticion[]
+  migracionesAplicadas Area9Migracion[]
+
+  @@index([entorno, fechaPublicacion])
+  @@map("area9_pub_publicaciones")
+}
+
+model Area9PublicacionPeticion {
+  publicacionId    String           @map("publicacion_id")
+  peticionId       Int              @map("peticion_id")
+  fecha            DateTime         @default(now())
+  confirmadoPorInt Int              @map("confirmado_por_int")
+  confirmadoNombre String           @map("confirmado_nombre") @db.VarChar(200)
+  publicacion      Area9Publicacion @relation(fields: [publicacionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  peticion         PeticionInterna  @relation(fields: [peticionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([publicacionId, peticionId])
+  @@index([peticionId])
+  @@map("area9_pub_peticiones")
+}
+
+// Instantáneas opcionales de migraciones APLICADAS, no archivos preparados.
+// databaseKey es SHA-256 de identidad de BD; nunca una URL ni una contraseña.
+model Area9Migracion {
+  id            String            @id @default(cuid())
+  databaseKey   String            @map("database_key") @db.VarChar(64)
+  entorno       String            @db.VarChar(20)
+  nombre        String            @db.VarChar(255)
+  checksum      String            @db.VarChar(64)
+  aplicadaAt    DateTime          @map("aplicada_at")
+  publicacionId String?           @map("publicacion_id")
+  publicacion   Area9Publicacion? @relation(fields: [publicacionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt     DateTime          @default(now()) @map("created_at")
+
+  @@unique([databaseKey, nombre, checksum])
+  @@index([entorno, aplicadaAt])
+  @@map("area9_hist_migraciones")
 }

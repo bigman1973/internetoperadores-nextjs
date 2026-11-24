@@ -1,59 +1,53 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '../../../../../lib/middleware/auth'
-import { prisma } from '../../../../../lib/prisma'
+import { Prisma } from '@prisma/client'
+import { requireArea8Auth } from '@/lib/area8/auth'
+import { checkWriteOrigin, readBody } from '@/lib/area8/validation'
+import { prisma } from '@/lib/prisma'
+import { Area9Error, automaticDevelopment, manualData, positiveId, serializeDevelopment } from '@/lib/area9/core'
+import { area9Failure, area9Headers } from '@/lib/area9/http'
+
+export const dynamic = 'force-dynamic'
+const select = { id: true, titulo: true, descripcion: true, tipo: true, estado: true, autor: true, commitHash: true, rama: true, fecha: true } as const
+function developmentOnly(request: NextRequest) {
+  const vista = new URL(request.url).searchParams.get('vista')
+  if (vista && vista !== 'desarrollos') throw new Area9Error(403, 'El ledger automático no se puede editar ni eliminar')
+}
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAuth('admin')
-    
-    const { id: idStr } = await params
-    const id = parseInt(idStr)
-    const body = await request.json()
-    const { titulo, descripcion, tipo, estado, autor, fecha } = body
-
-    const setClauses: string[] = []
-    const values: any[] = []
-    let paramIndex = 1
-
-    if (titulo !== undefined) { setClauses.push(`titulo = $${paramIndex++}`); values.push(titulo) }
-    if (descripcion !== undefined) { setClauses.push(`descripcion = $${paramIndex++}`); values.push(descripcion) }
-    if (tipo !== undefined) { setClauses.push(`tipo = $${paramIndex++}`); values.push(tipo) }
-    if (estado !== undefined) { setClauses.push(`estado = $${paramIndex++}`); values.push(estado) }
-    if (autor !== undefined) { setClauses.push(`autor = $${paramIndex++}`); values.push(autor) }
-    if (fecha !== undefined) { setClauses.push(`fecha = $${paramIndex++}`); values.push(new Date(fecha)) }
-    
-    setClauses.push(`updated_at = $${paramIndex++}`)
-    values.push(new Date())
-    values.push(id)
-
-    const result = await prisma.$queryRawUnsafe(`
-      UPDATE desarrollo_historial
-      SET ${setClauses.join(', ')}
-      WHERE id = $${paramIndex}
-      RETURNING *
-    `, ...values)
-
-    if (!(result as any[]).length) {
-      return NextResponse.json({ error: 'Registro no encontrado' }, { status: 404 })
-    }
-
-    return NextResponse.json({ registro: (result as any[])[0] })
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
+    const auth = await requireArea8Auth({ management: true, write: true, owner: true, area: 'admin.historial' })
+    if ('error' in auth) return auth.error
+    if (!auth.owner || auth.acting) throw new Area9Error(403, 'Solo el propietario real puede modificar el historial')
+    developmentOnly(request)
+    const id = positiveId((await params).id)
+    const data = manualData(await readBody(request), true)
+    const registro = await prisma.$transaction(async tx => {
+      const previous = await tx.desarrolloHistorial.findUnique({ where: { id }, select })
+      if (!previous) throw new Area9Error(404, 'Desarrollo no encontrado')
+      if (automaticDevelopment(previous)) throw new Area9Error(403, 'Un registro automático no se puede editar')
+      const changed = await tx.desarrolloHistorial.updateMany({ where: { id, commitHash: null, rama: null, autor: previous.autor }, data })
+      if (changed.count !== 1) throw new Area9Error(409, 'El registro ha cambiado; actualiza antes de editar')
+      return (await tx.desarrolloHistorial.findUniqueOrThrow({ where: { id }, select }))
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+    return NextResponse.json({ registro: serializeDevelopment(registro) }, { headers: area9Headers })
+  } catch (error) { return area9Failure(error) }
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAuth('admin')
-    
-    const { id: idStr } = await params
-    const id = parseInt(idStr)
-    
-    await prisma.$queryRawUnsafe(`DELETE FROM desarrollo_historial WHERE id = $1`, id)
-
-    return NextResponse.json({ ok: true })
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
+    const auth = await requireArea8Auth({ management: true, write: true, owner: true, area: 'admin.historial' })
+    if ('error' in auth) return auth.error
+    if (!auth.owner || auth.acting) throw new Area9Error(403, 'Solo el propietario real puede modificar el historial')
+    checkWriteOrigin(request)
+    developmentOnly(request)
+    const id = positiveId((await params).id)
+    await prisma.$transaction(async tx => {
+      const previous = await tx.desarrolloHistorial.findUnique({ where: { id }, select })
+      if (!previous) throw new Area9Error(404, 'Desarrollo no encontrado')
+      if (automaticDevelopment(previous)) throw new Area9Error(403, 'Un registro automático no se puede eliminar')
+      const deleted = await tx.desarrolloHistorial.deleteMany({ where: { id, commitHash: null, rama: null, autor: previous.autor } })
+      if (deleted.count !== 1) throw new Area9Error(409, 'El registro ha cambiado; actualiza antes de eliminar')
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+    return NextResponse.json({ ok: true }, { headers: area9Headers })
+  } catch (error) { return area9Failure(error) }
 }

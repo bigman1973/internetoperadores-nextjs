@@ -1,0 +1,36 @@
+{
+  "estado": "PREPARADO_NO_INSERTADO",
+  "rama": "area8-peticiones-area9-historial",
+  "responsableInsercion": "WEB INTERNET OPERADORES, tras aceptación e integración en staging",
+  "produccionEscrita": false,
+  "registros": [
+    {
+      "titulo": "Peticiones de empleados con página, urgencia y responsable",
+      "descripcion": "Se reutilizan las pantallas y la conversación existentes. La urgencia comunicada por el empleado se separa de la prioridad que decide Víctor; se validan las capturas en servidor y se comprueba la cuenta activa y la propiedad de la petición.",
+      "tipo": "privada",
+      "estado": "primera_version",
+      "autor": "Manus · Áreas 8/9"
+    },
+    {
+      "titulo": "Siete estados y avisos de cambios dentro de Peticiones",
+      "descripcion": "Nueva, en análisis, aprobada, en desarrollo, en pruebas, hecha y descartada. Los estados históricos se interpretan sin reescribir datos. Cada cambio prepara un aviso interno en la misma transacción; la conformidad del solicitante es el único cierre. No se envían correos.",
+      "tipo": "privada",
+      "estado": "primera_version",
+      "autor": "Manus · Áreas 8/9"
+    },
+    {
+      "titulo": "Historial separado de publicaciones y migraciones",
+      "descripcion": "Se conserva el historial de desarrollos y se prepara un registro separado para versiones publicadas, fechas, commits y migraciones realmente aplicadas. Las peticiones ya cerradas se vinculan mediante confirmación humana. El capturador se entrega en modo simulación; su conexión automática y la migración aún no se han activado.",
+      "tipo": "privada",
+      "estado": "pendiente_integracion",
+      "autor": "Manus · Áreas 8/9"
+    },
+    {
+      "titulo": "Consultas seguras y acotadas del historial",
+      "descripcion": "Se sustituyen los filtros SQL interpolados por consultas parametrizadas/ORM y se limita la paginación. Los registros automáticos no se editan desde el CRUD manual. Nuevos campos y tablas solo mediante migraciones aditivas preparadas, no aplicadas.",
+      "tipo": "privada",
+      "estado": "primera_version",
+      "autor": "Manus · Áreas 8/9"
+    }
+  ]
+}

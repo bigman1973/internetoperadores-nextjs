@@ -1,0 +1,4 @@
+OK Área9 API VM: auth/área/owner/acting/origen, ORM+paginación, snake_case, cierre+conformidad, transacción, manual vs automático, no leaks.
+OK Área9 capturador: firma Ed25519, alcance+SHA+BD, success/READY, rechazo preview, producción doble opt-in, migraciones aplicadas, CLI offline por defecto.
+OK Área9 migraciones VM: finished_at/no rollback/checksum, lectura limitada, preparada≠aplicada, sin SQL/filas de negocio.
+PASS Área9: pruebas exclusivamente sintéticas, sin BD, Git, browser, env secrets ni red.

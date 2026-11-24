@@ -13,6 +13,8 @@
     "test:area4": "tsx scripts/test-area4-rbac.ts && tsx scripts/test-area4-menu-presentation.ts && tsx scripts/test-area4-surface-registry.ts && tsx scripts/test-area4-template-route-matrix.ts && tsx scripts/test-area4-runtime-boundary.ts && tsx scripts/test-area4-client-boundary.tsx && tsx tests/adminSidebarSsr.synthetic.test.tsx",
     "test:area5": "tsx scripts/test-area5-gastos.ts",
     "test:areas": "node scripts/areas/run-batteries.mjs",
+    "test:area8": "tsx scripts/test-area8-peticiones.ts && tsx scripts/test-peticiones-mejoras.ts",
+    "test:area9": "tsx scripts/area9-tests.ts",
     "test:areas:infra": "node --test scripts/areas/infrastructure.test.mjs scripts/areas/run-batteries-local-only.test.mjs",
     "release:guard": "node scripts/areas/release-guard.mjs"
   },

@@ -1,0 +1,14 @@
+# Áreas 8/9 — criterios y estado
+
+- [ ] Cualquier empleado activo reporta mejora o fallo con texto, captura, página donde ocurre y urgencia; solo consulta y edita sus propias peticiones. Capturas validadas en servidor y sin datos personales en pruebas.
+- [ ] Estados nueva, en análisis, aprobada, en desarrollo, en pruebas, hecha y descartada; compatibilidad con históricos sin reescritura; responsable y comentarios; Víctor prioriza; confirmación humana del solicitante para hecha.
+- [ ] Cada cambio de estado registra un aviso dentro de la aplicación para quien la pidió, en la misma transacción. No enviar emails ni notificaciones salientes durante esta tanda ni desde preview. Conservar conformidad y solicitud de ajustes existentes.
+- [ ] Historial automático de cada versión realmente publicada: fecha, commit, cambios en lenguaje claro y peticiones ya cerradas vinculadas por confirmación humana. Nunca considerar push/build/preview una publicación productiva. Capturador de producción entregado desactivado hasta autorización y contrato verificado.
+- [ ] Historial de migraciones realmente aplicadas, separado de archivos preparados; tablas area9_ y nunca area9_sis_. Migraciones nuevas aditivas con prefijos area8_/area9_; no aplicar SQL compartido.
+- [ ] Mismas URL y superficies reutilizadas, lenguaje llano, #FF5300/#2D2A26, Roboto, móvil a 400 px. No modificar menú, cabecera, permisos comunes ni empleados.
+- [ ] Batería automática ligera y pnpm build antes del push a rama propia, preview comprobada por SHA. Solo WEB INTERNET OPERADORES integra staging; pantalla solo en staging; nada en producción.
+- [ ] Actualizar historial de desarrollos al cierre; si no hay autorización de escritura compartida, entregar registros pendientes al integrador, sin afirmar inserción. Resumen máximo 10 líneas antes de las 23:37 CET.
+
+## Evidencia de la primera versión
+
+Código de las tres pantallas y APIs implementado y rebasado sobre c4c24973, preservando los archivos comunes y correcciones del integrador. Pruebas sintéticas finales: Área 8, 71 reglas y 58 casos API; UI y Área 9 verdes. Regresión `test:area4` verde (incluye 649 comprobaciones de frontera y 56 de SSR sintético). Prisma generate/validate verdes. TypeScript global devuelve 2: 48 diagnósticos de fuente en las mismas ubicaciones que c4c24973, ninguno en archivos modificados por Áreas 8/9, más un diagnóstico generado para la ruta heredada de tickets de Finanzas, sin cambios. Revisión resuelta y reutilización de la política común; retirada segura incluso tras desasignar responsable. Estado de aceptación: pendiente de aplicar las migraciones y validar en el staging único. Capturador offline preparado; no hook activo ni verificador firmado conectado. No se han insertado los registros de desarrollo en la BD compartida. El recibo de build y la verificación del nuevo preview se entregan fuera del commit, tras terminar ambos.

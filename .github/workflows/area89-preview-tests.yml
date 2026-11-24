@@ -1,0 +1,54 @@
+name: Areas 8 y 9 - pruebas de rama
+on:
+  push:
+    branches: [area8-peticiones-area9-historial]
+  pull_request:
+    branches: [staging]
+    paths:
+      - 'lib/area8/**'
+      - 'lib/area9/**'
+      - 'lib/peticiones-flujo.ts'
+      - 'app/peticiones/**'
+      - 'app/admin/peticiones/**'
+      - 'app/api/peticiones/**'
+      - 'app/api/admin/peticiones/**'
+      - 'app/admin/historial/**'
+      - 'app/api/admin/historial/**'
+      - 'components/peticiones/**'
+      - 'components/admin/HistorialDesarrollosClient.tsx'
+      - 'scripts/test-area8-peticiones.ts'
+      - 'scripts/test-peticiones-mejoras.ts'
+      - 'scripts/area9-*.ts'
+      - 'prisma/migrations/*area8*/**'
+      - 'prisma/migrations/*area9_historial*/**'
+      - '.github/workflows/area89-preview-tests.yml'
+permissions:
+  contents: read
+concurrency:
+  group: area89-tests-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  pruebas-sinteticas:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Instalar dependencias sin scripts ni secretos
+        run: |
+          corepack enable
+          corepack pnpm@10.28.0 install --frozen-lockfile --ignore-scripts
+      - name: Generar cliente Prisma sin conectar a BD
+        run: corepack pnpm@10.28.0 exec prisma generate
+      - name: Peticiones y pantallas, solo dobles de prueba
+        run: corepack pnpm@10.28.0 test:area8
+      - name: Historial y capturador offline, solo datos ficticios
+        run: corepack pnpm@10.28.0 test:area9
+      - name: Convención léxica de migraciones, nunca aplicar SQL
+        run: node scripts/areas/check-migrations.mjs

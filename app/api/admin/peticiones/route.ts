@@ -1,220 +1,95 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
-import { normalizarEmail, puedeCambiarEstadoAdmin, puedeEnviarAValidacion } from '@/lib/peticiones-flujo'
-import { notificarPeticionPendienteValidacion } from '@/lib/peticiones-email'
+import { normalizarEstado, estadosCompatibles, puedeCambiarEstadoAdmin, puedeEnviarAValidacion, transicionAdminPermitida } from '@/lib/peticiones-flujo'
+import { requireArea8Auth, area8Fail } from '@/lib/area8/auth'
+import { includePeticion, petitionError, recordStateEvent, serializePeticion } from '@/lib/area8/peticiones'
+import { Area8InputError, positiveId, readBody, text, urgency } from '@/lib/area8/validation'
 
-async function requireAdmin() {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.email || session.user.userType !== 'admin') return null
-  return session
-}
-
-const includeConversacion = {
-  mensajes: { orderBy: { createdAt: 'asc' as const } },
-}
-
-// GET — obtener todas las peticiones (admin)
 export async function GET(req: NextRequest) {
-  const session = await requireAdmin()
-  if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-
-  const { searchParams } = new URL(req.url)
-  const estado = searchParams.get('estado') || ''
-  const tipo = searchParams.get('tipo') || ''
-
-  const where: any = {}
-  if (estado) where.estado = estado
-  if (tipo) where.tipo = tipo
-
-  const [peticiones, todas] = await Promise.all([
-    prisma.peticionInterna.findMany({
-      where,
-      include: includeConversacion,
-      orderBy: { createdAt: 'desc' },
-    }),
-    prisma.peticionInterna.findMany({ select: { estado: true, tipo: true } }),
-  ])
-
-  const kpis = {
-    total: todas.length,
-    pendientes: todas.filter(p => p.estado === 'pendiente').length,
-    aprobadas: todas.filter(p => p.estado === 'aprobada').length,
-    enDesarrollo: todas.filter(p => p.estado === 'en_desarrollo').length,
-    porValidar: todas.filter(p => p.estado === 'pendiente_validacion').length,
-    conAjustes: todas.filter(p => p.estado === 'ajustes_solicitados').length,
-    resueltas: todas.filter(p => p.estado === 'resuelta').length,
-    descartadas: todas.filter(p => p.estado === 'descartada').length,
-    errores: todas.filter(p => p.tipo === 'error').length,
-    mejoras: todas.filter(p => p.tipo === 'mejora').length,
-    sugerencias: todas.filter(p => p.tipo === 'sugerencia').length,
-  }
-
-  return NextResponse.json({ peticiones, kpis })
+  const auth = await requireArea8Auth({ management: true })
+  if ('error' in auth) return auth.error
+  try {
+    const estado = req.nextUrl.searchParams.get('estado') || ''
+    const tipo = req.nextUrl.searchParams.get('tipo') || ''
+    const normalized = normalizarEstado(estado)
+    if (estado && !normalized || tipo && !['error', 'mejora', 'sugerencia'].includes(tipo)) throw new Area8InputError('Filtro no válido.')
+    const page = Math.min(10000, Math.max(1, Number(req.nextUrl.searchParams.get('page')) || 1))
+    if (!Number.isSafeInteger(page)) throw new Area8InputError('Página no válida.')
+    const where = { ...(normalized && { estado: { in: estadosCompatibles(normalized) } }), ...(tipo && { tipo }) }
+    const [peticiones, counts, tipos, totalFiltrado, responsables] = await Promise.all([
+      prisma.peticionInterna.findMany({ where, include: includePeticion, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 100, skip: (page - 1) * 100 }),
+      prisma.peticionInterna.groupBy({ by: ['estado'], _count: { _all: true } }),
+      prisma.peticionInterna.groupBy({ by: ['tipo'], _count: { _all: true } }),
+      prisma.peticionInterna.count({ where }),
+      prisma.usuarioAdmin.findMany({ where: { activo: true }, select: { id: true, nombre: true }, orderBy: { nombre: 'asc' }, take: 200 }),
+    ])
+    const stateCount = (value: string) => counts.reduce((sum, row) => sum + (normalizarEstado(row.estado) === value ? row._count._all : 0), 0)
+    const typeCount = (value: string) => tipos.reduce((sum, row) => sum + (row.tipo === value ? row._count._all : 0), 0)
+    const kpis = {
+      total: counts.reduce((sum, row) => sum + row._count._all, 0),
+      nuevas: stateCount('nueva'), pendientes: stateCount('nueva'), enAnalisis: stateCount('en_analisis'),
+      aprobadas: stateCount('aprobada'), enDesarrollo: stateCount('en_desarrollo'),
+      enPruebas: stateCount('en_pruebas'), porValidar: stateCount('en_pruebas'),
+      conAjustes: counts.filter(row => row.estado === 'ajustes_solicitados').reduce((sum, row) => sum + row._count._all, 0),
+      hechas: stateCount('hecha'), resueltas: stateCount('hecha'), descartadas: stateCount('descartada'),
+      errores: typeCount('error'), mejoras: typeCount('mejora'), sugerencias: typeCount('sugerencia'),
+    }
+    const writable = await requireArea8Auth({ management: true, write: true })
+    return NextResponse.json({ peticiones: peticiones.map(serializePeticion), kpis, responsables, capacidades: { gestionar: !('error' in writable), priorizar: auth.owner }, total: totalFiltrado, page, hasMore: page * 100 < totalFiltrado })
+  } catch (error) { return petitionError(error) }
 }
 
-// POST — acciones admin
 export async function POST(req: NextRequest) {
-  const session = await requireAdmin()
-  if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-
+  const auth = await requireArea8Auth({ management: true, write: true })
+  if ('error' in auth) return auth.error
   try {
-    const body = await req.json()
-    const { action } = body
-    const id = Number(body.id)
-
-    if (!Number.isInteger(id) || id <= 0) {
-      return NextResponse.json({ error: 'Petición no válida' }, { status: 400 })
-    }
-
+    const body = await readBody(req)
+    const id = positiveId(body.id)
     const existing = await prisma.peticionInterna.findUnique({ where: { id } })
-    if (!existing) return NextResponse.json({ error: 'Petición no encontrada' }, { status: 404 })
+    if (!existing) return area8Fail('Petición no encontrada.', 404).error
+    const action = body.action
+    // No se elimina el historial de una petición tramitada.
+    if (action === 'eliminar') return area8Fail('Conserva la petición y su historial. Si no procede, descártala.', 409).error
+    if (action === 'cambiar_prioridad' && !auth.owner) return area8Fail('Solo Víctor puede priorizar peticiones.', 403).error
+    if (['hecha', 'descartada'].includes(normalizarEstado(existing.estado) || '')) return area8Fail('Esta petición está cerrada. Su historial se conserva.', 409).error
 
-    if (action === 'cambiar_estado') {
-      if (body.estado === 'resuelta') {
-        return NextResponse.json({ error: 'El cierre solo se realiza cuando el solicitante confirma que está satisfecho' }, { status: 409 })
+    const peticion = await prisma.$transaction(async tx => {
+      const change = async (data: Record<string, any>) => {
+        const result = await tx.peticionInterna.updateMany({ where: { id, estado: existing.estado, updatedAt: existing.updatedAt }, data: { ...data, tramitadaAt: existing.tramitadaAt || new Date() } })
+        if (result.count !== 1) throw new Error('AREA8_CONFLICT')
       }
-      if (body.estado === 'pendiente_validacion') {
-        return NextResponse.json({ error: 'Utiliza “Enviar al usuario para validación” e indica qué se ha realizado' }, { status: 409 })
-      }
-      if (!puedeCambiarEstadoAdmin(body.estado)) {
-        return NextResponse.json({ error: 'Estado no permitido para administración' }, { status: 400 })
-      }
-
-      const peticion = await prisma.peticionInterna.update({
-        where: { id },
-        data: { estado: body.estado },
-        include: includeConversacion,
-      })
-      return NextResponse.json({ success: true, peticion })
-    }
-
-    if (action === 'comentario') {
-      const mensaje = typeof body.mensaje === 'string' ? body.mensaje.trim() : ''
-      if (!mensaje) return NextResponse.json({ error: 'Escribe un comentario antes de enviarlo' }, { status: 400 })
-      if (mensaje.length > 2000) return NextResponse.json({ error: 'El comentario no puede superar 2.000 caracteres' }, { status: 400 })
-      if (['resuelta', 'descartada'].includes(existing.estado)) {
-        return NextResponse.json({ error: 'La conversación está cerrada para esta petición' }, { status: 409 })
-      }
-
-      const autorEmail = normalizarEmail(session.user.email)
-      const autorNombre = session.user.name || autorEmail
-      const peticion = await prisma.$transaction(async tx => {
-        await tx.peticionMensaje.create({
-          data: {
-            peticionId: id,
-            autorEmail,
-            autorNombre,
-            autorTipo: 'admin',
-            tipo: 'comentario',
-            mensaje,
-          },
-        })
-        return tx.peticionInterna.update({
-          where: { id },
-          data: { updatedAt: new Date() },
-          include: includeConversacion,
-        })
-      })
-      return NextResponse.json({ success: true, peticion })
-    }
-
-    if (action === 'enviar_validacion') {
-      const mensaje = typeof body.mensaje === 'string' ? body.mensaje.trim() : ''
-      if (!mensaje) {
-        return NextResponse.json({ error: 'Explica al solicitante qué se ha realizado antes de enviar a validación' }, { status: 400 })
-      }
-      if (!puedeEnviarAValidacion(existing.estado)) {
-        return NextResponse.json({ error: 'La petición debe estar aprobada, en desarrollo o requerir ajustes antes de enviarla a validación' }, { status: 409 })
-      }
-
-      const now = new Date()
-      const autorEmail = normalizarEmail(session.user.email)
-      const autorNombre = session.user.name || autorEmail
-      const peticion = await prisma.$transaction(async tx => {
-        const change = await tx.peticionInterna.updateMany({
-          where: { id, estado: existing.estado },
-          data: {
-            estado: 'pendiente_validacion',
-            notasAdmin: mensaje,
-            resueltaPor: autorNombre,
-            fechaResolucion: now,
-            feedbackSatisfecho: null,
-            fechaFeedback: null,
-            fechaCierre: null,
-          },
-        })
-        if (change.count !== 1) throw new Error('VALIDATION_CONFLICT')
-
-        await tx.peticionMensaje.create({
-          data: {
-            peticionId: id,
-            autorEmail,
-            autorNombre,
-            autorTipo: 'admin',
-            tipo: 'entrega',
-            mensaje,
-          },
-        })
-
-        return tx.peticionInterna.findUniqueOrThrow({
-          where: { id },
-          include: includeConversacion,
-        })
-      })
-
-      const email = await notificarPeticionPendienteValidacion({
-        to: peticion.usuarioEmail,
-        usuarioNombre: peticion.usuarioNombre,
-        peticionId: peticion.id,
-        titulo: peticion.titulo,
-        entrega: mensaje,
-        baseUrl: process.env.NEXTAUTH_URL || new URL(req.url).origin,
-      })
-      if (!email.success) {
-        console.error(`No se pudo notificar por email la petición #${peticion.id}:`, email.error)
-      }
-
-      return NextResponse.json({
-        success: true,
-        peticion,
-        email: { enviado: email.success, error: email.success ? undefined : email.error },
-      })
-    }
-
-    if (action === 'cambiar_prioridad') {
-      const prioridades = ['baja', 'media', 'alta', 'critica']
-      if (!prioridades.includes(body.prioridad)) return NextResponse.json({ error: 'Prioridad no válida' }, { status: 400 })
-
-      const peticion = await prisma.peticionInterna.update({
-        where: { id },
-        data: { prioridad: body.prioridad },
-        include: includeConversacion,
-      })
-      return NextResponse.json({ success: true, peticion })
-    }
-
-    if (action === 'notas_admin') {
-      const notas = typeof body.notas === 'string' ? body.notas.trim() : ''
-      const peticion = await prisma.peticionInterna.update({
-        where: { id },
-        data: { notasAdmin: notas || null },
-        include: includeConversacion,
-      })
-      return NextResponse.json({ success: true, peticion })
-    }
-
-    if (action === 'eliminar') {
-      await prisma.peticionInterna.delete({ where: { id } })
-      return NextResponse.json({ success: true })
-    }
-
-    return NextResponse.json({ error: 'Acción no reconocida' }, { status: 400 })
-  } catch (error: any) {
-    if (error.message === 'VALIDATION_CONFLICT') {
-      return NextResponse.json({ error: 'Esta petición ya se ha enviado a validación' }, { status: 409 })
-    }
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
+      if (action === 'cambiar_estado') {
+        const estado = normalizarEstado(body.estado)
+        if (estado === 'hecha') throw new Area8InputError('El cierre lo confirma quien pidió la mejora.')
+        if (estado === 'en_pruebas') throw new Area8InputError('Utiliza «Enviar a pruebas» y explica lo realizado.')
+        if (!puedeCambiarEstadoAdmin(estado)) throw new Area8InputError('Estado no permitido.')
+        if (!transicionAdminPermitida(existing.estado, estado)) throw new Error('AREA8_CONFLICT')
+        await change({ estado })
+        await recordStateEvent(tx, existing, estado, auth.id)
+      } else if (action === 'enviar_validacion') {
+        const mensaje = text(body.mensaje, 'Resumen de lo realizado', 2000)
+        if (!puedeEnviarAValidacion(existing.estado)) throw new Error('AREA8_CONFLICT')
+        await change({ estado: 'en_pruebas', notasAdmin: mensaje, resueltaPor: auth.nombre, fechaResolucion: new Date(), feedbackSatisfecho: null, fechaFeedback: null, fechaCierre: null })
+        await tx.peticionMensaje.create({ data: { peticionId: id, autorEmail: auth.email, autorNombre: auth.nombre, autorTipo: 'admin', tipo: 'entrega', mensaje } })
+        await recordStateEvent(tx, existing, 'en_pruebas', auth.id, mensaje)
+      } else if (action === 'comentario') {
+        const mensaje = text(body.mensaje, 'Comentario', 2000)
+        await change({ updatedAt: new Date() })
+        await tx.peticionMensaje.create({ data: { peticionId: id, autorEmail: auth.email, autorNombre: auth.nombre, autorTipo: 'admin', tipo: 'comentario', mensaje } })
+      } else if (action === 'asignar_responsable') {
+        const responsableId = body.responsableId === null ? null : positiveId(body.responsableId)
+        if (responsableId !== null) {
+          const responsible = await tx.usuarioAdmin.findUnique({ where: { id: responsableId }, select: { activo: true } })
+          if (!responsible?.activo) throw new Area8InputError('Selecciona una persona con cuenta activa.')
+        }
+        await change({ responsableId })
+      } else if (action === 'cambiar_prioridad') {
+        await change({ prioridad: urgency(body.prioridad) })
+      } else if (action === 'notas_admin') {
+        await change({ notasAdmin: text(body.notas || '', 'Notas', 10000, false) || null })
+      } else throw new Area8InputError('Acción no reconocida.')
+      return tx.peticionInterna.findUniqueOrThrow({ where: { id }, include: includePeticion })
+    })
+    return NextResponse.json({ success: true, peticion: serializePeticion(peticion), aviso: { preparado: ['cambiar_estado', 'enviar_validacion'].includes(action), enviado: false, canal: 'aplicacion' } })
+  } catch (error) { return petitionError(error) }
 }

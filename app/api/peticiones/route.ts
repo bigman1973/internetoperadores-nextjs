@@ -1,254 +1,157 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
-import { estadoTrasFeedback, normalizarEmail } from '@/lib/peticiones-flujo'
-import { canImpersonate } from '@/lib/empleado-impersonation'
+import { estadoTrasFeedback, estadosCompatibles, normalizarEmail, normalizarEstado } from '@/lib/peticiones-flujo'
+import { requireArea8Auth, area8Fail } from '@/lib/area8/auth'
+import { includePeticion, petitionError, recordStateEvent, serializePeticion } from '@/lib/area8/peticiones'
+import { Area8InputError, checkWriteOrigin, pageUrl, positiveId, readBody, screenshot, text, urgency } from '@/lib/area8/validation'
 
-function peticionPropia(id: number, email: string) {
-  return prisma.peticionInterna.findFirst({
-    where: {
-      id,
-      usuarioEmail: { equals: normalizarEmail(email), mode: 'insensitive' },
-    },
-    include: { mensajes: { orderBy: { createdAt: 'asc' } } },
-  })
-}
+const ownWhere = (id: number, email: string) => ({ id, usuarioEmail: { equals: email, mode: 'insensitive' as const } })
+const ownPetition = (id: number, email: string) => prisma.peticionInterna.findFirst({ where: ownWhere(id, email), include: includePeticion })
+const readOnlyAs = (req: NextRequest) => req.nextUrl.searchParams.has('as')
 
-// GET — obtener mis peticiones con su conversación o un resumen para el aviso de inicio
+// Los selectores del navegador solo habilitan una consulta autorizada, nunca escritura.
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.email) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-
-  const sessionEmail = normalizarEmail(session.user.email)
-  const requestedEmail = req.nextUrl.searchParams.get('as')
-  let usuarioEmail = sessionEmail
-  let isImpersonating = false
-
-  if (requestedEmail && normalizarEmail(requestedEmail) !== sessionEmail) {
-    if (!canImpersonate(sessionEmail, session.user.role || '')) {
-      return NextResponse.json({ error: 'No tienes permisos para consultar las peticiones de otro usuario' }, { status: 403 })
-    }
-    usuarioEmail = normalizarEmail(requestedEmail)
-    isImpersonating = true
-  }
-
-  if (req.nextUrl.searchParams.get('resumen') === 'validacion') {
-    const peticiones = await prisma.peticionInterna.findMany({
-      where: {
-        usuarioEmail: { equals: usuarioEmail, mode: 'insensitive' },
-        estado: 'pendiente_validacion',
-      },
-      select: { id: true, titulo: true, fechaResolucion: true },
-      orderBy: { fechaResolucion: 'asc' },
-    })
-    return NextResponse.json({ total: peticiones.length, peticiones, isImpersonating, usuarioEmail })
-  }
-
-  const peticiones = await prisma.peticionInterna.findMany({
-    where: { usuarioEmail: { equals: usuarioEmail, mode: 'insensitive' } },
-    include: { mensajes: { orderBy: { createdAt: 'asc' } } },
-    orderBy: { createdAt: 'desc' },
-  })
-
-  const ordenEstado: Record<string, number> = {
-    pendiente_validacion: 0,
-    ajustes_solicitados: 1,
-    en_desarrollo: 2,
-    aprobada: 3,
-    pendiente: 4,
-    resuelta: 5,
-    descartada: 6,
-  }
-  peticiones.sort((a, b) => {
-    const diferenciaEstado = (ordenEstado[a.estado] ?? 99) - (ordenEstado[b.estado] ?? 99)
-    return diferenciaEstado || b.createdAt.getTime() - a.createdAt.getTime()
-  })
-
-  return NextResponse.json({ peticiones, isImpersonating, usuarioEmail })
-}
-
-// PUT — editar mi petición (solo si está pendiente)
-export async function PUT(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.email) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-
+  const auth = await requireArea8Auth()
+  if ('error' in auth) return auth.error
   try {
-    const body = await req.json()
-    const { id, titulo, descripcion, captura } = body
-    if (!id) return NextResponse.json({ error: 'Falta id' }, { status: 400 })
-
-    const existing = await peticionPropia(Number(id), session.user.email)
-    if (!existing) return NextResponse.json({ error: 'Petición no encontrada' }, { status: 404 })
-    if (existing.estado !== 'pendiente') return NextResponse.json({ error: 'Solo se pueden editar peticiones pendientes' }, { status: 400 })
-
-    const updated = await prisma.peticionInterna.update({
-      where: { id: Number(id) },
-      data: {
-        ...(typeof titulo === 'string' && titulo.trim() && { titulo: titulo.trim() }),
-        ...(typeof descripcion === 'string' && descripcion.trim() && { descripcion: descripcion.trim() }),
-        ...(captura !== undefined && { captura: captura || null }),
-      },
-    })
-    return NextResponse.json({ success: true, peticion: updated })
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-}
-
-// PATCH — validar una entrega como solicitante
-export async function PATCH(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.email) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-
-  try {
-    const body = await req.json()
-    const id = Number(body.id)
-    const satisfecho = body.satisfecho
-    const comentario = typeof body.comentario === 'string' ? body.comentario.trim() : ''
-
-    if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'Petición no válida' }, { status: 400 })
-    if (typeof satisfecho !== 'boolean') return NextResponse.json({ error: 'Debes indicar si la entrega cumple tus requisitos' }, { status: 400 })
-    if (!satisfecho && !comentario) return NextResponse.json({ error: 'Explícanos qué ajustes necesitas para poder revisarlo' }, { status: 400 })
-
-    const existing = await peticionPropia(id, session.user.email)
-    if (!existing) return NextResponse.json({ error: 'Petición no encontrada' }, { status: 404 })
-    if (existing.estado !== 'pendiente_validacion') {
-      return NextResponse.json({ error: 'Esta petición no está pendiente de tu validación' }, { status: 409 })
+    const requested = req.nextUrl.searchParams.get('as')
+    let email = auth.email
+    let isImpersonating = auth.acting
+    if (requested && normalizarEmail(requested) !== email) {
+      if (!auth.owner || auth.acting) return area8Fail('No tienes permiso para consultar las peticiones de otra persona.', 403).error
+      const target = await prisma.usuarioAdmin.findFirst({ where: { email: { equals: normalizarEmail(requested), mode: 'insensitive' }, activo: true }, select: { email: true } })
+      if (!target) return area8Fail('No se puede consultar esta cuenta.', 404).error
+      email = normalizarEmail(target.email)
+      isImpersonating = true
     }
-
-    const now = new Date()
-    const estado = estadoTrasFeedback(satisfecho)
-    const mensaje = comentario || 'Confirmo que la entrega cumple mis requisitos.'
-    const autorEmail = normalizarEmail(session.user.email)
-    const autorNombre = session.user.name || existing.usuarioNombre || autorEmail.split('@')[0]
-
-    const updated = await prisma.$transaction(async tx => {
-      const change = await tx.peticionInterna.updateMany({
-        where: { id, estado: 'pendiente_validacion' },
-        data: {
-          estado,
-          feedbackSatisfecho: satisfecho,
-          fechaFeedback: now,
-          fechaCierre: satisfecho ? now : null,
-        },
-      })
-      if (change.count !== 1) throw new Error('FEEDBACK_CONFLICT')
-
-      await tx.peticionMensaje.create({
-        data: {
-          peticionId: id,
-          autorEmail,
-          autorNombre,
-          autorTipo: 'solicitante',
-          tipo: satisfecho ? 'conformidad' : 'ajustes',
-          mensaje,
-        },
-      })
-
-      return tx.peticionInterna.findUniqueOrThrow({
-        where: { id },
-        include: { mensajes: { orderBy: { createdAt: 'asc' } } },
-      })
-    })
-
-    return NextResponse.json({ success: true, peticion: updated })
-  } catch (error: any) {
-    if (error.message === 'FEEDBACK_CONFLICT') {
-      return NextResponse.json({ error: 'Esta petición ya ha recibido una respuesta de validación' }, { status: 409 })
+    const where = { usuarioEmail: { equals: email, mode: 'insensitive' as const } }
+    if (req.nextUrl.searchParams.get('resumen') === 'validacion') {
+      const filtro = { ...where, estado: { in: estadosCompatibles('en_pruebas') } }
+      const [peticiones, total] = await Promise.all([
+        prisma.peticionInterna.findMany({ where: filtro, select: { id: true, titulo: true, fechaResolucion: true }, orderBy: { fechaResolucion: 'asc' }, take: 100 }),
+        prisma.peticionInterna.count({ where: filtro }),
+      ])
+      return NextResponse.json({ total, peticiones, isImpersonating, usuarioEmail: email })
     }
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
+    const page = Math.min(10000, Math.max(1, Number(req.nextUrl.searchParams.get('page')) || 1))
+    if (!Number.isSafeInteger(page)) throw new Area8InputError('Página no válida.')
+    const [peticiones, total] = await Promise.all([
+      prisma.peticionInterna.findMany({ where, include: includePeticion, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 200, skip: (page - 1) * 200 }),
+      prisma.peticionInterna.count({ where }),
+    ])
+    return NextResponse.json({ peticiones: peticiones.map(serializePeticion), total, page, hasMore: page * 200 < total, isImpersonating, usuarioEmail: email })
+  } catch (error) { return petitionError(error) }
 }
 
-// DELETE — eliminar mi petición (solo si está pendiente)
-export async function DELETE(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.email) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-
-  try {
-    const { searchParams } = new URL(req.url)
-    const id = Number(searchParams.get('id'))
-    if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'Falta id' }, { status: 400 })
-
-    const existing = await peticionPropia(id, session.user.email)
-    if (!existing) return NextResponse.json({ error: 'Petición no encontrada' }, { status: 404 })
-    if (existing.estado !== 'pendiente') return NextResponse.json({ error: 'Solo se pueden eliminar peticiones pendientes' }, { status: 400 })
-
-    await prisma.peticionInterna.delete({ where: { id } })
-    return NextResponse.json({ success: true })
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-}
-
-// POST — crear nueva petición
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.email) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-
+  const auth = await requireArea8Auth({ write: true })
+  if ('error' in auth) return auth.error
+  if (readOnlyAs(req)) return area8Fail('Esta consulta es de solo lectura.', 403).error
   try {
-    const body = await req.json()
-
+    const body = await readBody(req)
     if (body.action === 'comentario') {
-      const id = Number(body.id)
-      const mensaje = typeof body.mensaje === 'string' ? body.mensaje.trim() : ''
-      if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'Petición no válida' }, { status: 400 })
-      if (!mensaje) return NextResponse.json({ error: 'Escribe un comentario antes de enviarlo' }, { status: 400 })
-      if (mensaje.length > 2000) return NextResponse.json({ error: 'El comentario no puede superar 2.000 caracteres' }, { status: 400 })
-
-      const existing = await peticionPropia(id, session.user.email)
-      if (!existing) return NextResponse.json({ error: 'Petición no encontrada' }, { status: 404 })
-      if (['resuelta', 'descartada'].includes(existing.estado)) {
-        return NextResponse.json({ error: 'La conversación está cerrada para esta petición' }, { status: 409 })
-      }
-
-      const autorEmail = normalizarEmail(session.user.email)
-      const autorNombre = session.user.name || existing.usuarioNombre || autorEmail.split('@')[0]
+      const id = positiveId(body.id)
+      const mensaje = text(body.mensaje, 'Comentario', 2000)
+      const existing = await ownPetition(id, auth.email)
+      if (!existing) return area8Fail('Petición no encontrada.', 404).error
+      if (['hecha', 'descartada'].includes(normalizarEstado(existing.estado) || '')) return area8Fail('La conversación de esta petición está cerrada.', 409).error
       const peticion = await prisma.$transaction(async tx => {
-        await tx.peticionMensaje.create({
-          data: {
-            peticionId: id,
-            autorEmail,
-            autorNombre,
-            autorTipo: 'solicitante',
-            tipo: 'comentario',
-            mensaje,
-          },
-        })
-        return tx.peticionInterna.update({
-          where: { id },
-          data: { updatedAt: new Date() },
-          include: { mensajes: { orderBy: { createdAt: 'asc' } } },
-        })
+        const change = await tx.peticionInterna.updateMany({ where: { ...ownWhere(id, auth.email), estado: existing.estado }, data: { updatedAt: new Date() } })
+        if (change.count !== 1) throw new Error('AREA8_CONFLICT')
+        await tx.peticionMensaje.create({ data: { peticionId: id, autorEmail: auth.email, autorNombre: auth.nombre, autorTipo: 'solicitante', tipo: 'comentario', mensaje } })
+        return tx.peticionInterna.findUniqueOrThrow({ where: { id }, include: includePeticion })
       })
-      return NextResponse.json({ success: true, peticion })
+      return NextResponse.json({ success: true, peticion: serializePeticion(peticion) })
     }
-
-    const { tipo, seccion, captura } = body
-    const titulo = typeof body.titulo === 'string' ? body.titulo.trim() : ''
-    const descripcion = typeof body.descripcion === 'string' ? body.descripcion.trim() : ''
-
-    if (!titulo || !descripcion) {
-      return NextResponse.json({ error: 'Título y descripción son obligatorios' }, { status: 400 })
+    if (body.action === 'leer_aviso') {
+      if (body.confirmo !== true) throw new Area8InputError('Confirma que has leído este aviso.')
+      const id = text(body.eventoId, 'Aviso', 100)
+      const count = await prisma.area8PeticionEvento.updateMany({ where: { id, usuarioEmail: { equals: auth.email, mode: 'insensitive' }, leidoAt: null }, data: { leidoAt: new Date() } })
+      return NextResponse.json({ success: true, marcado: count.count === 1 })
     }
+    if (body.action !== undefined) throw new Area8InputError('Acción no reconocida.')
+    const tipo = body.tipo || 'mejora'
+    const seccion = body.seccion || 'panel_admin'
+    if (!['error', 'mejora', 'sugerencia'].includes(tipo) || !['panel_admin', 'web_publica', 'portal_empleado'].includes(seccion)) throw new Area8InputError('Tipo o sección no válidos.')
+    const peticion = await prisma.peticionInterna.create({ data: {
+      tipo, seccion, titulo: text(body.titulo, 'Título', 200), descripcion: text(body.descripcion, 'Descripción', 10000),
+      captura: screenshot(body.captura), paginaUrl: pageUrl(body.paginaUrl), urgencia: urgency(body.urgencia || 'media'),
+      usuarioEmail: auth.email, usuarioNombre: auth.nombre, prioridad: 'media', estado: 'nueva',
+    }, include: includePeticion })
+    return NextResponse.json({ success: true, peticion: serializePeticion(peticion) }, { status: 201 })
+  } catch (error) { return petitionError(error) }
+}
 
-    const usuarioEmail = normalizarEmail(session.user.email)
-    const peticion = await prisma.peticionInterna.create({
-      data: {
-        tipo: tipo || 'mejora',
-        seccion: seccion || 'panel_admin',
-        titulo,
-        descripcion,
-        captura: captura || null,
-        usuarioEmail,
-        usuarioNombre: session.user.name || usuarioEmail.split('@')[0],
-        prioridad: tipo === 'error' ? 'alta' : 'media',
-      },
+export async function PUT(req: NextRequest) {
+  const auth = await requireArea8Auth({ write: true })
+  if ('error' in auth) return auth.error
+  if (readOnlyAs(req)) return area8Fail('Esta consulta es de solo lectura.', 403).error
+  try {
+    const body = await readBody(req)
+    const id = positiveId(body.id)
+    const existing = await ownPetition(id, auth.email)
+    if (!existing) return area8Fail('Petición no encontrada.', 404).error
+    if (normalizarEstado(existing.estado) !== 'nueva') return area8Fail('Solo se pueden editar peticiones nuevas.', 409).error
+    if (body.tipo !== undefined && !['error', 'mejora', 'sugerencia'].includes(body.tipo)) throw new Area8InputError('Tipo no válido.')
+    if (body.seccion !== undefined && !['panel_admin', 'web_publica', 'portal_empleado'].includes(body.seccion)) throw new Area8InputError('Sección no válida.')
+    const data = {
+      ...(body.tipo !== undefined && { tipo: body.tipo }),
+      ...(body.seccion !== undefined && { seccion: body.seccion }),
+      ...(body.titulo !== undefined && { titulo: text(body.titulo, 'Título', 200) }),
+      ...(body.descripcion !== undefined && { descripcion: text(body.descripcion, 'Descripción', 10000) }),
+      ...(body.captura !== undefined && { captura: screenshot(body.captura) }),
+      ...(body.paginaUrl !== undefined && { paginaUrl: pageUrl(body.paginaUrl) }),
+      ...(body.urgencia !== undefined && { urgencia: urgency(body.urgencia) }),
+    }
+    const peticion = await prisma.$transaction(async tx => {
+      const change = await tx.peticionInterna.updateMany({ where: { ...ownWhere(id, auth.email), estado: existing.estado }, data })
+      if (change.count !== 1) throw new Error('AREA8_CONFLICT')
+      return tx.peticionInterna.findUniqueOrThrow({ where: { id }, include: includePeticion })
     })
+    return NextResponse.json({ success: true, peticion: serializePeticion(peticion) })
+  } catch (error) { return petitionError(error) }
+}
 
-    return NextResponse.json({ success: true, peticion })
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
+// Solamente quien pidió la mejora puede dar conformidad: no la da un despliegue.
+export async function PATCH(req: NextRequest) {
+  const auth = await requireArea8Auth({ write: true })
+  if ('error' in auth) return auth.error
+  if (readOnlyAs(req)) return area8Fail('Esta consulta es de solo lectura.', 403).error
+  try {
+    const body = await readBody(req)
+    const id = positiveId(body.id)
+    if (typeof body.satisfecho !== 'boolean') throw new Area8InputError('Indica si la entrega cumple tus requisitos.')
+    const comentario = body.comentario === undefined ? '' : text(body.comentario, 'Comentario', 2000, false)
+    if (!body.satisfecho && !comentario) throw new Area8InputError('Explica qué ajustes necesitas.')
+    const existing = await ownPetition(id, auth.email)
+    if (!existing) return area8Fail('Petición no encontrada.', 404).error
+    if (normalizarEstado(existing.estado) !== 'en_pruebas') return area8Fail('Esta petición no está pendiente de tu conformidad.', 409).error
+    const estado = estadoTrasFeedback(body.satisfecho)
+    const now = new Date()
+    const mensaje = comentario || 'Confirmo que la entrega cumple mis requisitos.'
+    const peticion = await prisma.$transaction(async tx => {
+      const change = await tx.peticionInterna.updateMany({ where: { ...ownWhere(id, auth.email), estado: existing.estado }, data: { estado, feedbackSatisfecho: body.satisfecho, fechaFeedback: now, fechaCierre: body.satisfecho ? now : null } })
+      if (change.count !== 1) throw new Error('AREA8_CONFLICT')
+      await tx.peticionMensaje.create({ data: { peticionId: id, autorEmail: auth.email, autorNombre: auth.nombre, autorTipo: 'solicitante', tipo: body.satisfecho ? 'conformidad' : 'ajustes', mensaje } })
+      await recordStateEvent(tx, existing, estado, auth.id, mensaje)
+      return tx.peticionInterna.findUniqueOrThrow({ where: { id }, include: includePeticion })
+    })
+    return NextResponse.json({ success: true, peticion: serializePeticion(peticion), aviso: { preparado: true, enviado: false, canal: 'aplicacion' } })
+  } catch (error) { return petitionError(error) }
+}
+
+export async function DELETE(req: NextRequest) {
+  const auth = await requireArea8Auth({ write: true })
+  if ('error' in auth) return auth.error
+  if (readOnlyAs(req)) return area8Fail('Esta consulta es de solo lectura.', 403).error
+  try {
+    checkWriteOrigin(req)
+    const id = positiveId(req.nextUrl.searchParams.get('id'))
+    const existing = await ownPetition(id, auth.email)
+    if (!existing) return area8Fail('Petición no encontrada.', 404).error
+    if (normalizarEstado(existing.estado) !== 'nueva' || existing.eventos.length || existing.tramitadaAt || existing.responsableId || existing.notasAdmin || existing.mensajes.some(message => message.autorTipo === 'admin')) return area8Fail('Solo puedes retirar una petición nueva que todavía no se haya tramitado.', 409).error
+    const result = await prisma.peticionInterna.deleteMany({ where: { ...ownWhere(id, auth.email), estado: existing.estado, tramitadaAt: null, responsableId: null, notasAdmin: null, mensajes: { none: { autorTipo: 'admin' } }, eventos: { none: {} } } })
+    if (result.count !== 1) throw new Error('AREA8_CONFLICT')
+    return NextResponse.json({ success: true })
+  } catch (error) { return petitionError(error) }
 }

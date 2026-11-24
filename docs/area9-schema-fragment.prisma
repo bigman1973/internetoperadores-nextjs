@@ -1,0 +1,58 @@
+// ÁREA 9 — REFERENCIA YA INCORPORADA POR EL INTEGRADOR A schema.prisma.
+// No volver a añadir estos tres modelos. Este archivo NO aplica SQL.
+// Inversa ya incorporada dentro de PeticionInterna:
+//   publicacionesArea9 Area9PublicacionPeticion[]
+// No cambiar ni reescribir DesarrolloHistorial ni estados de PeticionInterna.
+// Después: prisma validate / generate offline; revisar y aplicar la migración
+// SOLO en una BD de staging aislada autorizada. Este archivo no aplica SQL.
+
+model Area9Publicacion {
+  id               String                     @id @default(cuid())
+  deploymentKey    String                     @unique @map("deployment_key") @db.VarChar(240)
+  entorno          String                     @db.VarChar(20)
+  commitHash       String                     @map("commit_hash") @db.VarChar(40)
+  fechaPublicacion DateTime                   @map("fecha_publicacion")
+  titulo           String                     @db.VarChar(200)
+  resumen          String
+  fuente           String                     @db.VarChar(20)
+  url              String                     @db.VarChar(1000)
+  migraciones      Json                       @default("[]")
+  createdAt        DateTime                   @default(now()) @map("created_at")
+  peticiones       Area9PublicacionPeticion[]
+  migracionesAplicadas Area9Migracion[]
+
+  @@index([entorno, fechaPublicacion])
+  @@map("area9_pub_publicaciones")
+}
+
+model Area9PublicacionPeticion {
+  publicacionId    String           @map("publicacion_id")
+  peticionId       Int              @map("peticion_id")
+  fecha            DateTime         @default(now())
+  confirmadoPorInt Int              @map("confirmado_por_int")
+  confirmadoNombre String           @map("confirmado_nombre") @db.VarChar(200)
+  publicacion      Area9Publicacion @relation(fields: [publicacionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  peticion         PeticionInterna  @relation(fields: [peticionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([publicacionId, peticionId])
+  @@index([peticionId])
+  @@map("area9_pub_peticiones")
+}
+
+// Instantáneas opcionales de migraciones APLICADAS, no archivos preparados.
+// databaseKey es SHA-256 de identidad de BD; nunca una URL ni una contraseña.
+model Area9Migracion {
+  id            String            @id @default(cuid())
+  databaseKey   String            @map("database_key") @db.VarChar(64)
+  entorno       String            @db.VarChar(20)
+  nombre        String            @db.VarChar(255)
+  checksum      String            @db.VarChar(64)
+  aplicadaAt    DateTime          @map("aplicada_at")
+  publicacionId String?           @map("publicacion_id")
+  publicacion   Area9Publicacion? @relation(fields: [publicacionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt     DateTime          @default(now()) @map("created_at")
+
+  @@unique([databaseKey, nombre, checksum])
+  @@index([entorno, aplicadaAt])
+  @@map("area9_hist_migraciones")
+}
