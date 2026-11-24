@@ -19,42 +19,43 @@ export function getBrevoApiKey(env: Env = process.env): string {
   return source ? (env[source] || '').trim() : ''
 }
 
+export type BrevoLectura = { ok: boolean; httpStatus: number | null; codigo: string | null; mensaje: string | null }
+
 export type BrevoEstado = {
   fuente: BrevoKeySource | null
   variables: { BREVO_API_KEY_STAGING: boolean; BREVO_API_KEY: boolean }
   ok: boolean
   error: string | null
+  pruebas: { cuenta: BrevoLectura | null; listas: BrevoLectura | null }
   cuenta: { empresa: string | null; planes: string[] } | null
   listas: Array<{ id: number; nombre: string; suscriptores: number | null }>
   totalListas: number | null
 }
 
-/** Comprobación de SOLO LECTURA: GET /v3/account y GET /v3/contacts/lists. No envía nada ni modifica contactos. */
+async function leer(fetchImpl: typeof fetch, url: string, key: string): Promise<{ r: BrevoLectura; body: any }> {
+  try {
+    const res = await fetchImpl(url, { method: 'GET', headers: { 'api-key': key, accept: 'application/json' }, cache: 'no-store' })
+    const body = await res.json().catch(() => ({}))
+    const mensaje = res.ok ? null : String(body?.message || '').replace(key, '***').slice(0, 160) || null
+    return { r: { ok: res.ok, httpStatus: res.status, codigo: res.ok ? null : (body?.code ? String(body.code) : null), mensaje }, body }
+  } catch (e) {
+    return { r: { ok: false, httpStatus: null, codigo: 'red', mensaje: e instanceof Error ? e.message.slice(0, 80) : 'error de red' }, body: null }
+  }
+}
+
+/** Comprobación de SOLO LECTURA: GET /v3/account y GET /v3/contacts/lists, por separado. No envía nada ni modifica contactos. */
 export async function comprobarBrevo(fetchImpl: typeof fetch = fetch, env: Env = process.env): Promise<BrevoEstado> {
   const fuente = brevoApiKeySource(env)
   const variables = { BREVO_API_KEY_STAGING: Boolean((env.BREVO_API_KEY_STAGING || '').trim()), BREVO_API_KEY: Boolean((env.BREVO_API_KEY || '').trim()) }
-  const base: BrevoEstado = { fuente, variables, ok: false, error: null, cuenta: null, listas: [], totalListas: null }
+  const base: BrevoEstado = { fuente, variables, ok: false, error: null, pruebas: { cuenta: null, listas: null }, cuenta: null, listas: [], totalListas: null }
   if (!fuente) return { ...base, error: 'BREVO_API_KEY_NO_CONFIGURADA' }
-  const headers = { 'api-key': getBrevoApiKey(env), accept: 'application/json' }
-  try {
-    const rc = await fetchImpl('https://api.brevo.com/v3/account', { method: 'GET', headers, cache: 'no-store' })
-    if (!rc.ok) return { ...base, error: rc.status === 401 ? 'BREVO_HTTP_401_CLAVE_NO_VALIDA_O_REVOCADA' : `BREVO_HTTP_${rc.status}` }
-    const cuenta = await rc.json().catch(() => ({}))
-    const rl = await fetchImpl('https://api.brevo.com/v3/contacts/lists?limit=50&offset=0', { method: 'GET', headers, cache: 'no-store' })
-    if (!rl.ok) {
-      return { ...base, ok: false, error: `BREVO_LISTAS_HTTP_${rl.status}`, cuenta: { empresa: cuenta?.companyName ?? null, planes: Array.isArray(cuenta?.plan) ? cuenta.plan.map((p: { type?: string }) => String(p?.type || '')) : [] } }
-    }
-    const listas = await rl.json().catch(() => ({}))
-    return {
-      ...base,
-      ok: true,
-      cuenta: { empresa: cuenta?.companyName ?? null, planes: Array.isArray(cuenta?.plan) ? cuenta.plan.map((p: { type?: string }) => String(p?.type || '')) : [] },
-      listas: (Array.isArray(listas?.lists) ? listas.lists : []).map((l: { id: number; name: string; uniqueSubscribers?: number; totalSubscribers?: number }) => ({
-        id: Number(l.id), nombre: String(l.name || ''), suscriptores: typeof l.uniqueSubscribers === 'number' ? l.uniqueSubscribers : typeof l.totalSubscribers === 'number' ? l.totalSubscribers : null,
-      })),
-      totalListas: typeof listas?.count === 'number' ? listas.count : null,
-    }
-  } catch (e) {
-    return { ...base, error: e instanceof Error ? `BREVO_RED: ${e.message.slice(0, 60)}` : 'BREVO_RED' }
-  }
+  const key = getBrevoApiKey(env)
+  const c = await leer(fetchImpl, 'https://api.brevo.com/v3/account', key)
+  const l = await leer(fetchImpl, 'https://api.brevo.com/v3/contacts/lists?limit=50&offset=0', key)
+  const cuenta = c.r.ok ? { empresa: c.body?.companyName ?? null, planes: Array.isArray(c.body?.plan) ? c.body.plan.map((p: { type?: string }) => String(p?.type || '')) : [] } : null
+  const listas = l.r.ok ? (Array.isArray(l.body?.lists) ? l.body.lists : []).map((x: { id: number; name: string; uniqueSubscribers?: number; totalSubscribers?: number }) => ({
+    id: Number(x.id), nombre: String(x.name || ''), suscriptores: typeof x.uniqueSubscribers === 'number' ? x.uniqueSubscribers : typeof x.totalSubscribers === 'number' ? x.totalSubscribers : null,
+  })) : []
+  const fallo = !c.r.ok && !l.r.ok ? (c.r.httpStatus === 401 || l.r.httpStatus === 401 ? 'BREVO_HTTP_401_CLAVE_NO_VALIDA_O_REVOCADA' : `BREVO_HTTP_${l.r.httpStatus ?? c.r.httpStatus}`) : !l.r.ok ? `BREVO_LISTAS_HTTP_${l.r.httpStatus}` : !c.r.ok ? `BREVO_CUENTA_HTTP_${c.r.httpStatus}_SIN_PERMISO_CUENTA` : null
+  return { ...base, ok: l.r.ok, error: fallo, pruebas: { cuenta: c.r, listas: l.r }, cuenta, listas, totalListas: l.r.ok && typeof l.body?.count === 'number' ? l.body.count : null }
 }

@@ -43,13 +43,19 @@ async function main() {
     assert.ok(!json.includes('clave-secreta-st') && !json.includes('clave-pr') && !json.includes('no-se-devuelve'))
   })
   await t('clave revocada o no válida: 401 explicado', async () => {
-    const r = await comprobarBrevo((async () => new Response('{}', { status: 401 })) as typeof fetch, { BREVO_API_KEY: 'x' })
-    assert.equal(r.ok, false); assert.equal(r.error, 'BREVO_HTTP_401_CLAVE_NO_VALIDA_O_REVOCADA')
+    const r = await comprobarBrevo((async () => new Response('{"code":"unauthorized","message":"Key not found"}', { status: 401 })) as typeof fetch, { BREVO_API_KEY: 'x' })
+    assert.equal(r.ok, false); assert.equal(r.error, 'BREVO_HTTP_401_CLAVE_NO_VALIDA_O_REVOCADA'); assert.equal(r.pruebas.cuenta?.codigo, 'unauthorized')
   })
   await t('clave sin permiso de listas: cuenta OK, listas con error', async () => {
     const f = (async (url: string) => url.endsWith('/v3/account') ? new Response('{"plan":[]}') : new Response('{}', { status: 403 })) as unknown as typeof fetch
     const r = await comprobarBrevo(f, { BREVO_API_KEY: 'x' })
     assert.equal(r.ok, false); assert.equal(r.error, 'BREVO_LISTAS_HTTP_403')
+  })
+  await t('clave restringida sin permiso de cuenta: listas OK igualmente y el mensaje no incluye la clave', async () => {
+    const f = (async (url: string) => url.endsWith('/v3/account') ? new Response('{"code":"permission_denied","message":"denied for k-secreta"}', { status: 403 }) : new Response('{"count":1,"lists":[{"id":32,"name":"Partners","uniqueSubscribers":0}]}')) as unknown as typeof fetch
+    const r = await comprobarBrevo(f, { BREVO_API_KEY_STAGING: 'k-secreta' })
+    assert.equal(r.ok, true); assert.equal(r.error, 'BREVO_CUENTA_HTTP_403_SIN_PERMISO_CUENTA'); assert.equal(r.listas.length, 1)
+    assert.ok(!JSON.stringify(r).includes('k-secreta'))
   })
   await t('ningún fichero del panel lee process.env.BREVO_API_KEY directamente', () => {
     const out = execSync(`grep -rln "process.env.BREVO" app lib || true`, { cwd: root }).toString().trim().split('\n').filter(Boolean)
