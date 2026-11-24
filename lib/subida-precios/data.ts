@@ -11,6 +11,11 @@ const MES = /^20\d{2}-(0[1-9]|1[0-2])$/;
 const EXCLUIDOS = new Set(['Servicios IT']);
 /** Partidas que el panel factura sin contrato (se leen del mes a mes de Rentabilidad). */
 const PARTIDAS_SIN_CONTRATO = ['Zoom', 'Hotspot', 'Comisiones Aire', 'Comisiones Xfera'];
+/** Licencias anuales facturadas a trompicones (Zoom/West Telco): el coste del periodo es lo facturado dividido entre los meses;
+ *  el estimado de «hueco» de los meses sin factura duplicaría licencias ya pagadas, por eso no se suma si hay facturas reales. */
+const ANUALES_IRREGULARES = new Set(['Zoom']);
+/** Productos con contrato vigente por sede (Draxton): el coste es el del último mes del periodo, no la media del año. */
+const COSTE_VIGENTE = new Set(['Draxton telecomunicaciones']);
 
 export interface DatasetMeta {
   desde: string; hasta: string; mesReferencia: string; snapshotVersion: number | null; generadoAt: string;
@@ -18,6 +23,8 @@ export interface DatasetMeta {
   excluidos: { producto: string; contratos: number; ingreso: number; motivo: string }[];
   calidadCoste: Record<string, { real: number; estimado: number }>;
   avisos: string[];
+  sinImporte: { contratos: number; productos: Record<string, number> };
+  reglasCoste: { producto: string; regla: string }[];
 }
 export interface DatasetResp extends Dataset { meta: DatasetMeta }
 
@@ -75,9 +82,12 @@ export async function construirDataset(desdeIn?: string | null, hastaIn?: string
   const n = rango.size;
   // Coste mensual medio del periodo por producto: coste real recurrente + estimado (lo puntual no se reparte).
   const costeProd = new Map<string, { real: number; est: number }>();
+  const costeMes = new Map<string, Map<string, { real: number; est: number }>>();
   const ingMedio = new Map<string, number>();
   for (const m of meses) {
     if (!rango.has(m.month)) continue;
+    const mm = costeMes.get(m.product) ?? new Map(); const cur = mm.get(m.month) ?? { real: 0, est: 0 };
+    mm.set(m.month, { real: cur.real + m.cost, est: cur.est + m.est }); costeMes.set(m.product, mm);
     const c = costeProd.get(m.product) ?? { real: 0, est: 0 };
     c.real += m.cost; c.est += m.est; costeProd.set(m.product, c);
     ingMedio.set(m.product, (ingMedio.get(m.product) ?? 0) + m.inc);
@@ -85,6 +95,19 @@ export async function construirDataset(desdeIn?: string | null, hastaIn?: string
   const mesesConDatos = new Set(meses.filter(m => rango.has(m.month)).map(m => m.month)).size;
   if (mesesConDatos < n) avisos.push(`El periodo pedido tiene ${n} meses y solo ${mesesConDatos} con datos en Rentabilidad.`);
   const div = Math.max(1, mesesConDatos);
+  const reglasCoste: DatasetMeta['reglasCoste'] = [];
+  /** Coste mensual del producto según su regla: media del periodo (por defecto), media de lo facturado (anuales irregulares) o último mes (contrato vigente). */
+  const costeBase = (prod: string): { real: number; est: number } => {
+    const cp = costeProd.get(prod) ?? { real: 0, est: 0 };
+    if (COSTE_VIGENTE.has(prod)) {
+      const mm = costeMes.get(prod); const ult = mm ? Array.from(mm.keys()).sort().pop() : undefined;
+      if (mm && ult) { const v = mm.get(ult)!; return { real: v.real, est: v.est }; }
+    }
+    if (ANUALES_IRREGULARES.has(prod) && cp.real > 0) return { real: cp.real / div, est: 0 };
+    return { real: cp.real / div, est: cp.est / div };
+  };
+  for (const prod of COSTE_VIGENTE) if (costeMes.has(prod)) reglasCoste.push({ producto: prod, regla: `Coste vigente del último mes del periodo (${Array.from(costeMes.get(prod)!.keys()).sort().pop()}), según el contrato por sede; no la media del año.` });
+  for (const prod of ANUALES_IRREGULARES) if (costeProd.has(prod)) reglasCoste.push({ producto: prod, regla: 'Licencias anuales: coste = facturas recibidas del periodo entre los meses; no se añade estimado en los meses sin factura (duplicaría licencias ya pagadas).' });
 
   const activos = contratos.filter(c => c.active && c.product);
   const excluidos: DatasetMeta['excluidos'] = [];
@@ -136,9 +159,8 @@ export async function construirDataset(desdeIn?: string | null, hastaIn?: string
   const contratosOut: Contrato[] = [];
   const calidad: DatasetMeta['calidadCoste'] = {};
   for (const [prod, lista] of porProducto) {
-    const cp = costeProd.get(prod) ?? { real: 0, est: 0 };
-    const costeTotal = (cp.real + cp.est) / div;
-    const realM = cp.real / div; const estM = cp.est / div;
+    const cb = costeBase(prod);
+    const realM = cb.real; const estM = cb.est; const costeTotal = realM + estM;
     calidad[prod] = { real: r2(realM), estimado: r2(estM) };
     const pesos = lista.map(c => peso(c, prod, lista)); const suma = pesos.reduce((a, b) => a + b, 0);
     lista.forEach((c, i) => {
@@ -153,17 +175,26 @@ export async function construirDataset(desdeIn?: string | null, hastaIn?: string
   // Partidas sin contrato: una línea por producto, con el coste del producto entero.
   for (const prod of PARTIDAS_SIN_CONTRATO) {
     const gi = gIdx.get(prod); if (gi == null) continue;
-    const cp = costeProd.get(prod) ?? { real: 0, est: 0 };
-    calidad[prod] = { real: r2(cp.real / div), estimado: r2(cp.est / div) };
+    const cb = costeBase(prod);
+    calidad[prod] = { real: r2(cb.real), estimado: r2(cb.est) };
     const ci = clienteDe(`sc:${prod}`, `Partida sin contrato · ${prod}`, null);
     contratosOut.push({ clave: `sc:${prod}`, cliente: ci, grupo: gi, codigo: '—', tarifa: 'Facturación sin contrato en ISP', periodicidad: 'M',
-      ingreso: r2((ingMedio.get(prod) ?? 0) / div), coste: r2((cp.real + cp.est) / div), costeEstimado: r2(cp.est / div), sinContrato: true });
+      ingreso: r2((ingMedio.get(prod) ?? 0) / div), coste: r2(cb.real + cb.est), costeEstimado: r2(cb.est), sinContrato: true });
   }
+  // Contratos de ISP sin importe (listado 299 sin precio en la hoja de contratos): no se pueden subir y no llevan coste; se apartan y se cuentan.
+  const sinImporte = { contratos: 0, productos: {} as Record<string, number> };
+  const conImporte = contratosOut.filter(k => {
+    const quitar = !k.sinContrato && k.ingreso <= 0 && k.coste <= 0.005;
+    if (quitar) { sinImporte.contratos++; const g = grupos[k.grupo].nombre; sinImporte.productos[g] = (sinImporte.productos[g] ?? 0) + 1; }
+    return !quitar;
+  });
+  contratosOut.length = 0; contratosOut.push(...conImporte);
+  if (sinImporte.contratos) avisos.push(`${sinImporte.contratos} contratos activos de ISP sin importe en el panel (no se pueden subir) quedan fuera del simulador.`);
   contratosOut.sort((a, b) => a.cliente - b.cliente || a.grupo - b.grupo);
   if (!contratosOut.length) avisos.push('No hay contratos activos en la foto de Rentabilidad.');
   return {
     grupos, clientes, contratos: contratosOut,
-    meta: { desde, hasta, mesReferencia: s.month, snapshotVersion: s.version, generadoAt: new Date().toISOString(), fuenteCoste: 'REPARTO_RENTABILIDAD', excluidos, calidadCoste: calidad, avisos },
+    meta: { desde, hasta, mesReferencia: s.month, snapshotVersion: s.version, generadoAt: new Date().toISOString(), fuenteCoste: 'REPARTO_RENTABILIDAD', excluidos, calidadCoste: calidad, avisos, sinImporte, reglasCoste },
   };
 }
 

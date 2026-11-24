@@ -339,6 +339,8 @@ function Criterios({ ds }: { ds: DS }) {
         <ul className="list-disc space-y-1 pl-5">
           <li><b>Ingreso:</b> contratos activos del panel (carga de contratos de ISP), importe menos descuento pasado a mes: anual entre 12, trimestral entre 3, semestral entre 6.</li>
           <li><b>Coste:</b> media mensual del periodo {m.desde} a {m.hasta} del coste de Rentabilidad (facturas recibidas más costes externos; lo que falta va estimado y se marca en amarillo). Se reparte por contrato: operadores por peso del ingreso dentro del proveedor, red propia por Mb de bajada, Draxton por sede según su coste real. Cuando la API de ISP dé el coste por línea, sustituirá este reparto.</li>
+          {m.reglasCoste?.map(r => <li key={r.producto}><b>Coste de {r.producto}:</b> {r.regla}</li>)}
+          {m.sinImporte?.contratos ? <li><b>Contratos sin importe:</b> {m.sinImporte.contratos} contratos activos de ISP no tienen importe en el panel (no se pueden subir ni llevan coste) y quedan fuera: {Object.entries(m.sinImporte.productos).map(([k, v]) => `${k} ${v}`).join(', ')}.</li> : null}
           <li><b>Porcentaje de un contrato:</b> el propio del contrato; si no, el del cliente; si no, el del producto. En el producto, el sector público no supera el tope público, los particulares no superan el tope de particulares y los anuales o trimestrales solo suben si se incluyen.</li>
           <li><b>Redondeo:</b> el nuevo importe del periodo se redondea hacia arriba al paso elegido.</li>
           <li><b>Bajas:</b> si el cliente sube, un % de ellos se da de baja: se pierde su ingreso y su coste de operador; la red propia es coste fijo.</li>
