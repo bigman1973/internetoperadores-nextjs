@@ -1,191 +1,272 @@
 'use client';
-import { useRef, useState } from 'react';
-import DataTable, { Status } from './DataTable';
+import { useEffect, useMemo, useRef, useState, Fragment } from 'react';
+import { FilterTable, IoShell, Note, Toast, TopBar, eur, monthLabel, MESES, MESES_LARGO } from '@/components/io-ui/kit';
 import { AlertAction, ExternalCostsEditor, RulesEditor, type Mutate } from './Editors';
-import { amount, array, euro, costQuality, costRealVsEstimatedRows, financialColumns, hasEstimate, historicalDraxtonRows, incomeNatureRows, isEstimated, isPending, numeric, rowStatus, type Column, type Mode, type Report, type Row } from './view-model';
-const tabs = [
-  ['resumen', 'Resumen'], ['producto', 'Por producto'], ['mes', 'Mes a mes'], ['cliente', 'Por cliente'],
-  ['comparacion', 'Contratado vs. real'], ['alertas', 'Alertas'], ['reglas', 'Reglas y costes'], ['estado', 'Estado'],
-] as const;
-type Tab = typeof tabs[number][0];
-const buttonClass = 'rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50';
-const panelClass = 'rounded-xl border border-slate-200 bg-white p-5 panel-dark:border-slate-700 panel-dark:bg-slate-900';
+import { Comparison, SystemState } from './Legacy';
+import { Chip, Heat, Rank, Spark, Trend, mg, type HeatRow, type MV, type RankRow } from './charts';
+import { TIPO_NOMBRE, clientTipo, compareRows, groupAlerts, monthProducts, monthsOf, productMonthMargin, rowTotals, totalsOf, type AlertGroup } from './io-model';
+import { array, financialColumns, numeric, type Mode, type Report, type Row } from './view-model';
+
+const VIEWS = ['resumen', 'productos', 'clientes', 'meses', 'alertas', 'excel'] as const;
+const LABELS: Record<(typeof VIEWS)[number], string> = { resumen: 'Resumen', productos: 'Por producto', clientes: 'Por cliente', meses: 'Mes a mes', alertas: 'Alertas', excel: 'Comparar con Excel' };
+type View = (typeof VIEWS)[number] | 'reglas' | 'estado';
+const shiftMonth = (ym: string, d: number) => { const t = Number(ym.slice(0, 4)) * 12 + Number(ym.slice(5, 7)) - 1 + d; return `${Math.floor(t / 12)}-${String(t % 12 + 1).padStart(2, '0')}`; };
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const mlong = (ym: string) => `${cap(MESES_LARGO[Number(ym.slice(5, 7)) - 1])} ${ym.slice(0, 4)}`;
+const pctF = (v: number | null | undefined, d = 1) => (v == null || !Number.isFinite(v) ? '—' : (v < 0 ? '−' : '') + Math.abs(v * 100).toLocaleString('es-ES', { minimumFractionDigits: d, maximumFractionDigits: d }) + ' %');
+const f100 = (v: number | null | undefined) => (v == null ? null : v / 100);
+const Dot = () => <span className="dot" title="Incluye coste estimado" />;
+type Preset = { prod?: string; flag?: string; n: number };
+
 export default function RentabilidadClient({ initialReport }: { initialReport: Report }) {
-  const [report, setReport] = useState(initialReport); const [month, setMonth] = useState(initialReport.period); const [mode, setMode] = useState<Mode>(initialReport.mode);
-  const [tab, setTab] = useState<Tab>('resumen'); const [busy, setBusy] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState('');
+  const [report, setReport] = useState(initialReport); const [view, setView] = useState<View>('resumen');
+  const [busy, setBusy] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState('');
+  const [focusType, setFocusType] = useState<string | null>(null); const [openProd, setOpenProd] = useState<string | null>(null);
+  const [preset, setPreset] = useState<Preset>({ n: 0 }); const [acc, setAcc] = useState('');
   const operation = useRef(false);
-  const activeMode: Mode = report.mode === 'contratado' ? 'contratado' : 'real';
+  const mode: Mode = report.mode === 'contratado' ? 'contratado' : 'real';
+  const period = report.period; const months = useMemo(() => monthsOf(period), [period]); const mi = Number(period.slice(5, 7)) - 1;
+  useEffect(() => { if (!message) return; const t = setTimeout(() => setMessage(''), 7000); return () => clearTimeout(t); }, [message]);
+  /* Enlaces #resumen, #alertas… como en la maqueta */
+  useEffect(() => { const read = () => { const h = window.location.hash.slice(1); if ((VIEWS as readonly string[]).includes(h)) setView(h as View); }; read(); window.addEventListener('hashchange', read); return () => window.removeEventListener('hashchange', read); }, []);
+  const go = (v: View) => { setView(v); try { window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${(VIEWS as readonly string[]).includes(v) ? `#${v}` : ''}`); } catch { /* sin historial */ } };
+
+  /* ── Lógica de datos: la misma de antes (mismas APIs, mismas confirmaciones) ── */
   async function request(path: string, body?: Row) {
-    const res = await fetch(`/api/admin/rentabilidad${path}`, { method: body ? 'POST' : 'GET', cache: 'no-store', credentials: 'same-origin',
-      ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}),
-    });
-    let json: Row; try { json = await res.json(); } catch { throw new Error('El servidor no devolvió un resultado verificable. Revisa Estado antes de repetir.'); }
-    if (!res.ok) {
-      if (json.run?.id) setReport(current => ({ ...current, runs: [...array(current.runs).filter(run => run.id !== json.run.id), json.run] }));
-      throw new Error(typeof json.error === 'string' ? json.error : 'Operación no completada.');
-    }
+    const res = await fetch(`/api/admin/rentabilidad${path}`, { method: body ? 'POST' : 'GET', cache: 'no-store', credentials: 'same-origin', ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}) });
+    let json: Row; try { json = await res.json(); } catch { throw new Error('El servidor no ha devuelto un resultado claro. Mira «Estado» antes de repetir la operación.'); }
+    if (!res.ok) { if (json.run?.id) setReport(current => ({ ...current, runs: [...array(current.runs).filter(run => run.id !== json.run.id), json.run] })); throw new Error(typeof json.error === 'string' ? json.error : 'No se ha podido completar la operación.'); }
     return json;
   }
   function begin(label: string) { if (operation.current) return false; operation.current = true; setBusy(label); setError(''); setMessage(''); return true; }
   function end() { operation.current = false; setBusy(''); }
-  function apply(data: Row) { setReport(data as Report); setMonth(data.period); setMode(data.mode === 'contratado' ? 'contratado' : 'real');
-    const params = new URLSearchParams({ month: data.period, mode: data.mode }); window.history.replaceState(null, '', `/admin/rentabilidad?${params}`);
-  }
-  async function filter() {
-    if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(month)) { setError('Selecciona un mes válido.'); return; }
-    if (!begin('Leyendo snapshot…')) return;
-    try { apply(await request(`?${new URLSearchParams({ month, mode })}`)); } catch (failure) { setError((failure as Error).message); } finally { end(); }
+  function apply(data: Row) { setReport(data as Report); window.history.replaceState(null, '', `/admin/rentabilidad?${new URLSearchParams({ month: data.period, mode: data.mode })}${window.location.hash}`); }
+  async function load(nextMonth: string, nextMode: Mode) {
+    if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(nextMonth)) { setError('Elige un mes válido.'); return; }
+    if (!begin(`Cargando ${mlong(nextMonth)}…`)) return;
+    try { apply(await request(`?${new URLSearchParams({ month: nextMonth, mode: nextMode })}`)); } catch (failure) { setError((failure as Error).message); } finally { end(); }
   }
   async function recalculate(kind: 'PROYECCION' | 'CIERRE' = 'PROYECCION') {
-    if (kind === 'CIERRE' && !window.confirm(`Guardar un cierre versionado de ${report.period}? Los costes pendientes seguirán pendientes; no se altera contabilidad.`)) return;
-    if (!begin(kind === 'CIERRE' ? 'Calculando y guardando cierre versionado…' : 'Recalculando y guardando snapshot…')) return;
-    try { apply(await request('/recalculate', { month: report.period, mode: activeMode, kind })); setMessage(kind === 'CIERRE' ? 'Cierre versionado guardado. Los pendientes conservan su estado provisional.' : 'Recálculo completado y snapshot versionado guardado.'); }
+    if (kind === 'CIERRE' && !window.confirm(`¿Guardar el cierre de ${mlong(period)}? Lo que aún no tenga factura seguirá marcado como pendiente. No modifica la contabilidad.`)) return;
+    if (!begin(kind === 'CIERRE' ? 'Guardando el cierre…' : 'Recalculando…')) return;
+    try { apply(await request('/recalculate', { month: period, mode, kind })); setMessage(kind === 'CIERRE' ? 'Cierre guardado. Lo pendiente sigue marcado como provisional.' : 'Recálculo terminado. Los datos están al día.'); }
     catch (failure) { setError((failure as Error).message); } finally { end(); }
   }
   const mutate: Mutate = async (path, body, success) => {
-    if (!begin('Guardando decisión y recalculando…')) return false;
-    let saved = false;
+    if (!begin('Guardando y recalculando…')) return false; let saved = false;
     try {
       await request(`/${path}`, body); saved = true;
-      try { apply(await request('/recalculate', { month: report.period, mode: activeMode })); setMessage(success); }
-      catch { setMessage(success); setError('El guardado ha terminado, pero no el recálculo. La vista sigue siendo la última foto; pulsa Recalcular. No repitas el guardado.'); }
+      try { apply(await request('/recalculate', { month: period, mode })); setMessage(success); }
+      catch { setMessage(success); setError('Se ha guardado, pero no se ha podido recalcular. Usa «Recalcular el mes» en Acciones; no repitas el guardado.'); }
       return true;
     } catch (failure) { setError((failure as Error).message); return saved; } finally { end(); }
   };
   async function sync() {
-    if (!begin('Comprobando origen de sincronización…')) return;
-    try { await request('/sync', { month: report.period }); apply(await request(`?${new URLSearchParams({ month: report.period, mode: activeMode })}`)); setMessage('Comprobación manual finalizada. Consulta el resultado y los límites de la fuente en Estado; no modifica la programación diaria.'); }
+    if (!begin('Comprobando las sincronizaciones…')) return;
+    try { await request('/sync', { month: period }); apply(await request(`?${new URLSearchParams({ month: period, mode })}`)); setMessage('Comprobación terminada. El resultado está en «Estado de las sincronizaciones».'); }
     catch (failure) { setError((failure as Error).message); } finally { end(); }
   }
-  const columns = financialColumns(activeMode);
-  const notices = Array.isArray(report.notices) ? report.notices : [];
-  return <div className="min-w-0 space-y-5 p-4 text-slate-900 sm:p-6 panel-dark:text-slate-100">
-    <header className="flex flex-wrap items-start justify-between gap-4"><div><div className="mb-1 flex items-center gap-2"><span className="rounded bg-orange-100 px-2 py-1 text-xs font-semibold text-orange-800">STAGING · SUPERADMIN</span><span className="text-xs text-slate-500">Analítica, no contabilidad</span></div><h1 className="text-2xl font-bold tracking-tight">Rentabilidad</h1><p className="mt-1 text-sm text-slate-600 panel-dark:text-slate-400">Contribución por servicio, producto y cliente · sin costes de estructura.</p></div><div className="text-right text-xs text-slate-500"><p>Foto preparada: {report.generatedAt ? new Date(report.generatedAt).toLocaleString('es-ES') : 'Sin snapshot'}</p><p className="mt-1">Mes de servicio: <strong>{report.period}</strong> · {activeMode === 'real' ? 'Facturado real' : 'Contratado · coste firmado acreditado'}</p></div></header>
-    <form onSubmit={event => { event.preventDefault(); void filter(); }} className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 panel-dark:border-slate-700 panel-dark:bg-slate-900"><label className="space-y-1 text-xs font-medium"><span className="block">Mes de servicio</span><input required type="month" aria-label="Mes de servicio" disabled={Boolean(busy)} value={month} onChange={event => setMonth(event.target.value)} className="rounded-lg border border-slate-200 bg-transparent px-3 py-2 text-sm panel-dark:border-slate-600" /></label><label className="space-y-1 text-xs font-medium"><span className="block">Vista</span><select disabled={Boolean(busy)} value={mode} onChange={event => setMode(event.target.value as Mode)} className="rounded-lg border border-slate-200 bg-transparent px-3 py-2 text-sm panel-dark:border-slate-600"><option value="real">Real · facturado</option><option value="contratado">Contratado · coste firmado acreditado</option></select></label><button disabled={Boolean(busy)} className={buttonClass}>Aplicar filtros</button><button type="button" disabled={Boolean(busy)} onClick={() => void recalculate()} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium panel-dark:border-slate-600">Recalcular {report.period}</button><button type="button" disabled={Boolean(busy)} onClick={() => void recalculate('CIERRE')} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium panel-dark:border-slate-600">Guardar cierre versionado</button><p className="max-w-xl text-xs text-slate-500">El GET lee una foto guardada. Recalcular espera a la generación y conserva versiones anteriores; no cierra cifras pendientes.</p></form>
-    {busy && <div role="status" aria-live="polite" className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-900">{busy} Espera a que el servidor devuelva el resultado. Si se interrumpe la conexión, verifica Estado antes de repetir.</div>}
-    {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>}
-    {message && <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{message}</div>}
-    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 panel-dark:bg-amber-950/30 panel-dark:text-amber-100"><strong>Lectura responsable:</strong> lo firmado es referencia contractual; lo facturado es realidad. Los Excel aprobados son referencia inicial independiente, nunca cifras actuales. <span className="font-semibold">Amarillo = estimado; — = pendiente o sin evidencia; rojo = negativo.</span> No se presenta margen definitivo cuando falta factura o reparto. La vista contratada usa el coste firmado solo donde hay evidencia; el resto queda pendiente, sin sustituirlo por coste real ni por cero.</div>
-    <nav aria-label="Secciones de Rentabilidad" role="tablist" className="flex gap-1 overflow-x-auto border-b border-slate-200 pb-1 panel-dark:border-slate-700">{tabs.map(([key, label]) => <button type="button" key={key} id={`tab-${key}`} role="tab" aria-selected={tab === key} aria-controls={`panel-${key}`} onClick={() => setTab(key)} className={`whitespace-nowrap rounded-t-lg px-4 py-3 text-sm font-semibold ${tab === key ? 'border-b-2 border-primary bg-orange-50 text-primary panel-dark:bg-orange-950/30' : 'text-slate-500 hover:bg-slate-100 panel-dark:text-slate-300 panel-dark:hover:bg-slate-800'}`}>{label}{key === 'alertas' && array(report.alerts).length > 0 && <span className="ml-2 rounded-full bg-orange-100 px-2 py-0.5 text-xs text-orange-800">{array(report.alerts).length}</span>}</button>)}</nav>
-    <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="min-w-0 space-y-5">
-      {tab === 'resumen' && <Summary report={report} mode={activeMode} />}
-      {tab === 'producto' && <><DataTable title="Contribución por producto" period={report.period} rows={array(report.products)} columns={[{ key: 'product', label: 'Producto' }, { key: 'contracts', label: 'Contratos', kind: 'number' }, ...columns]} description="Coste real completo y margen aparecen como — cuando falta evidencia. Las estimaciones se muestran aparte, no se suman como realidad." detail={row => <DataTable title={`Fuentes · ${row.product}`} period={report.period} rows={array(row.sources)} columns={[{ key: 'source', label: 'Fuente' }, { key: 'provider', label: 'Proveedor' }, { key: 'amount', label: 'Importe', kind: 'money', estimated: isEstimated }, { key: 'status', label: 'Estado', kind: 'status' }, { key: 'payer', label: 'Sociedad pagadora' }, { key: 'sourceCell', label: 'Localizador' }]} />} /><CostRealVsEstimated report={report} /><IncomeByNature report={report} /><OperatorCommissions report={report} mode={activeMode} /></>}
-      {tab === 'mes' && <Monthly report={report} mode={activeMode} />}
-      {tab === 'cliente' && <DataTable title="Contribución por cliente" period={report.period} rows={array(report.clients)} columns={[{ key: 'clientCode', label: 'Código cliente' }, { key: 'clientName', label: 'Cliente' }, ...columns]} description="Ordena pulsando cada cabecera. Despliega los contratos para revisar producto, coste, origen y método de reparto." detail={client => <DataTable title={`Contratos · ${client.clientName}`} period={report.period} rows={array(client.contracts)} columns={[{ key: 'contractCode', label: 'Contrato' }, { key: 'product', label: 'Producto' }, { key: 'tariff', label: 'Tarifa' }, { key: 'provider', label: 'Proveedor' }, { key: 'speedMbps', label: 'Mb contratados', kind: 'number' }, ...columns]} detail={contract => <DataTable title={`Coste asignado · ${contract.contractCode}`} period={report.period} rows={array(contract.costSources)} columns={[{ key: 'source', label: 'Fuente' }, { key: 'amount', label: 'Coste asignado', kind: 'money', estimated: isEstimated }, { key: 'method', label: 'Método de reparto' }, { key: 'status', label: 'Estado', kind: 'status' }, { key: 'provider', label: 'Proveedor' }, { key: 'payer', label: 'Paga' }]} />} />} />}
-      {tab === 'comparacion' && <Comparison report={report} />}
-      {tab === 'alertas' && <><DataTable title="Cola de excepciones" period={report.period} rows={array(report.alerts)} columns={[{ key: 'type', label: 'Tipo' }, { key: 'title', label: 'Motivo' }, { key: 'contractCode', label: 'Contrato' }, { key: 'product', label: 'Producto' }, { key: 'amount', label: 'Diferencia / importe', kind: 'money' }, { key: 'estimatedAmount', label: 'Estimación', kind: 'money', estimated: () => true }]} description="Una resolución guarda decisión y, si procede, regla versionada. Confirmar revisión no inventa facturas, no confirma costes sin documento y no elimina las fuentes originales." actions={alert => <AlertAction alert={alert} report={report} mutate={mutate} busy={Boolean(busy)} />} /><DataTable title="Excepciones resueltas · reversión auditada" period={report.period} rows={array(report.resolvedExceptions)} columns={[{ key: 'title', label: 'Excepción revisada' }, { key: 'estado', label: 'Estado', kind: 'status' }, { key: 'createdAt', label: 'Fecha' }, { key: 'actorId', label: 'Superadmin responsable' }, { key: 'version', label: 'Versión', kind: 'number' }]} description="Reabrir restaura proveedor, coste y regla de aquella decisión mediante nuevas versiones. Si hay cambios posteriores, se bloquea para revisión; nunca se borran fuentes." actions={row => <button type="button" disabled={Boolean(busy)} className="text-sm font-semibold text-primary disabled:opacity-50" onClick={() => void mutate('exceptions', { exceptionKey: String(row.key), action: 'REABRIR' }, 'Excepción reabierta; compensación auditada guardada sin borrar fuentes.')}>Reabrir y deshacer decisión</button>} /></>}
-      {tab === 'reglas' && <><RulesEditor report={report} mutate={mutate} busy={Boolean(busy)} /><ExternalCostsEditor report={report} mutate={mutate} busy={Boolean(busy)} /></>}
-      {tab === 'estado' && <SystemState report={report} busy={Boolean(busy)} sync={sync} />}
-    </div>
-    <details className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm panel-dark:border-slate-700 panel-dark:bg-slate-900"><summary className="cursor-pointer font-medium">Fuentes, límites y notas del cálculo ({notices.length})</summary><ul className="mt-3 list-disc space-y-2 pl-5 text-slate-600 panel-dark:text-slate-400">{notices.map((notice: string, index: number) => <li key={index}>{String(notice)}</li>)}<li>La disponibilidad actual de ISP y el registro de la programación se consultan en Estado. Vercel Cron no ejecuta previews; la invocación diaria de staging utiliza el scheduler externo registrado.</li></ul></details>
-  </div>;
-}
-function Summary({ report, mode }: { report: Report; mode: Mode }) {
-  const summary = report.summary ?? {};
-  const cards = [{ title: `Mes de servicio · ${report.period}`, row: summary.month, estimated: false }, { title: 'Acumulado del año (hasta el mes)', row: summary.ytd, estimated: false }, { title: 'Previsión de diciembre · ESTIMADA', row: summary.december, estimated: true }];
-  const summaryRows = cards.map(card => ({ ...card.row, forecastRow: card.estimated, name: card.title, status: card.estimated ? 'ESTIMADO' : rowStatus(card.row ?? {}, mode) }));
-  return <><div className="grid gap-4 lg:grid-cols-3">{cards.map(card => {
-    const row = card.row ?? {}; const income = card.estimated ? numeric(row.income) : amount(row, 'income', mode); const cost = card.estimated ? numeric(row.cost) : amount(row, 'cost', mode); const costTotal = card.estimated || mode !== 'real' ? null : amount(row, 'costTotal', mode); const margin = card.estimated ? numeric(row.margin) : amount(row, 'margin', mode); const marginPct = card.estimated ? numeric(row.marginPct) : amount(row, 'marginPct', mode); const quality = card.estimated || mode !== 'real' ? null : costQuality(row);
-    return <section key={card.title} className={`${panelClass} ${card.estimated ? 'border-amber-200 bg-amber-50/50 panel-dark:bg-amber-950/20' : ''}`}><div className="mb-4 flex flex-wrap items-center justify-between gap-2"><h2 className="text-sm font-semibold">{card.title}</h2><Status value={card.estimated ? 'ESTIMADO' : !Object.keys(row).length ? 'SIN SNAPSHOT' : rowStatus(row, mode)} /></div><dl className="space-y-3"><Metric title={card.estimated ? 'Ingreso previsto' : mode === 'real' ? 'Ingreso facturado' : 'Ingreso contratado'} value={income} estimated={card.estimated} /><Metric title={card.estimated ? 'Coste previsto' : mode === 'contratado' ? 'Coste proveedor firmado' : 'Coste real completo'} value={cost} estimated={card.estimated} />{costTotal !== null && <Metric title="Coste total (real + estimado)" value={costTotal} estimated={hasEstimate(row)} />}<Metric title={card.estimated ? 'Margen estimado, no definitivo' : mode === 'real' ? 'Margen (con estimado)' : 'Margen verificable'} value={margin} strong estimated={card.estimated || mode === 'real' && hasEstimate(row)} /><div className="flex justify-between gap-3 text-sm"><dt>Margen %</dt><dd className="tabular-nums">{marginPct !== null && margin !== null ? `${marginPct.toLocaleString('es-ES', { maximumFractionDigits: 2 })} %` : '—'}</dd></div>{quality !== null && <div className="flex justify-between gap-3 text-sm"><dt>Calidad del coste (% real)</dt><dd className="tabular-nums">{quality.toLocaleString('es-ES', { maximumFractionDigits: 1 })} %</dd></div>}{!card.estimated && <Metric title="De ello, estimado (no real)" value={numeric(row.estimatedCost)} estimated />}</dl><p className="mt-4 text-xs text-slate-500">{card.estimated ? 'Usa la última cuota acreditada; puede cambiar. No constituye un cierre.' : mode === 'real' && hasEstimate(row) ? 'Margen provisional: incluye coste estimado en amarillo (faltan facturas). La calidad indica qué parte del coste es real.' : isPending(row) ? 'Faltan facturas o reparto. No hay margen definitivo.' : 'Consulta fuentes y controles antes de considerar cerrado el periodo.'}</p></section>;
-  })}</div><DataTable title="Resumen exportable" rows={summaryRows} period={report.period} columns={[{ key: 'name', label: 'Periodo' }, ...financialColumns(mode).map(column => ({ ...column, value: (row: Row) => row.forecastRow && ['income', 'cost', 'margin'].includes(column.key) ? numeric(row[column.key]) : column.value ? column.value(row) : row[column.key], estimated: (row: Row) => row.forecastRow || column.key === 'estimatedCost' }))]} /><ReferenceSection report={report} /></>;
-}
-function Metric({ title, value, strong, estimated }: { title: string; value: number | null; strong?: boolean; estimated?: boolean }) {
-  return <div className={`flex items-baseline justify-between gap-3 ${strong ? 'border-t border-slate-100 pt-3 panel-dark:border-slate-700' : ''}`}><dt className="text-sm text-slate-600 panel-dark:text-slate-400">{title}</dt><dd className={`whitespace-nowrap tabular-nums ${strong ? 'text-xl font-bold' : 'font-semibold'} ${value !== null && value < 0 ? 'text-red-700 panel-dark:text-red-400' : estimated ? 'text-amber-800 panel-dark:text-amber-300' : ''}`}>{euro(value)}</dd></div>;
-}
-function ReferenceSection({ report }: { report: Report }) {
-  const data = report.referenceSummary; const reference = data?.reference ?? data?.approved ?? data;
-  const referenceRows = array(report.references).map(row => ({ ...row, referenceState: 'REFERENCIA EXCEL' }));
-  const refMetrics = reference && !Array.isArray(reference) ? Object.entries(reference).filter(([, value]) => value === null || ['string', 'number', 'boolean'].includes(typeof value)).map(([key, value]) => ({ metric: key, money: ['income', 'cost', 'margin', 'estimatedCost'].includes(key) ? numeric(value) : null, percent: key === 'marginPct' ? numeric(value) : null, value: typeof value === 'number' ? null : String(value ?? '—'), state: 'REFERENCIA EXCEL' })) : [];
-  return <section className="space-y-4 rounded-xl border-2 border-amber-300 bg-amber-50/50 p-5 panel-dark:bg-amber-950/20"><h2 className="text-lg font-bold text-amber-950 panel-dark:text-amber-200">Referencia Excel aprobada · NO ES LA REALIDAD ACTUAL</h2><p className="text-sm text-amber-900 panel-dark:text-amber-200">Foto inicial validada de enero–octubre 2026 y contratos de noviembre. Sirve para contraste y trazabilidad, no como importe facturado por mes de servicio, ni evidencia de contrato firmado. No se copia ni se suma a los KPI actuales.</p>
-    {!!refMetrics.length && <DataTable title="Resumen de referencia aprobado" period={report.period} rows={refMetrics} columns={[{ key: 'metric', label: 'Control de referencia' }, { key: 'money', label: 'Importe de referencia', kind: 'money' }, { key: 'percent', label: 'Porcentaje de referencia', kind: 'percent' }, { key: 'value', label: 'Nota / estado de referencia' }, { key: 'state', label: 'Naturaleza', kind: 'status' }]} />}
-    {!!referenceRows.length && <DataTable title="Referencias iniciales documentadas" period={report.period} rows={referenceRows} columns={[{ key: 'product', label: 'Producto / control', value: row => row.product ?? row.productoId ?? row.metric ?? row.control ?? row.kind }, { key: 'month', label: 'Periodo referencia', value: row => row.month ?? row.mes ?? row.period }, { key: 'income', label: 'Ingreso referencia', kind: 'money' }, { key: 'cost', label: 'Coste referencia', kind: 'money' }, { key: 'margin', label: 'Margen referencia', kind: 'money' }, { key: 'value', label: 'Otro control de referencia', value: row => row.value ?? row.expected ?? row.amount ?? row.importe ?? row.expectedValue }, { key: 'source', label: 'Fuente', value: row => typeof row.source === 'string' ? row.source : row.source?.file ?? row.source?.filename ?? 'Excel de referencia' }, { key: 'referenceState', label: 'Naturaleza', kind: 'status' }]} />}
-    {!refMetrics.length && !referenceRows.length && <p className="text-sm text-amber-900 panel-dark:text-amber-200">El snapshot no contiene el detalle de referencia. No se han rellenado cifras de memoria ni valores de ejemplo.</p>}
-    {report.bridge && <DataTable title="Puente de referencia a realidad (sin sumar ambas)" period={report.period} rows={Array.isArray(report.bridge) ? report.bridge : Object.entries(report.bridge).filter(([, value]) => typeof value !== 'object').map(([metric, value]) => ({ metric, value }))} columns={[{ key: 'metric', label: 'Concepto', value: row => row.metric ?? row.product ?? row.label }, { key: 'reference', label: 'Referencia Excel', kind: 'money' }, { key: 'actual', label: 'Real documentado', kind: 'money' }, { key: 'difference', label: 'Diferencia', kind: 'money' }, { key: 'value', label: 'Nota', value: row => row.note ?? row.value }]} />}
-  </section>;
-}
-function OperatorCommissions({ report, mode }: { report: Report; mode: Mode }) {
-  const products = array(report.products); const rows = ['Aire Networks', 'Cablemóvil/Xfera'].map(product => {
-    const commissionLabel = product === 'Aire Networks' ? 'Comisiones Aire' : 'Comisiones Xfera'; const service = products.find(row => row.product === product); const commission = products.find(row => row.product === commissionLabel);
-    const income = service ? amount(service, 'income', mode) : null; const commissionIncome = commission ? numeric(commission.actualIncome ?? commission.income) : null; const cost = service ? amount(service, 'cost', mode) : null;
-    return { product, customerIncome: income, commissionIncome, cost, margin: income !== null && commissionIncome !== null && cost !== null ? income + commissionIncome - cost : null, status: !service || isPending(service) ? 'PENDIENTE' : 'REAL' };
-  });
-  return <DataTable title="Operador + comisiones (autofacturas)" period={report.period} rows={rows} description="Las comisiones son ingreso del operador, no ingresos facturados a clientes. Se presentan separadas y solo se calcula el margen conjunto con coste completo." columns={[{ key: 'product', label: 'Operador' }, { key: 'customerIncome', label: 'Ingreso clientes', kind: 'money' }, { key: 'commissionIncome', label: 'Comisiones', kind: 'money' }, { key: 'cost', label: 'Coste real completo', kind: 'money' }, { key: 'margin', label: 'Margen + comisiones', kind: 'money' }, { key: 'status', label: 'Estado', kind: 'status' }]} />;
-}
-function Monthly({ report, mode }: { report: Report; mode: Mode }) {
-  const [basis, setBasis] = useState('service'); const year = report.period.slice(0, 4); const months = Array.from({ length: 12 }, (_, index) => `${year}-${String(index + 1).padStart(2, '0')}`);
-  const monthly = array(report.monthly);
-  const products = Array.from(new Set(monthly.flatMap(month => array(month.products).map(product => String(product.product)))));
-  const rows: Row[] = products.flatMap(product => ['income', 'cost', 'margin'].map(metric => {
-    const row: Row = { key: `${product}:${metric}`, product, metric: metric === 'income' ? 'Ingreso' : metric === 'cost' ? 'Coste' : 'Margen', estimated: {} };
-    for (const month of months) {
-      const item = array(monthly.find(item => item.month === month)?.products).find(item => item.product === product);
-      row[month] = item ? amount(item, (metric === 'cost' && mode === 'real' ? 'costTotal' : metric) as 'income' | 'cost' | 'margin', mode) : null;
-      row.estimated[month] = Boolean(item && mode === 'real' && hasEstimate(item));
-    }
-    row.total = months.every(month => numeric(row[month]) !== null) ? months.reduce((sum, month) => sum + numeric(row[month])!, 0) : null;
-    return row;
-  }));
-  const columns: Column[] = [{ key: 'product', label: 'Producto' }, { key: 'metric', label: 'Magnitud' }, ...months.map(month => ({ key: month, label: new Date(`${month}-01T12:00:00Z`).toLocaleDateString('es-ES', { month: 'short' }), kind: 'money' as const, estimated: (row: Row) => row.estimated[month] })), { key: 'total', label: 'Total año completo', kind: 'money' }];
-  const initial = report.initialCostByInvoiceMonth;
-  const referenceRows = Array.isArray(initial) ? initial : initial && typeof initial === 'object' ? Object.entries(initial).flatMap(([month, data]) => Array.isArray(data) ? data.map(row => ({ ...row, month })) : typeof data === 'object' && data !== null ? [{ month, ...(data as Row) }] : [{ month, amount: data }]) : [];
-  return <><div className="flex flex-wrap items-center gap-3"><label className="text-sm font-medium">Base temporal <select className="ml-2 rounded-lg border border-slate-200 bg-white px-3 py-2 panel-dark:border-slate-700 panel-dark:bg-slate-900" value={basis} onChange={event => setBasis(event.target.value)}><option value="service">Imputación por mes de servicio</option><option value="reference">Referencia inicial por fecha de factura</option></select></label></div>
-    {basis === 'service' ? <><DataTable title={`Mes a mes · servicio · ${mode === 'real' ? 'real' : 'contratado · coste firmado acreditado'}`} period={report.period} rows={rows} columns={columns} description="Enero–diciembre, por producto y magnitud. — no significa cero. El total anual solo se presenta si todos los meses tienen un valor acreditado; no se sustituye coste pendiente por una estimación. Vista contratada: coste de proveedor firmado cuando existe; no se inventan costes de personal contratado ni costes ausentes." /><DataTable title="Estimaciones de coste por mes (fuera de realidad)" period={report.period} rows={products.map(product => { const row: Row = { product }; for (const month of months) row[month] = numeric(array(monthly.find(item => item.month === month)?.products).find(item => item.product === product)?.estimatedCost); return row; })} columns={[{ key: 'product', label: 'Producto' }, ...months.map(month => ({ key: month, label: month, kind: 'money' as const, estimated: () => true }))]} /></> : <><div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 panel-dark:bg-amber-950/30 panel-dark:text-amber-100"><strong>REFERENCIA INICIAL POR FECHA DE FACTURA · NO COSTE ACTUAL DE SERVICIO.</strong> Esta vista conserva el criterio temporal del Excel. Una anualidad o factura bimestral puede aparecer en un mes de factura distinto a los meses de servicio; nunca se combina con la tabla operativa.</div><DataTable title="Costes Excel iniciales por mes de factura · referencia" period={report.period} rows={referenceRows} columns={[{ key: 'month', label: 'Mes de factura', value: row => row.month ?? row.mes }, { key: 'product', label: 'Producto', value: row => row.product ?? row.productoId ?? row.provider }, { key: 'amount', label: 'Coste referencia', kind: 'money', value: row => row.amount ?? row.cost ?? row.importe }, { key: 'source', label: 'Fuente', value: row => row.source ?? 'COSTES_XLSX_INITIAL' }, { key: 'state', label: 'Naturaleza', kind: 'status', value: () => 'REFERENCIA' }]} />{!referenceRows.length && <p className="text-sm text-slate-500">Esta foto todavía no incluye el desglose temporal de referencia.</p>}</>}
-  </>;
-}
-function Comparison({ report }: { report: Report }) {
-  const rows = array(report.comparison);
-  const historical = historicalDraxtonRows(report.references);
-  return <><div className="rounded-xl border border-slate-200 bg-white p-4 text-sm panel-dark:border-slate-700 panel-dark:bg-slate-900">El coste firmado procede de contratos de proveedor del panel. Un agregado real por producto no demuestra el coste de cada contrato o sede. Solo se muestra la diferencia por contrato cuando hay enlace documental inequívoco; el resto permanece pendiente.</div>
-    <DataTable title="Contratado frente a real por contrato" period={report.period} rows={rows} columns={[{ key: 'contractCode', label: 'Contrato' }, { key: 'title', label: 'Servicio / sede' }, { key: 'product', label: 'Producto' }, { key: 'contractedIncome', label: 'Ingreso firmado', kind: 'money' }, { key: 'contractedCost', label: 'Coste proveedor firmado', kind: 'money' }, { key: 'actualContractCost', label: 'Coste facturado enlazado', kind: 'money', value: row => isPending(row) ? null : row.actualContractCost ?? row.actualCost ?? row.billedCost ?? null }, { key: 'difference', label: 'Real − firmado', kind: 'money', value: row => !isPending(row) && numeric(row.actualContractCost ?? row.actualCost ?? row.billedCost) !== null && numeric(row.contractedCost) !== null ? row.difference ?? numeric(row.actualContractCost ?? row.actualCost ?? row.billedCost)! - numeric(row.contractedCost)! : null }, { key: 'actualProductCost', label: 'Real producto conocido (puede ser parcial)', kind: 'money' }, { key: 'personalCost', label: 'Personal real asignado', kind: 'money', value: row => row.personalPending ? null : row.personalCost }, { key: 'note', label: 'Comentario / evidencia' }]} detail={row => <DataTable title={`Proveedores contratados · ${row.contractCode}`} period={report.period} rows={array(row.supplierContracts)} columns={[{ key: 'title', label: 'Contrato de proveedor' }, { key: 'provider', label: 'Proveedor' }, { key: 'contractedCost', label: 'Coste mensual firmado', kind: 'money' }, { key: 'actualCost', label: 'Coste real enlazado', kind: 'money' }, { key: 'difference', label: 'Diferencia', kind: 'money' }, { key: 'note', label: 'Evidencia / nota' }]} detail={supplier => <DataTable title={`Sedes y líneas · ${supplier.title}`} period={report.period} rows={array(supplier.services)} columns={[{ key: 'site', label: 'Sede' }, { key: 'title', label: 'Servicio' }, { key: 'contractedCost', label: 'Coste firmado', kind: 'money' }, { key: 'actualCost', label: 'Coste facturado documental', kind: 'money' }, { key: 'difference', label: 'Real − firmado', kind: 'money' }, { key: 'note', label: 'Evidencia' }]} detail={service => <DataTable title={`Fuentes · ${service.site}`} period={report.period} rows={array(service.sources)} columns={[{ key: 'source', label: 'Factura / línea' }, { key: 'description', label: 'Detalle' }, { key: 'amount', label: 'Coste', kind: 'money' }]} />} />} />} />
-    <section className="space-y-3 rounded-xl border-2 border-amber-300 bg-amber-50/50 p-5 panel-dark:bg-amber-950/20"><h2 className="text-lg font-bold">Draxton · contraste histórico Excel, no GGCC vigente</h2><p className="text-sm">Los pares siguientes conservan la referencia del libro aportado. La cifra FTTO contratada procede de una nota narrativa histórica, no de una oferta firmada vigente; el agregado internacional no acredita cobertura del mes seleccionado. No modifican contratos, costes reales, margen ni alertas operativas.</p><DataTable title="Contratado histórico frente a facturado de referencia" period={report.period} rows={historical} columns={[{ key: 'title', label: 'Servicio de referencia' }, { key: 'referenceContractedCost', label: 'Contratado histórico · referencia', kind: 'money' }, { key: 'referenceBilledCost', label: 'Facturado · referencia Excel', kind: 'money' }, { key: 'referenceDifference', label: 'Diferencia de referencia', kind: 'money' }, { key: 'periodLabel', label: 'Cobertura temporal' }, { key: 'contractedLocator', label: 'Fuente contratado histórico' }, { key: 'billedLocator', label: 'Fuente facturado de referencia' }, { key: 'nature', label: 'Naturaleza', kind: 'status' }, { key: 'note', label: 'Advertencia documental' }]} description="Estos importes no son el coste real de octubre ni de otro mes; la tabla operativa anterior sigue siendo la fuente vigente." />{!historical.length && <p className="text-sm">Este snapshot aún no incorpora referencias históricas trazables. No se rellenan ejemplos de memoria.</p>}</section>
-    <ReferenceSection report={report} />
-  </>;
-}
-function SystemState({ report, busy, sync }: { report: Report; busy: boolean; sync: () => Promise<void> }) {
-  const controls = report.controls ?? {};
-  const controlRows = [
-    { metric: 'Líneas importadas', value: controls.lines }, { metric: 'Contratos facturados', value: controls.billedContracts },
-    { metric: 'Contratos de Lorena importados', value: controls.lorenaContracts }, { metric: 'Lorena activos según origen', value: controls.activeLorena }, { metric: 'Lorena bajas según origen', value: controls.inactiveLorena }, { metric: 'Facturados sin contrato de Lorena', value: controls.unknownBilledContracts },
-    { metric: 'Sin Lorena con factura reciente', value: controls.unknownRecentContracts }, { metric: 'Fecha mínima de origen', value: controls.dateMin }, { metric: 'Fecha máxima de origen', value: controls.dateMax },
-    { metric: 'Hash de las entradas usadas', value: controls.sourceHash },
-  ];
-  const runs = array(report.runs).slice().reverse();
-  const columns: Column[] = [{ key: 'process', label: 'Proceso', value: row => row.process ?? row.proceso }, { key: 'createdAt', label: 'Fecha', value: row => row.createdAt ?? row.created_at ?? row.startedAt ?? row.fecha }, { key: 'estado', label: 'Resultado', kind: 'status', value: row => row.estado ?? row.status }, { key: 'processed', label: 'Leídas', kind: 'number', value: row => row.report?.leidas ?? row.processed ?? row.rows }, { key: 'insertadas', label: 'Insertadas', kind: 'number', value: row => row.report?.insertadas ?? row.inserted }, { key: 'actualizadas', label: 'Actualizadas', kind: 'number', value: row => row.report?.actualizadas }, { key: 'sinCambios', label: 'Sin cambios', kind: 'number', value: row => row.report?.sinCambios ?? row.unchanged }, { key: 'rechazadas', label: 'Rechazadas', kind: 'number', value: row => row.report?.rechazadas ?? row.rejected }, { key: 'reason', label: 'Código de incidencia', value: row => row.reason ?? row.errorCode }, { key: 'sourceHash', label: 'Hash de fuente' }];
-  const processAliases = { ISP: ['ISP_LINE_EXPORT', 'ISP_DAILY'], PROGRAMACION: ['DAILY_END', 'DAILY_START', 'RENTABILIDAD_DAILY'], CARGA: ['IMPORT_INITIAL'], RECALCULO: ['RECALCULATE'], CIERRE: ['MONTHLY_CLOSE', 'CIERRE'], ALERTAS: ['INVOICES_AND_ALERTS', 'ALERTAS'], FACTURAS: ['INVOICES_AND_ALERTS', 'FACTURAS'] };
-  const processRows = Object.entries(processAliases).map(([process, aliases]) => {
-    const run = runs.find(row => aliases.includes(String(row.process ?? row.proceso ?? '')));
-    return run ? { ...run, process } : { process, estado: 'SIN EJECUCIÓN ACREDITADA', reason: 'No hay ejecución acreditada en el registro actual.' };
-  });
-  const maturity = report.unresolvedMaturity; const maturityRows = Array.isArray(maturity) ? maturity : maturity && typeof maturity === 'object' ? Object.entries(maturity).map(([metric, value]) => ({ metric, value: typeof value === 'object' ? 'Detalle pendiente' : String(value) })) : [];
-  return <><section className={panelClass}><div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="font-semibold">Estado real de las automatizaciones</h2><div className="mt-3 flex flex-wrap gap-2"><Status value={report.syncStatus?.isp?.contracts ? 'ISP contratos · origen configurado' : 'ISP contratos · BLOQUEADO / incompleto'} /><Status value={report.syncStatus?.scheduler?.registered ? 'Diaria staging · PROGRAMACIÓN REGISTRADA' : 'Diaria staging · NO REGISTRADA'} /><Status value={report.syncStatus?.isp?.lines ? 'Líneas facturadas · origen configurado' : 'Líneas facturadas · BLOQUEADO'} /></div><p className="mt-3 max-w-4xl text-sm text-slate-600 panel-dark:text-slate-400">{report.syncStatus?.reason ?? 'No hay evidencia de una sincronización programada activa.'} Configurar un origen no acredita una importación completa. Las ejecuciones son registros reales, no muestras.</p>{report.syncStatus?.scheduler?.registered && <p className="mt-2 text-xs text-slate-500">{report.syncStatus.scheduler.provider} · {report.syncStatus.scheduler.cron} · {report.syncStatus.scheduler.timezone} · {report.syncStatus.scheduler.monthlyClose}. Última invocación: {report.syncStatus.scheduler.lastExecutionAt ?? 'Todavía sin ejecución acreditada'}.</p>}</div><button type="button" onClick={sync} disabled={busy} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold panel-dark:border-slate-600">Comprobar / sincronizar manualmente</button></div><p className="mt-3 text-xs text-slate-500">Solo procesos analíticos de staging con autorización y origen verificado. Vercel Cron no ejecuta previews: la programación registrada es externa. Un fallo ISP queda visible y no impide revisar los cálculos derivados de las fuentes disponibles.</p></section>
-    <DataTable title="Última ejecución por proceso" period={report.period} rows={processRows} columns={columns} />
-    <DataTable title="Registro real de ejecuciones" period={report.period} rows={runs} columns={columns} description="Los logs solo muestran metadatos, contadores y códigos; nunca credenciales, cuerpos de factura ni datos personales en errores. Registro actual acotado; no depende de releer las líneas facturadas ni de volver a recalcular." detail={run => <DataTable title="Incidencias de la ejecución" period={report.period} rows={array(run.report?.errores)} columns={[{ key: 'collection', label: 'Colección' }, { key: 'row', label: 'Fila', kind: 'number' }, { key: 'code', label: 'Código' }]} />} />
-    <DataTable title="Controles de la foto operativa (no objetivos de referencia)" period={report.period} rows={controlRows} columns={[{ key: 'metric', label: 'Control' }, { key: 'value', label: 'Valor documentado' }]} />
-    {!!maturityRows.length && <DataTable title="Madurez y pendientes de evidencia" period={report.period} rows={maturityRows} columns={[{ key: 'metric', label: 'Control', value: row => row.metric ?? row.type ?? row.label }, { key: 'value', label: 'Resultado', value: row => row.value ?? row.count ?? row.note }]} />}
-    <DataTable title="Snapshots y cierres versionados" period={report.period} rows={array(report.snapshots)} columns={[{ key: 'month', label: 'Mes' }, { key: 'kind', label: 'Tipo' }, { key: 'version', label: 'Versión', kind: 'number' }, { key: 'createdAt', label: 'Fecha de preparación' }, { key: 'sourceHash', label: 'Hash inmutable' }, { key: 'id', label: 'Identificador' }]} />
-  </>;
+  async function exportXlsx() {
+    if (!begin('Preparando el Excel…')) return;
+    try { const { exportTable } = await import('./export-table'); await exportTable(`Rentabilidad por producto ${period}`, [{ key: 'product', label: 'Producto' }, ...financialColumns(mode)], array(report.products), period); setMessage('Excel descargado.'); }
+    catch { setError('No se pudo generar el Excel. Vuelve a intentarlo.'); } finally { end(); }
+  }
+  function action(v: string) {
+    setAcc('');
+    if (v === 'recalc') void recalculate(); else if (v === 'cierre') void recalculate('CIERRE'); else if (v === 'excel') void exportXlsx();
+    else if (v === 'sync') void sync(); else if (v === 'reglas') go('reglas'); else if (v === 'estado') go('estado');
+  }
+
+  /* ── Datos derivados ── */
+  const groups = useMemo(() => groupAlerts(report.alerts), [report.alerts]);
+  const pend = array(report.alerts).filter(a => a.type === 'FACTURA_PROVEEDOR_PENDIENTE');
+  const pendProviders = new Set(pend.map(a => String(a.provider ?? a.title))).size;
+  const cur = useMemo(() => rowTotals(report.summary?.month ?? {}, mode), [report, mode]);
+  const ytd = useMemo(() => rowTotals(report.summary?.ytd ?? {}, mode), [report, mode]);
+  const prev = useMemo(() => { const p = monthProducts(report, shiftMonth(period, -1)); return p.length ? totalsOf(p, mode) : null; }, [report, period, mode]);
+  const mp = f100(cur.marginPct), pp = f100(prev?.marginPct);
+  const est = mode === 'real' && cur.estimated; const q = cur.quality;
+  const pill = mode === 'contratado' ? { c: 'pill', t: 'Según contrato' } : est || pend.length ? { c: 'pill mod status', t: `Provisional · faltan facturas de ${pendProviders || 1} proveedor${pendProviders > 1 ? 'es' : ''}` } : { c: 'pill ok status', t: 'Cerrado' };
+  const showAlerts = (type?: string) => { setFocusType(type ?? null); go('alertas'); };
+  const showClients = (p: { prod?: string; flag?: string }) => { setPreset({ ...p, n: preset.n + 1 }); go('clientes'); };
+
+  return <IoShell>
+    <TopBar eyebrow="Rentabilidad · margen de contribución"
+      controls={<>
+        <div className="mnav" aria-label="Mes"><button type="button" aria-label="Mes anterior" disabled={!!busy || period <= '2026-01'} onClick={() => void load(shiftMonth(period, -1), mode)}>◂</button><strong>{mlong(period)}</strong><button type="button" aria-label="Mes siguiente" disabled={!!busy || period >= '2026-12'} onClick={() => void load(shiftMonth(period, 1), mode)}>▸</button></div>
+        <div className="seg" role="group" aria-label="Vista">
+          <button type="button" aria-pressed={mode === 'real'} disabled={!!busy} onClick={() => mode !== 'real' && void load(period, 'real')} title="Lo que realmente se ha facturado y pagado">Facturado</button>
+          <button type="button" aria-pressed={mode === 'contratado'} disabled={!!busy} onClick={() => mode !== 'contratado' && void load(period, 'contratado')} title="Lo que dicen los contratos firmados">Contratado</button></div>
+        <button type="button" className={pill.c} onClick={() => showAlerts(pend.length ? 'FACTURA_PROVEEDOR_PENDIENTE' : undefined)}>{pill.t}</button>
+        <select className="f" aria-label="Acciones" value={acc} disabled={!!busy} onChange={e => action(e.target.value)}>
+          <option value="">Acciones</option><option value="recalc">Recalcular el mes</option><option value="cierre">Guardar cierre del mes</option><option value="excel">Exportar a Excel</option><option value="sync">Comprobar sincronizaciones</option><option value="reglas">Reglas y costes de proveedor</option><option value="estado">Estado de las sincronizaciones</option></select>
+      </>}
+      tabs={<nav className="tabs" aria-label="Vistas">{VIEWS.map(v => <a key={v} href={`#${v}`} data-v={v} aria-current={view === v ? 'page' : undefined} onClick={e => { e.preventDefault(); go(v); }}>{LABELS[v]}{v === 'alertas' && <> <span className="tag">{groups.length}</span></>}</a>)}</nav>}>
+      <div className="kpis">
+        {([
+          ['Ingreso', eur(cur.income), mode === 'real' ? 'facturado en el mes' : 'cuota contratada'],
+          ['Coste', <>{eur(cur.cost)}{est && <Dot />}</>, est ? `${eur(cur.costEst)} estimado` : mode === 'real' ? 'todo con factura' : 'coste de proveedor firmado'],
+          ['Margen', eur(cur.margin), prev ? `mes anterior ${eur(prev.margin)}` : ''],
+          ['Margen %', pctF(mp), `frente al mes anterior${mp != null && pp != null ? ` · ${mp >= pp ? '▲' : '▼'} ${Math.abs((mp - pp) * 100).toLocaleString('es-ES', { maximumFractionDigits: 1 })} pts` : ''}`],
+          ['Margen acumulado', eur(ytd.margin), `enero–${MESES_LARGO[mi]}`],
+          ['Fiabilidad del dato', mode === 'real' && q != null ? pctF(q / 100, 0) : '—', mode === 'real' && q != null ? <div className="meter"><i style={{ width: `${Math.round(q)}%`, background: q < 80 ? 'var(--warn)' : 'var(--good)' }} /></div> : 'cuota de contratos'],
+        ] as [string, React.ReactNode, React.ReactNode][]).map(([l, v, s]) => <div className="kpi" key={l}><div className="eyebrow">{l}</div><div className="v">{v}</div><div className="s">{s}</div></div>)}
+      </div>
+    </TopBar>
+    <main className="wrap">
+      {busy && <Note>{busy}</Note>}
+      {error && <Note tone="bad"><b>No se ha podido completar.</b> {error}</Note>}
+      {view === 'resumen' && <Resumen report={report} mode={mode} groups={groups} months={months} mi={mi} showAlerts={showAlerts} showClients={showClients} goProduct={p => { setOpenProd(p); go('productos'); }} />}
+      {view === 'productos' && <Productos report={report} mode={mode} months={months} mi={mi} openProd={openProd} setOpenProd={setOpenProd} showClients={showClients} />}
+      {view === 'clientes' && <Clientes key={preset.n} report={report} mode={mode} preset={preset} />}
+      {view === 'meses' && <Meses report={report} mode={mode} months={months} mi={mi} />}
+      {view === 'alertas' && <Alertas report={report} groups={groups} focusType={focusType} mutate={mutate} busy={!!busy} showClients={showClients} />}
+      {view === 'excel' && <Excel report={report} mode={mode} />}
+      {(view === 'reglas' || view === 'estado') && <section className="view">
+        <div className="panel"><div className="row" style={{ justifyContent: 'space-between' }}><h2>{view === 'reglas' ? 'Reglas y costes de proveedor' : 'Estado de las sincronizaciones'}</h2><button type="button" className="btn small" onClick={() => go('resumen')}>Volver al resumen</button></div>
+          <div className="legacy" style={{ marginTop: 10 }}>{view === 'reglas'
+            ? <><p className="muted">Las reglas dicen a qué producto va cada factura de proveedor; los costes de Vola son los que paga otra sociedad del grupo. Cada cambio crea una versión nueva y se conserva la anterior.</p><RulesEditor report={report} mutate={mutate} busy={!!busy} /><ExternalCostsEditor report={report} mutate={mutate} busy={!!busy} /></>
+            : <SystemState report={report} busy={!!busy} sync={sync} />}</div></div></section>}
+    </main>
+    <Toast text={message} />
+  </IoShell>;
 }
 
-function CostRealVsEstimated({ report }: { report: Report }) {
-  const rows = costRealVsEstimatedRows(array(report.products));
-  return <DataTable title={`Coste real frente a estimado por producto · ${report.period}`} period={report.period} rows={rows} columns={[
-    { key: 'product', label: 'Producto' },
-    { key: 'costReal', label: 'Coste REAL (factura, nómina o regla firmada)', kind: 'money' },
-    { key: 'costEstimated', label: 'Coste ESTIMADO (no real)', kind: 'money', estimated: () => true },
-    { key: 'costTotal', label: 'Coste total (real + estimado)', kind: 'money' },
-    { key: 'estimatedPct', label: '% estimado', kind: 'percent' },
-    { key: 'status', label: 'Estado', kind: 'status' },
-  ]} description="El coste REAL solo incluye facturas de proveedor, nóminas o reglas firmadas. Lo ESTIMADO (celdas ámbar) se ha inferido de periodos anteriores o de una factura sin fecha de servicio clara y no se suma al margen verificable. Despliega un producto para ver cada fuente con su marca REAL o ESTIMADO."
-    detail={row => <DataTable title={`Fuentes de coste · ${row.product}`} period={report.period} rows={array(row.sources).filter(source => source.provider || source.payer)} columns={[{ key: 'status', label: 'Estado', kind: 'status', value: source => source.status === 'REAL' ? 'REAL' : 'ESTIMADO' }, { key: 'source', label: 'Fuente' }, { key: 'provider', label: 'Proveedor' }, { key: 'description', label: 'Concepto' }, { key: 'periodBasis', label: 'Base del periodo' }, { key: 'amount', label: 'Importe', kind: 'money', estimated: source => source.status !== 'REAL' }, { key: 'payer', label: 'Sociedad pagadora' }]} />} />;
+/* ───────────── Alertas (marcado .alert de la maqueta) ───────────── */
+function AlertRow({ g, label, onClick, open }: { g: AlertGroup; label: string; onClick: () => void; open?: boolean }) {
+  return <div className={`alert ${g.level === 'bad' ? 'bad' : g.level === 'info' ? 'info' : ''}`}><div className="n">{g.count.toLocaleString('es-ES')}</div><div><div className="t">{g.title}</div><div className="w">{g.todo}{g.summary ? ` (${g.summary})` : ''}</div></div><button className="btn small" type="button" aria-expanded={open} onClick={onClick}>{label}</button></div>;
 }
-function IncomeByNature({ report }: { report: Report }) {
-  const rows = incomeNatureRows(array(report.products));
-  return <DataTable title={`Ingreso por naturaleza: recurrente, Servicios IT e instalaciones · ${report.period}`} period={report.period} rows={rows} columns={[
-    { key: 'product', label: 'Producto' },
-    { key: 'incomeRecurring', label: 'Recurrente (cuotas mensuales)', kind: 'money' },
-    { key: 'incomeIT', label: 'Servicios IT (horas, externalización, mantenimiento)', kind: 'money' },
-    { key: 'incomeOneOff', label: 'Instalaciones y puntuales (cuota única, equipos, altas)', kind: 'money' },
-    { key: 'income', label: 'Ingreso facturado total', kind: 'money' },
-    { key: 'oneOffPct', label: '% puntual', kind: 'percent' },
-  ]} description="Clasificación automática por el concepto de cada línea facturada. Los puntuales no son ingreso recurrente: no deben usarse para proyectar meses futuros. «PUESTA EN MARCHA» incluida dentro de una cuota mensual sigue contando como recurrente." />;
+
+/* ───────────── Resumen ───────────── */
+function Resumen({ report, mode, groups, months, mi, showAlerts, showClients, goProduct }: { report: Report; mode: Mode; groups: AlertGroup[]; months: string[]; mi: number; showAlerts: (t?: string) => void; showClients: (p: { prod?: string; flag?: string }) => void; goProduct: (p: string) => void }) {
+  const period = report.period;
+  const data: MV[] = months.map(m => {
+    const ps = monthProducts(report, m);
+    if (m > period) { const i = ps.reduce((t, p) => t + (numeric(p.forecastIncome ?? p.contractedIncome) ?? 0), 0); const c = ps.reduce((t, p) => t + (numeric(p.rawCost ?? p.cost) ?? 0) + (numeric(p.rawEstimatedCost ?? p.estimatedCost) ?? 0), 0); return { i: ps.length ? i : null, c: ps.length ? c : null, e: 0, forecast: true }; }
+    const t = totalsOf(ps, mode); return t.hasData ? { i: t.income, c: t.cost, e: t.costEst, forecast: false } : { i: null, c: null, e: 0, forecast: false };
+  });
+  const rank: RankRow[] = array(report.products).map(p => { const t = rowTotals(p, mode); return { p: String(p.product), mm: t.margin ?? NaN, mp: f100(t.marginPct), e: t.costEst }; }).filter(r => Number.isFinite(r.mm) && Math.abs(r.mm) > 0.5).sort((a, b) => b.mm - a.mm);
+  const top = groups.filter(g => g.level !== 'info').concat(groups.filter(g => g.level === 'info')).slice(0, 5);
+  const n = data[mi + 1], d = data[mi + 2]; const baja = groups.find(g => g.type === 'ESTADO_CONTRADICTORIO' || g.type === 'BAJA_FACTURADA');
+  const open = (g: AlertGroup) => (g.type === 'MARGEN_NEGATIVO' ? showClients({ flag: 'neg' }) : showAlerts(g.type));
+  return <section className="view">
+    <div className="grid3">
+      <div className="panel"><h2>Últimos 12 meses</h2>
+        <div className="legend"><span><i style={{ background: 'var(--before)' }} />Ingreso</span><span><i style={{ background: 'var(--accent)' }} />Coste</span><span><i style={{ background: 'var(--good)' }} />Margen %</span><span><i style={{ background: 'var(--warn)', opacity: .5 }} />Previsión</span></div>
+        <Trend data={data} cur={mi} /></div>
+      <div style={{ display: 'grid', gap: 18, minWidth: 0 }}>
+        <div className="panel"><h2>Lo que hay que mirar</h2>
+          <div className="alerts">{top.map(g => <AlertRow key={g.type} g={g} label={g.type === 'MARGEN_NEGATIVO' ? 'Ver clientes' : 'Ver y resolver'} onClick={() => open(g)} />)}{!top.length && <div className="empty">No hay nada pendiente de revisar.</div>}</div>
+          <p className="small muted" style={{ margin: '10px 0 0' }}><a href="#alertas" onClick={e => { e.preventDefault(); showAlerts(); }}>Ver todas las alertas</a></p></div>
+        {n && d && n.i != null && <div className="panel"><h2>Previsión {MESES_LARGO[mi + 1]}–{MESES_LARGO[mi + 2]}</h2><p className="help">Con la cuota actual. Puede cambiar.</p>
+          <div className="tablewrap" style={{ border: 0 }}><table><thead><tr><th /><th className="n">{cap(MESES[mi + 1])}</th><th className="n">{cap(MESES[mi + 2])}</th></tr></thead><tbody>
+            <tr><td>Ingreso</td><td className="n">{eur(n.i)}</td><td className="n">{eur(d.i)}</td></tr><tr><td>Coste</td><td className="n">{eur(n.c)}</td><td className="n">{eur(d.c)}</td></tr>
+            <tr><td>Margen</td><td className="n"><Chip m={mg(n.i, n.c)} /></td><td className="n"><Chip m={mg(d.i, d.c)} /></td></tr></tbody></table></div>
+          {baja && <p className="small" style={{ margin: '8px 0 0', color: 'var(--bad)' }}>Hay {baja.count} contrato{baja.count > 1 ? 's' : ''} con fecha de baja dudosa: pueden dejar coste sin ingreso. Mira Alertas.</p>}</div>}
+      </div>
+    </div>
+    <div className="panel"><h2>Margen por producto en {MESES_LARGO[mi]}</h2><p className="help">Ordenado por margen en euros. Pulsa un producto para ver sus clientes.</p><Rank rows={rank} onPick={goProduct} /></div>
+    <details className="how"><summary>Cómo se calcula</summary><ul className="clean small" style={{ marginTop: 8 }}>
+      <li><b>Facturado:</b> lo que se ha facturado de cada servicio en su mes. <b>Contratado:</b> la cuota mensual de los contratos activos.</li>
+      <li><b>Coste:</b> facturas de proveedor del mes. Si falta una factura, se estima con la última conocida y se marca con un punto ámbar.</li>
+      <li><b>Fiabilidad del dato:</b> qué parte del coste viene de facturas reales.</li>
+      <li>Es margen de contribución: no incluye personal, oficina ni estructura.</li></ul></details>
+  </section>;
+}
+
+/* ───────────── Por producto ───────────── */
+function Productos({ report, mode, months, mi, openProd, setOpenProd, showClients }: { report: Report; mode: Mode; months: string[]; mi: number; openProd: string | null; setOpenProd: (p: string | null) => void; showClients: (p: { prod?: string }) => void }) {
+  const period = report.period; const prevM = shiftMonth(period, -1);
+  const rows = array(report.products).map(p => ({ p, name: String(p.product), t: rowTotals(p, mode) })).filter(r => (r.t.income ?? 0) !== 0 || (r.t.cost ?? 0) !== 0).sort((a, b) => (b.t.margin ?? -1e12) - (a.t.margin ?? -1e12));
+  const tot = totalsOf(rows.map(r => r.p), mode);
+  const clientsOf = (name: string) => { const m = new Map<string, { name: string; i: number; c: number; n: number; est: boolean }>(); for (const c of array(report.clients)) for (const k of array(c.contracts)) { if (k.product !== name) continue; const t = rowTotals(k, mode); const x = m.get(String(c.clientCode)) ?? { name: String(c.clientName), i: 0, c: 0, n: 0, est: false }; x.i += t.income ?? 0; x.c += t.cost ?? 0; x.n++; x.est ||= t.estimated; m.set(String(c.clientCode), x); } return Array.from(m.values()).sort((a, b) => b.i - a.i); };
+  return <section className="view"><div className="panel"><h2>Por producto · {MESES_LARGO[mi]} {period.slice(0, 4)}</h2><p className="help">Pulsa una fila para ver los clientes de ese producto.</p>
+    <div className="tablewrap"><table><thead><tr><th>Producto</th><th className="n">Ingreso</th><th className="n">Coste</th><th className="n">Margen</th><th className="n">Margen %</th><th className="n hide-sm">vs mes anterior</th><th className="hide-sm">12 meses</th></tr></thead><tbody>
+      {rows.map(r => { const mpv = f100(r.t.marginPct); const prevItem = monthProducts(report, prevM).find(x => x.product === r.name); const ppv = prevItem ? f100(rowTotals(prevItem, mode).marginPct) : null; const open = openProd === r.name;
+        const spark = months.map(m => f100(productMonthMargin(report, r.name, m, mode).value));
+        const cl = open ? clientsOf(r.name) : [];
+        return <Fragment key={r.name}>
+          <tr className="rowclick" onClick={() => setOpenProd(open ? null : r.name)}><td>{open ? '▾' : '▸'} {r.name}</td><td className="n">{eur(r.t.income)}</td><td className="n">{eur(r.t.cost)}{r.t.estimated && mode === 'real' && <Dot />}</td><td className="n">{eur(r.t.margin)}</td><td className="n"><Chip m={mpv} /></td>
+            <td className="n hide-sm">{mpv == null || ppv == null ? '—' : <span className={mpv >= ppv ? 'up' : 'down'}>{mpv >= ppv ? '▲' : '▼'} {Math.abs((mpv - ppv) * 100).toLocaleString('es-ES', { maximumFractionDigits: 1 })} pts</span>}</td><td className="hide-sm"><Spark vals={spark} cur={mi} /></td></tr>
+          {open && !cl.length && <tr className="sub"><td colSpan={7} className="muted">Sin contratos asociados en el listado (ingreso por serie o comisión).</td></tr>}
+          {open && cl.slice(0, 15).map(c => <tr className="sub" key={c.name}><td>{c.name} <span className="muted">· {c.n} contr.</span></td><td className="n">{eur(c.i, 2)}</td><td className="n">{eur(c.c, 2)}{c.est && mode === 'real' && <Dot />}</td><td className="n">{eur(c.i - c.c, 2)}</td><td className="n"><Chip m={mg(c.i, c.c)} /></td><td colSpan={2} className="small muted hide-sm">{mode === 'real' ? 'facturado en el mes' : 'cuota contratada'}</td></tr>)}
+          {open && cl.length > 15 && <tr className="sub"><td colSpan={7} className="muted">y {cl.length - 15} clientes más · <a href="#clientes" onClick={e => { e.preventDefault(); showClients({ prod: r.name }); }}>ver todos</a></td></tr>}
+        </Fragment>; })}
+      <tr className="tot"><td>Total</td><td className="n">{eur(tot.income)}</td><td className="n">{eur(tot.cost)}</td><td className="n">{eur(tot.margin)}</td><td className="n"><Chip m={f100(tot.marginPct)} /></td><td className="hide-sm" /><td className="hide-sm" /></tr></tbody></table></div></div></section>;
+}
+
+/* ───────────── Por cliente ───────────── */
+const PS = 40;
+function Clientes({ report, mode, preset }: { report: Report; mode: Mode; preset: Preset }) {
+  const [q, setQ] = useState(''); const [tipo, setTipo] = useState(''); const [prod, setProd] = useState(preset.prod ?? ''); const [flag, setFlag] = useState(preset.flag ?? '');
+  const [page, setPage] = useState(0); const [sort, setSort] = useState<{ k: string; dir: 'asc' | 'desc' }>({ k: 'i', dir: 'desc' }); const [open, setOpen] = useState<Set<string>>(new Set());
+  const all = useMemo(() => array(report.clients).map(c => { const t = rowTotals(c, mode); return { c, code: String(c.clientCode), name: String(c.clientName), tipo: clientTipo(c), n: array(c.contracts).length, i: t.income, co: t.cost, m: t.margin, mp: f100(t.marginPct), est: t.estimated }; }).filter(r => r.n), [report, mode]);
+  const names = useMemo(() => Array.from(new Set(array(report.clients).flatMap(c => array(c.contracts).map(k => String(k.product))))).sort((a, b) => a.localeCompare(b, 'es')), [report]);
+  const needle = q.trim().toLowerCase();
+  let rows = all.filter(r => (!tipo || r.tipo === tipo) && (!prod || array(r.c.contracts).some(k => k.product === prod)) && (!needle || r.name.toLowerCase().includes(needle) || array(r.c.contracts).some(k => String(k.contractCode ?? '').toLowerCase().includes(needle))));
+  if (flag === 'neg') rows = rows.filter(r => (r.m ?? 0) < 0);
+  if (flag === 'low') rows = rows.filter(r => r.mp != null && r.mp >= 0 && r.mp < 0.2);
+  const dir = sort.dir === 'asc' ? 1 : -1; const val = (r: (typeof all)[number]): number | string => sort.k === 'name' ? r.name : sort.k === 'm' ? (r.m ?? -1e12) : sort.k === 'mp' ? (r.mp ?? -9) : sort.k === 'c' ? (r.co ?? -1e12) : (r.i ?? -1e12);
+  rows = rows.slice().sort((a, b) => (val(a) < val(b) ? -1 : val(a) > val(b) ? 1 : 0) * dir);
+  const pages = Math.max(1, Math.ceil(rows.length / PS)); const pg = Math.min(page, pages - 1);
+  const th = (k: string, l: string, n?: boolean) => <th className={`sort ${n ? 'n' : ''}`} data-dir={sort.k === k ? sort.dir : undefined} onClick={() => setSort(s => s.k === k ? { k, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { k, dir: k === 'name' ? 'asc' : 'desc' })}>{l}</th>;
+  const toggle = (code: string) => setOpen(s => { const x = new Set(s); if (x.has(code)) x.delete(code); else x.add(code); return x; });
+  return <section className="view"><div className="panel"><h2>Por cliente</h2><p className="help">{mode === 'real' ? 'Ingreso facturado y coste asignado en el mes.' : 'Cuota mensual contratada y coste asignado.'} Pulsa la flecha de un cliente para ver sus contratos.</p>
+    <div className="row" style={{ marginBottom: 10 }}>
+      <input className="search" type="search" placeholder="Buscar cliente o contrato" aria-label="Buscar cliente o contrato" value={q} onChange={e => { setQ(e.target.value); setPage(0); }} />
+      <select className="f" aria-label="Tipo de cliente" value={tipo} onChange={e => { setTipo(e.target.value); setPage(0); }}><option value="">Todos los tipos</option><option value="E">Empresas</option><option value="R">Particulares</option><option value="P">Sector público</option></select>
+      <select className="f" aria-label="Producto" value={prod} onChange={e => { setProd(e.target.value); setPage(0); }}><option value="">Todos los productos</option>{names.map(n => <option key={n}>{n}</option>)}</select>
+      <select className="f" aria-label="Margen" value={flag} onChange={e => { setFlag(e.target.value); setPage(0); }}><option value="">Todos</option><option value="neg">Margen negativo</option><option value="low">Margen bajo 20 %</option></select></div>
+    <div className="tablewrap"><table><thead><tr><th />{th('name', 'Cliente')}<th className="hide-sm">Tipo</th><th className="n hide-sm">Contratos</th>{th('i', mode === 'real' ? 'Facturado' : 'Cuota mensual', true)}{th('c', 'Coste asignado', true)}{th('m', 'Margen', true)}{th('mp', 'Margen %', true)}<th /></tr></thead><tbody>
+      {rows.slice(pg * PS, pg * PS + PS).map(r => { const o = open.has(r.code); return <Fragment key={r.code}>
+        <tr><td><button className="expand" type="button" aria-expanded={o} aria-label="Ver contratos" onClick={() => toggle(r.code)}>{o ? '▾' : '▸'}</button></td><td className="cname" title={r.name}>{r.name}</td><td className="hide-sm"><span className={`tag ${r.tipo}`}>{TIPO_NOMBRE[r.tipo]}</span></td><td className="n hide-sm">{r.n}</td><td className="n">{eur(r.i, 2)}</td><td className="n">{eur(r.co, 2)}{r.est && mode === 'real' && <Dot />}</td><td className="n">{eur(r.m, 2)}</td><td className="n"><Chip m={r.mp} /></td>
+          <td><a className="btn small" href={`/admin/subida-precios?cliente=${encodeURIComponent(r.name)}`}>Simular subida</a></td></tr>
+        {o && array(r.c.contracts).map((k, i) => { const t = rowTotals(k, mode); return <tr className="sub" key={`${k.contractCode}-${i}`}><td /><td colSpan={3}><span className="muted">{k.contractCode ? `Nº ${k.contractCode}` : 'Sin nº'}</span> · {String(k.tariff ?? '—')} <span className="muted">· {String(k.product)}</span></td><td className="n">{eur(t.income, 2)}</td><td className="n">{eur(t.cost, 2)}{t.estimated && mode === 'real' && <Dot />}</td><td className="n">{eur(t.margin, 2)}</td><td className="n"><Chip m={f100(t.marginPct)} /></td><td /></tr>; })}
+      </Fragment>; })}
+      {!rows.length && <tr><td colSpan={9} className="empty">Ningún cliente cumple el filtro.</td></tr>}</tbody></table></div>
+    <div className="pager"><span>Página {pg + 1} de {pages} · {rows.length.toLocaleString('es-ES')} clientes</span><span className="row"><button className="btn" type="button" disabled={pg === 0} onClick={() => setPage(pg - 1)}>Anterior</button><button className="btn" type="button" disabled={pg >= pages - 1} onClick={() => setPage(pg + 1)}>Siguiente</button></span></div></div></section>;
+}
+
+/* ───────────── Mes a mes ───────────── */
+function Meses({ report, mode, months, mi }: { report: Report; mode: Mode; months: string[]; mi: number }) {
+  const period = report.period;
+  const names = Array.from(new Set([...array(report.products).map(p => String(p.product)), ...array(report.monthly).flatMap(m => array(m.products).map(p => String(p.product)))]));
+  const rows: HeatRow[] = names.map(n => ({ name: n, cells: months.map(m => { if (m > period) return { m: null, est: false }; const x = productMonthMargin(report, n, m, mode); return { m: f100(x.value), est: x.estimated }; }) })).filter(r => r.cells.some(c => c.m != null));
+  const total = months.map(m => { if (m > period) return null; const t = totalsOf(monthProducts(report, m), mode); return t.hasData ? f100(t.marginPct) : null; });
+  return <section className="view"><div className="panel"><h2>Margen % por producto y mes</h2><p className="help">Rojo: pierde dinero. Ámbar: margen bajo. Verde: sano. El punto • indica coste estimado. Los meses posteriores al seleccionado aún no tienen datos.</p>
+    <div className="tablewrap"><Heat rows={rows} total={total} cur={mi} months={MESES.map(cap)} /></div></div></section>;
+}
+
+/* ───────────── Alertas ───────────── */
+function Alertas({ report, groups, focusType, mutate, busy, showClients }: { report: Report; groups: AlertGroup[]; focusType: string | null; mutate: Mutate; busy: boolean; showClients: (p: { flag?: string }) => void }) {
+  const [open, setOpen] = useState<string | null>(focusType); const resolved = array(report.resolvedExceptions);
+  useEffect(() => setOpen(focusType), [focusType]);
+  return <section className="view"><div className="panel"><h2>Alertas</h2><p className="help">Agrupadas por tipo, con lo que hay que hacer. Al resolver una se guarda como regla y no vuelve a salir.</p>
+    <div className="alerts">{groups.map(g => <Fragment key={g.type}>
+      <AlertRow g={g} open={open === g.type} label={g.type === 'MARGEN_NEGATIVO' ? 'Ver clientes' : open === g.type ? 'Ocultar' : 'Ver y resolver'} onClick={() => g.type === 'MARGEN_NEGATIVO' ? showClients({ flag: 'neg' }) : setOpen(open === g.type ? null : g.type)} />
+      {open === g.type && <div className="tablewrap"><FilterTable rows={g.items} pageSize={10} rowKey={a => String(a.key)} ariaLabel={g.title} searchText={a => `${a.title} ${a.contractCode ?? ''} ${a.product ?? ''}`} search="Buscar…"
+        cols={[{ key: 'title', label: 'Qué pasa', render: a => <span style={{ whiteSpace: 'normal' }}>{String(a.title)}</span> }, { key: 'product', label: 'Producto', hideSm: true, render: a => String(a.product ?? a.suggestedProduct ?? '—') }, { key: 'amount', label: 'Importe', n: true, hideSm: true, value: a => numeric(a.amount), render: a => a.amount == null ? '—' : eur(numeric(a.amount), 2) },
+          { key: 'act', label: '', noSort: true, render: a => <div className="legacy" style={{ minWidth: 150 }}><AlertAction alert={a} report={report} mutate={mutate} busy={busy} /></div> }]} /></div>}
+    </Fragment>)}{!groups.length && <div className="empty">No hay nada pendiente de revisar.</div>}</div></div>
+    {!!resolved.length && <details className="how"><summary>Ya resueltas ({resolved.length}) · se pueden reabrir</summary><div style={{ marginTop: 8 }}>
+      <FilterTable rows={resolved} pageSize={10} rowKey={r => String(r.key ?? r.id)} ariaLabel="Alertas resueltas" cols={[{ key: 'title', label: 'Alerta', render: r => <span style={{ whiteSpace: 'normal' }}>{String(r.title)}</span> }, { key: 'createdAt', label: 'Fecha', hideSm: true, render: r => r.createdAt ? new Date(r.createdAt).toLocaleDateString('es-ES') : '—' },
+        { key: 'act', label: '', noSort: true, render: r => <button type="button" className="btn small" disabled={busy} onClick={() => void mutate('exceptions', { exceptionKey: String(r.key), action: 'REABRIR' }, 'Alerta reabierta. Queda constancia del cambio y no se borra nada.')}>Reabrir</button> }]} /></div></details>}
+  </section>;
+}
+
+/* ───────────── Comparar con Excel ───────────── */
+function Excel({ report, mode }: { report: Report; mode: Mode }) {
+  const rows = compareRows(report, mode); const ym = monthLabel(report.period).split(' ')[0].toLowerCase();
+  const why = (r: (typeof rows)[number]) => {
+    if (r.missing) return 'El producto no aparece en el panel este mes.';
+    if (r.estimated) return 'Faltan facturas del proveedor: el coste del panel es estimado.';
+    const di = r.xIncome && r.pIncome != null ? Math.abs(r.pIncome - r.xIncome) / Math.abs(r.xIncome) : 0; const dc = r.xCost && r.pCost != null ? Math.abs(r.pCost - r.xCost) / Math.abs(r.xCost) : 0;
+    const out: string[] = []; if (di > 0.1) out.push('El Excel usa la cuota contratada; el panel, lo facturado en el mes.'); if (dc > 0.1) out.push('El Excel usa el coste medio de enero a octubre; el panel, el del mes.'); return out.join(' ');
+  };
+  return <section className="view"><div className="panel"><h2>Comparar con el Excel de noviembre</h2><p className="help">El Excel (versión 4) usa la cuota contratada y el coste medio de enero a octubre. El panel usa lo facturado en el mes. Las diferencias grandes tienen explicación en la columna «Por qué».</p>
+    <div className="tablewrap"><table><thead><tr><th>Producto</th><th className="n">Excel · ingreso</th><th className="n">Excel · margen</th><th className="n">Panel {ym} · ingreso</th><th className="n">Panel {ym} · margen</th><th className="n">Diferencia de margen</th><th>Por qué</th></tr></thead><tbody>
+      {rows.map(r => { const xm = r.xIncome != null ? r.xIncome - (r.xCost ?? 0) : null; const pm = r.pIncome != null && r.pCost != null ? r.pIncome - r.pCost : null; const d = xm != null && pm != null ? pm - xm : null;
+        return <tr key={r.key}><td>{r.product}</td><td className="n">{eur(r.xIncome)}</td><td className="n"><Chip m={f100(r.xPct)} /></td><td className="n">{eur(r.pIncome)}</td><td className="n"><Chip m={f100(r.pPct)} />{r.estimated && <Dot />}</td><td className="n">{d == null ? '—' : <span className={d >= 0 ? 'up' : 'down'}>{d >= 0 ? '+' : ''}{eur(d)}</span>}</td><td className="small muted" style={{ minWidth: 300 }}>{why(r)}</td></tr>; })}
+      {!rows.length && <tr><td colSpan={7} className="empty">No hay datos del Excel cargados.</td></tr>}</tbody></table></div></div>
+    <details className="how"><summary>Contratado frente a real (Draxton y otros)</summary><div className="legacy" style={{ marginTop: 8 }}><Comparison report={report} /></div></details></section>;
 }
