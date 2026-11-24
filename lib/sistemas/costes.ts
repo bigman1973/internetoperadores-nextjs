@@ -7,12 +7,12 @@ export interface FacturaIn { id: string; proveedor: string; numFactura: string |
 export interface MovIn { id: string; fecha: string; importe: number; concepto: string; tercero: string | null; facturaId: string | null; conDocumento: boolean }
 export interface ReglaIn { servicioId: string; prioridad: number; proveedorRegex: string | null; conceptoRegex: string | null; bancoRegex: string | null; activa: boolean }
 export interface ManualIn { id: string; servicioId: string; fecha: string | null; concepto: string; importe: number; moneda: 'EUR' | 'USD'; ivaPct: number; tipo: 'RECURRENTE' | 'UNICO'; estado: 'REAL' | 'PREVISTO'; anulado: boolean }
-export interface ServicioIn { id: string; slug: string; nombre: string; periodicidad: 'MENSUAL' | 'ANUAL' | 'VARIABLE'; estado: string; prevision2027Manual: number | null }
+export interface ServicioIn { id: string; slug: string; nombre: string; periodicidad: 'MENSUAL' | 'ANUAL' | 'VARIABLE'; estado: string; prevision2027Manual: number | null; tipoPago?: 'FACTURA' | 'TARJETA_SIN_FACTURA' | 'INCLUIDO'; costeEstimadoMensual?: number | null }
 
-export interface CosteMes { facturado: number; sinFactura: number; manual: number; total: number; nFacturas: number; nSinFactura: number }
+export interface CosteMes { facturado: number; sinFactura: number; manual: number; estimado: number; total: number; nFacturas: number; nSinFactura: number }
 export interface CosteServicio {
   servicioId: string; slug: string; nombre: string; estado: string; periodicidad: string;
-  meses: Record<string, CosteMes>; totalAnio: number; totalFacturado: number; totalSinFactura: number; totalManual: number;
+  meses: Record<string, CosteMes>; totalAnio: number; totalFacturado: number; totalSinFactura: number; totalManual: number; totalEstimado: number; tipoPago: string; estimadoMensual: number | null;
   runRateMensual: number; anualizado: number; prevision2027: number; previsionOrigen: 'MANUAL' | 'RITMO_3_MESES' | 'TOTAL_ANUAL' | 'EN_BAJA';
   nFacturas: number; nSinFactura: number; ultimaFactura: string | null; ultimoCargo: string | null;
 }
@@ -81,11 +81,11 @@ export function calcularCostes(e: EntradaCostes): ResultadoCostes {
   const hasta = e.hasta > e.mesActual ? e.mesActual : e.hasta;
   const meses = listaMeses(e.desde, hasta);
   const mesesCerrados = meses.filter(m => m < e.mesActual);
-  const vacio = (): CosteMes => ({ facturado: 0, sinFactura: 0, manual: 0, total: 0, nFacturas: 0, nSinFactura: 0 });
+  const vacio = (): CosteMes => ({ facturado: 0, sinFactura: 0, manual: 0, estimado: 0, total: 0, nFacturas: 0, nSinFactura: 0 });
   const porId = new Map<string, CosteServicio>();
   for (const s of e.servicios) porId.set(s.id, {
     servicioId: s.id, slug: s.slug, nombre: s.nombre, estado: s.estado, periodicidad: s.periodicidad, meses: Object.fromEntries(meses.map(m => [m, vacio()])),
-    totalAnio: 0, totalFacturado: 0, totalSinFactura: 0, totalManual: 0, runRateMensual: 0, anualizado: 0, prevision2027: 0, previsionOrigen: 'RITMO_3_MESES',
+    totalAnio: 0, totalFacturado: 0, totalSinFactura: 0, totalManual: 0, totalEstimado: 0, tipoPago: s.tipoPago ?? 'FACTURA', estimadoMensual: s.costeEstimadoMensual ?? null, runRateMensual: 0, anualizado: 0, prevision2027: 0, previsionOrigen: 'RITMO_3_MESES',
     nFacturas: 0, nSinFactura: 0, ultimaFactura: null, ultimoCargo: null,
   });
   const facturasPorId = new Set<string>();
@@ -126,8 +126,12 @@ export function calcularCostes(e: EntradaCostes): ResultadoCostes {
 
   const subida = e.subidaPct ?? 0; const totalesMes: Record<string, number> = Object.fromEntries(meses.map(m => [m, 0]));
   for (const s of porId.values()) {
-    for (const m of meses) { const c = s.meses[m]; c.total = r2(c.facturado + c.sinFactura + c.manual); s.totalFacturado = r2(s.totalFacturado + c.facturado); s.totalSinFactura = r2(s.totalSinFactura + c.sinFactura); s.totalManual = r2(s.totalManual + c.manual); totalesMes[m] = r2(totalesMes[m] + c.total); }
-    s.totalAnio = r2(s.totalFacturado + s.totalSinFactura + s.totalManual);
+    // Servicio que se paga con tarjeta y no tiene factura en el panel: cada mes cerrado sin factura, cargo ni coste manual lleva el importe estimado (en amarillo).
+    if (s.tipoPago === 'TARJETA_SIN_FACTURA' && s.estimadoMensual && s.estimadoMensual > 0 && s.estado !== 'en_baja') {
+      for (const m of mesesCerrados) { const c = s.meses[m]; if (c.facturado + c.sinFactura + c.manual === 0) { c.estimado = r2(s.estimadoMensual); s.totalEstimado = r2(s.totalEstimado + c.estimado); } }
+    }
+    for (const m of meses) { const c = s.meses[m]; c.total = r2(c.facturado + c.sinFactura + c.manual + c.estimado); s.totalFacturado = r2(s.totalFacturado + c.facturado); s.totalSinFactura = r2(s.totalSinFactura + c.sinFactura); s.totalManual = r2(s.totalManual + c.manual); totalesMes[m] = r2(totalesMes[m] + c.total); }
+    s.totalAnio = r2(s.totalFacturado + s.totalSinFactura + s.totalManual + s.totalEstimado);
     const ult3 = mesesCerrados.slice(-3);
     s.runRateMensual = ult3.length ? r2(ult3.reduce((a, m) => a + s.meses[m].total, 0) / ult3.length) : 0;
     const srv = e.servicios.find(x => x.id === s.servicioId)!;
@@ -142,6 +146,8 @@ export function calcularCostes(e: EntradaCostes): ResultadoCostes {
   const total27 = r2(servicios.reduce((a, s) => a + s.prevision2027, 0));
   const totalSin = r2(cargos.reduce((a, c) => a + c.importe, 0));
   if (cargos.length) avisos.push(`${cargos.length} cargos del banco (${totalSin.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €, IVA incluido) corresponden a estos servicios y no tienen factura ni justificante. Se suman al coste en amarillo hasta que llegue la factura.`);
+  const conEst = servicios.filter(s => s.totalEstimado > 0);
+  if (conEst.length) avisos.push(`${conEst.map(s => s.nombre).join(', ')}: cargo de tarjeta sin factura en el panel. Se suma un importe estimado por mes (${r2(conEst.reduce((a, s) => a + s.totalEstimado, 0)).toLocaleString('es-ES', { minimumFractionDigits: 2 })} € en el periodo, en amarillo). Confirma plan e importe con el recibo de la tarjeta.`);
   for (const s of servicios) if (s.estado === 'en_baja' && mesesCerrados.slice(-2).some(m => s.meses[m].total > 0)) avisos.push(`${s.nombre} figura en baja pero ha tenido coste en los últimos 2 meses cerrados: comprueba que no se renueva.`);
   const unR = r2(pagos.filter(p => p.estado === 'REAL').reduce((a, p) => a + p.total, 0));
   const unP = r2(pagos.filter(p => p.estado === 'PREVISTO').reduce((a, p) => a + p.total, 0));

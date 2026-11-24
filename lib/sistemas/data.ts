@@ -6,11 +6,13 @@ export const CATEGORIAS = ['web_infraestructura', 'base_datos', 'desarrollo_ia',
 export const ESTADOS = ['activo', 'en_prueba', 'en_baja', 'por_confirmar'] as const;
 export const ENTORNOS = ['produccion', 'staging'] as const;
 export const PERIODICIDADES = ['MENSUAL', 'ANUAL', 'VARIABLE'] as const;
+export const TIPOS_PAGO = ['FACTURA', 'TARJETA_SIN_FACTURA', 'INCLUIDO'] as const;
 
 export interface Servicio {
   id: string; slug: string; nombre: string; proveedor: string; categoria: string; descripcion: string | null; modulos: string[]; entornos: string[];
   titular: string | null; responsable: string | null; plan: string | null; estado: string; fechaAlta: string | null; fechaRenovacion: string | null; periodicidad: string;
   variablesEsperadas: string[]; url: string | null; notas: string | null; estadoManual: string | null; estadoManualAt: string | null; prevision2027Manual: number | null; orden: number;
+  descartadoAt: string | null; descartadoMotivo: string | null; tipoPago: string; costeEstimadoMensual: number | null; costeEstimadoNota: string | null;
 }
 export const mesActualMadrid = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit' }).format(new Date()).slice(0, 7);
 
@@ -21,8 +23,9 @@ export async function sistemasDisponible(): Promise<boolean> {
 export async function listarServicios(): Promise<Servicio[]> {
   const rows: any[] = await prisma.$queryRaw(Prisma.sql`SELECT id, slug, nombre, proveedor, categoria, descripcion, modulos, entornos, titular, responsable, plan, estado,
     to_char(fecha_alta,'YYYY-MM-DD') AS fecha_alta, to_char(fecha_renovacion,'YYYY-MM-DD') AS fecha_renovacion, periodicidad, variables_esperadas, url, notas, estado_manual,
-    to_char(estado_manual_at,'YYYY-MM-DD"T"HH24:MI') AS estado_manual_at, prevision_2027_manual::float8 AS prev, orden FROM area9_sis_servicios ORDER BY orden, nombre`);
-  return rows.map(r => ({ id: r.id, slug: r.slug, nombre: r.nombre, proveedor: r.proveedor, categoria: r.categoria, descripcion: r.descripcion, modulos: r.modulos ?? [], entornos: r.entornos ?? [], titular: r.titular, responsable: r.responsable, plan: r.plan, estado: r.estado, fechaAlta: r.fecha_alta, fechaRenovacion: r.fecha_renovacion, periodicidad: r.periodicidad, variablesEsperadas: r.variables_esperadas ?? [], url: r.url, notas: r.notas, estadoManual: r.estado_manual, estadoManualAt: r.estado_manual_at, prevision2027Manual: r.prev, orden: r.orden }));
+    to_char(estado_manual_at,'YYYY-MM-DD"T"HH24:MI') AS estado_manual_at, prevision_2027_manual::float8 AS prev, orden,
+    to_char(descartado_at,'YYYY-MM-DD') AS descartado_at, descartado_motivo, tipo_pago, coste_estimado_mensual::float8 AS coste_est, coste_estimado_nota FROM area9_sis_servicios ORDER BY orden, nombre`);
+  return rows.map(r => ({ id: r.id, slug: r.slug, nombre: r.nombre, proveedor: r.proveedor, categoria: r.categoria, descripcion: r.descripcion, modulos: r.modulos ?? [], entornos: r.entornos ?? [], titular: r.titular, responsable: r.responsable, plan: r.plan, estado: r.estado, fechaAlta: r.fecha_alta, fechaRenovacion: r.fecha_renovacion, periodicidad: r.periodicidad, variablesEsperadas: r.variables_esperadas ?? [], url: r.url, notas: r.notas, estadoManual: r.estado_manual, estadoManualAt: r.estado_manual_at, prevision2027Manual: r.prev, orden: r.orden, descartadoAt: r.descartado_at, descartadoMotivo: r.descartado_motivo, tipoPago: r.tipo_pago ?? 'FACTURA', costeEstimadoMensual: r.coste_est, costeEstimadoNota: r.coste_estimado_nota }));
 }
 
 export async function cargarCostes(desde: string, hasta: string, subidaPct: number): Promise<ResultadoCostes & { catalogo: { id: string; slug: string; nombre: string }[] }> {
@@ -48,7 +51,7 @@ export async function cargarCostes(desde: string, hasta: string, subidaPct: numb
   const manuales: ManualIn[] = mm.map(x => ({ id: x.id, servicioId: x.servicio_id, fecha: x.fecha, concepto: x.concepto, importe: Number(x.importe), moneda: x.moneda, ivaPct: Number(x.iva), tipo: x.tipo, estado: x.estado, anulado: !!x.anulado }));
   const tr: any[] = await prisma.$queryRaw(Prisma.sql`SELECT mes, usd_eur::float8 AS t FROM area9_sis_tasas`);
   const tasas = Object.fromEntries(tr.map(x => [x.mes, Number(x.t)]));
-  const sIn: ServicioIn[] = servicios.map(s => ({ id: s.id, slug: s.slug, nombre: s.nombre, periodicidad: s.periodicidad as any, estado: s.estado, prevision2027Manual: s.prevision2027Manual }));
+  const sIn: ServicioIn[] = servicios.map(s => ({ id: s.id, slug: s.slug, nombre: s.nombre, periodicidad: s.periodicidad as any, estado: s.estado, prevision2027Manual: s.prevision2027Manual, tipoPago: s.tipoPago as any, costeEstimadoMensual: s.costeEstimadoMensual }));
   const res = calcularCostes({ desde, hasta, mesActual: mesActualMadrid(), subidaPct, servicios: sIn, reglas, facturas, movimientos, manuales, tasas });
   return { ...res, catalogo: servicios.map(s => ({ id: s.id, slug: s.slug, nombre: s.nombre })) };
 }

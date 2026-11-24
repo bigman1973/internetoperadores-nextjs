@@ -16,11 +16,14 @@ export async function GET() {
     const [github, railway, bd, servicios] = await Promise.all([leerGithub(), leerRailway(), leerBd(), listarServicios()]);
     const vercel = await leerVercel(github.datos?.mainSha ?? null);
     const entorno = process.env.VERCEL_ENV ?? (process.env.NODE_ENV === 'production' ? 'production' : 'development');
-    const variables = servicios.filter(s => s.variablesEsperadas.length).map(s => ({ slug: s.slug, nombre: s.nombre, variables: variablesDeEsteEntorno(s.variablesEsperadas) }));
+    // Solo se esperan las variables de los servicios que se usan en el entorno actual (BREVO_API_KEY_STAGING solo en staging).
+    const etiqueta = entorno === 'production' ? 'produccion' : 'staging';
+    const delEntorno = servicios.filter(s => s.entornos.includes(etiqueta) && !s.descartadoAt);
+    const variables = delEntorno.filter(s => s.variablesEsperadas.length).map(s => ({ slug: s.slug, nombre: s.nombre, variables: variablesDeEsteEntorno(s.variablesEsperadas) }));
     const pendientes = variables.flatMap(v => v.variables.filter(x => !x.configurada).map(x => `${x.nombre} no configurada (${v.nombre})`));
     // Variables extra que Vercel tiene definidas por entorno: solo nombres.
     const envPorEntorno = vercel.datos?.envPorEntorno ?? null;
-    const faltanEnProduccion = envPorEntorno ? servicios.flatMap(s => s.variablesEsperadas.filter(v => !envPorEntorno.production.includes(v)).map(v => ({ servicio: s.nombre, variable: v }))) : null;
+    const faltanEnProduccion = envPorEntorno ? servicios.filter(s => s.entornos.includes('produccion') && !s.descartadoAt).flatMap(s => s.variablesEsperadas.filter(v => !envPorEntorno.production.includes(v)).map(v => ({ servicio: s.nombre, variable: v }))) : null;
     return reply({
       leidoAt: new Date().toISOString(), entornoActual: entorno,
       vercel, github, railway, bd, variables, pendientes, envPorEntorno, faltanEnProduccion,

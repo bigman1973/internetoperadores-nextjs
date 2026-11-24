@@ -88,4 +88,16 @@ t('filtro de credenciales: bloquea tokens y contraseñas, deja pasar texto norma
     assert.equal(pareceCredencial(x), true, x);
   for (const x of ['Titular: Víctor Giró', 'Plan Team 5 usuarios, renovación anual', 'La clave del servicio está en el gestor de contraseñas', 'Cuenta de IT en vercel.com/internet-operadores']) assert.equal(pareceCredencial(x), false, x);
 });
+t('tarjeta sin factura: estimado mensual solo en meses cerrados sin factura ni cargo, marcado y avisado', () => {
+  const sv = [S('vercel', { tipoPago: 'TARJETA_SIN_FACTURA', costeEstimadoMensual: 17.2 }), S('brevo2', { tipoPago: 'INCLUIDO' }), S('do', { estado: 'en_baja', tipoPago: 'TARJETA_SIN_FACTURA', costeEstimadoMensual: 5 })];
+  const r = calcularCostes({ ...base, desde: '2026-08', hasta: '2026-11', mesActual: '2026-11', servicios: sv, reglas: [R('vercel', 100, 'vercel', null, 'vercel')], facturas: [f('v1', 'Vercel Inc', '2026-09-10', 40)], movimientos: [], manuales: [] });
+  const v = r.servicios.find(x => x.slug === 'vercel')!;
+  assert.equal(v.meses['2026-08'].estimado, 17.2); assert.equal(v.meses['2026-09'].estimado, 0); assert.equal(v.meses['2026-10'].estimado, 17.2);
+  assert.equal(v.meses['2026-11'].estimado, 0, 'el mes en curso no se estima');
+  assert.equal(v.totalEstimado, 34.4); assert.equal(v.totalAnio, 74.4);
+  assert.equal(r.servicios.find(x => x.slug === 'brevo2')!.totalAnio, 0);
+  assert.equal(r.servicios.find(x => x.slug === 'do')!.totalAnio, 0, 'descartado o en baja no se estima');
+  assert.ok(r.avisos.some(a => a.includes('cargo de tarjeta sin factura en el panel')));
+});
+
 console.log(`\n${ok} pruebas OK`);

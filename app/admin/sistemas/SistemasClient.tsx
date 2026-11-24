@@ -3,9 +3,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { eur } from '../subida-precios/fmt';
 import { EvolucionCostes, Leyenda } from './charts';
 
-type Servicio = { id: string; slug: string; nombre: string; proveedor: string; categoria: string; descripcion: string | null; modulos: string[]; entornos: string[]; titular: string | null; responsable: string | null; plan: string | null; estado: string; fechaAlta: string | null; fechaRenovacion: string | null; periodicidad: string; variablesEsperadas: string[]; url: string | null; notas: string | null; estadoManual: string | null; estadoManualAt: string | null; prevision2027Manual: number | null };
-type CosteMes = { facturado: number; sinFactura: number; manual: number; total: number; nFacturas: number; nSinFactura: number };
-type CosteSrv = { servicioId: string; slug: string; nombre: string; estado: string; periodicidad: string; meses: Record<string, CosteMes>; totalAnio: number; totalFacturado: number; totalSinFactura: number; totalManual: number; runRateMensual: number; anualizado: number; prevision2027: number; previsionOrigen: string; ultimaFactura: string | null; ultimoCargo: string | null; nFacturas: number; nSinFactura: number };
+type Servicio = { id: string; slug: string; nombre: string; proveedor: string; categoria: string; descripcion: string | null; modulos: string[]; entornos: string[]; titular: string | null; responsable: string | null; plan: string | null; estado: string; fechaAlta: string | null; fechaRenovacion: string | null; periodicidad: string; variablesEsperadas: string[]; url: string | null; notas: string | null; estadoManual: string | null; estadoManualAt: string | null; prevision2027Manual: number | null; descartadoAt?: string | null; descartadoMotivo?: string | null; tipoPago?: string; costeEstimadoMensual?: number | null; costeEstimadoNota?: string | null };
+type CosteMes = { facturado: number; sinFactura: number; manual: number; estimado?: number; total: number; nFacturas: number; nSinFactura: number };
+type CosteSrv = { servicioId: string; slug: string; nombre: string; estado: string; periodicidad: string; meses: Record<string, CosteMes>; totalAnio: number; totalFacturado: number; totalSinFactura: number; totalManual: number; totalEstimado?: number; tipoPago?: string; estimadoMensual?: number | null; runRateMensual: number; anualizado: number; prevision2027: number; previsionOrigen: string; ultimaFactura: string | null; ultimoCargo: string | null; nFacturas: number; nSinFactura: number };
 type Costes = { desde: string; hasta: string; mesActual: string; mesesCerrados: string[]; meses: string[]; servicios: CosteSrv[]; totalesMes: Record<string, number>; totalAnio: number; totalAnualizado: number; previsionTotal2027: number; subidaPct: number; pagosUnicos: { id: string; slug: string; nombre: string; fecha: string | null; concepto: string; base: number; iva: number; total: number; estado: string; moneda: string; importeOriginal: number }[]; totalPagosUnicosReales: number; totalPagosUnicosPrevistos: number; cargosSinFactura: { movId: string; fecha: string; importe: number; concepto: string; slug: string; nombre: string; tarjeta: boolean }[]; totalSinFactura: number; avisos: string[]; facturasSinServicio: { proveedor: string; n: number; base: number }[] };
 type Conector<T> = { estado: 'ok' | 'no_conectado' | 'error'; motivo?: string; variables?: string[]; datos?: T; leidoAt: string };
 type Vivo = { leidoAt: string; entornoActual: string; region: string | null; vercel: Conector<any>; github: Conector<any>; railway: Conector<any>; bd: Conector<any>; variables: { slug: string; nombre: string; variables: { nombre: string; configurada: boolean }[] }[]; pendientes: string[]; envPorEntorno: Record<string, string[]> | null; faltanEnProduccion: { servicio: string; variable: string }[] | null };
@@ -30,7 +30,7 @@ async function api<T = any>(url: string, method = 'GET', body?: unknown): Promis
   if (!r.ok) throw new Error(j.error || `Error ${r.status}`);
   return j as T;
 }
-const Badge = ({ e }: { e: string }) => <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${ESTADOS[e]?.c ?? 'bg-gray-100'}`}>{ESTADOS[e]?.t ?? e}</span>;
+const Badge = ({ e, descartado }: { e: string; descartado?: boolean }) => descartado ? <span className="inline-block rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">Descartado</span> : <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${ESTADOS[e]?.c ?? 'bg-gray-100'}`}>{ESTADOS[e]?.t ?? e}</span>;
 
 export default function SistemasClient({ migracionLista }: { migracionLista: boolean }) {
   const [tab, setTab] = useState<'inventario' | 'estado' | 'costes' | 'incidencias'>('inventario');
@@ -92,10 +92,10 @@ function Inventario({ servicios, costes, recargar, avisa }: { servicios: Servici
                 <td className="px-3 py-2 font-medium">{s.nombre}<div className="text-xs font-normal text-gray-500">{s.proveedor}</div></td>
                 <td className="max-w-md py-2 pr-2 text-gray-700"><span className="line-clamp-2">{s.descripcion}</span></td>
                 <td className="py-2">{s.entornos.map(e => ENT[e]).join(' · ') || '—'}</td>
-                <td className="py-2"><Badge e={s.estado} /></td>
+                <td className="py-2"><Badge e={s.estado} descartado={!!s.descartadoAt} /></td>
                 <td className="py-2">{fFecha(s.fechaRenovacion)}</td>
-                <td className="py-2 text-right tabular-nums">{c ? (c.totalAnio > 0 ? eur(c.totalAnio) : <span className="text-gray-400">sin coste</span>) : '…'}</td>
-                <td className="py-2 pr-3 text-right text-gray-600">{c?.ultimaFactura ? fFecha(c.ultimaFactura) : c?.ultimoCargo ? <span className="text-amber-700">cargo {fFecha(c.ultimoCargo)}</span> : '—'}</td>
+                <td className="py-2 text-right tabular-nums">{c ? (c.totalAnio > 0 ? <span title={c.totalEstimado ? `Incluye ${eur(c.totalEstimado, 2)} estimados (cargo de tarjeta sin factura)` : undefined}>{eur(c.totalAnio)}{c.totalEstimado ? <span className="ml-1 rounded bg-yellow-100 px-1 text-xs text-yellow-900">estimado</span> : null}</span> : s.tipoPago === 'INCLUIDO' ? <span className="text-gray-400">incluido, sin coste propio</span> : s.descartadoAt ? <span className="text-gray-400">descartado</span> : <span className="text-gray-400">sin coste</span>) : '…'}</td>
+                <td className="py-2 pr-3 text-right text-gray-600">{s.tipoPago === 'TARJETA_SIN_FACTURA' ? <span className="rounded bg-yellow-100 px-1 text-xs text-yellow-900" title={s.costeEstimadoNota ?? ''}>cargo de tarjeta sin factura</span> : c?.ultimaFactura ? fFecha(c.ultimaFactura) : c?.ultimoCargo ? <span className="text-amber-700">cargo {fFecha(c.ultimoCargo)}</span> : '—'}</td>
               </tr>); })}</tbody>
           </table>
         </div>) : null)}
@@ -105,12 +105,12 @@ function Inventario({ servicios, costes, recargar, avisa }: { servicios: Servici
 }
 
 function Ficha({ s, c, cerrar, guardado, avisa }: { s: Servicio; c?: CosteSrv; cerrar: () => void; guardado: () => void; avisa: (t: 'ok' | 'err', m: string) => void }) {
-  const [f, setF] = useState({ titular: s.titular ?? '', responsable: s.responsable ?? '', plan: s.plan ?? '', estado: s.estado, fechaAlta: s.fechaAlta ?? '', fechaRenovacion: s.fechaRenovacion ?? '', periodicidad: s.periodicidad, url: s.url ?? '', notas: s.notas ?? '', prev: s.prevision2027Manual == null ? '' : String(s.prevision2027Manual) });
+  const [f, setF] = useState({ titular: s.titular ?? '', responsable: s.responsable ?? '', plan: s.plan ?? '', estado: s.estado, fechaAlta: s.fechaAlta ?? '', fechaRenovacion: s.fechaRenovacion ?? '', periodicidad: s.periodicidad, url: s.url ?? '', notas: s.notas ?? '', prev: s.prevision2027Manual == null ? '' : String(s.prevision2027Manual), tipoPago: s.tipoPago ?? 'FACTURA', estMes: s.costeEstimadoMensual == null ? '' : String(s.costeEstimadoMensual), estNota: s.costeEstimadoNota ?? '', descMotivo: s.descartadoMotivo ?? '' });
   const [guardando, setGuardando] = useState(false);
   const guardar = async () => {
     setGuardando(true);
     try {
-      await api('/api/admin/sistemas/servicios', 'PATCH', { id: s.id, titular: f.titular || null, responsable: f.responsable || null, plan: f.plan || null, estado: f.estado, fechaAlta: f.fechaAlta || null, fechaRenovacion: f.fechaRenovacion || null, periodicidad: f.periodicidad, url: f.url || null, notas: f.notas || null, prevision2027Manual: f.prev === '' ? null : Number(f.prev.replace(',', '.')) });
+      await api('/api/admin/sistemas/servicios', 'PATCH', { id: s.id, titular: f.titular || null, responsable: f.responsable || null, plan: f.plan || null, estado: f.estado, fechaAlta: f.fechaAlta || null, fechaRenovacion: f.fechaRenovacion || null, periodicidad: f.periodicidad, url: f.url || null, notas: f.notas || null, prevision2027Manual: f.prev === '' ? null : Number(f.prev.replace(',', '.')), tipoPago: f.tipoPago, costeEstimadoMensual: f.estMes === '' ? null : Number(f.estMes.replace(',', '.')), costeEstimadoNota: f.estNota || null });
       avisa('ok', `${s.nombre} guardado.`); guardado();
     } catch (e: any) { avisa('err', e.message); } finally { setGuardando(false); }
   };
@@ -133,6 +133,12 @@ function Ficha({ s, c, cerrar, guardado, avisa }: { s: Servicio; c?: CosteSrv; c
           <F l="Periodicidad del pago"><select className={inp} value={f.periodicidad} onChange={e => setF({ ...f, periodicidad: e.target.value })}>{Object.entries(PERIOD).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></F>
           <F l="Previsión 2027 manual (€, opcional)"><input className={inp} value={f.prev} onChange={e => setF({ ...f, prev: e.target.value })} placeholder="Vacío = automática" /></F>
         </div>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <F l="Cómo se paga"><select className={inp} value={f.tipoPago} onChange={e => setF({ ...f, tipoPago: e.target.value })}><option value="FACTURA">Con factura en el panel</option><option value="TARJETA_SIN_FACTURA">Cargo de tarjeta sin factura</option><option value="INCLUIDO">Incluido, sin coste propio</option></select></F>
+          <F l="Importe estimado al mes (€, sin factura)"><input className={inp} value={f.estMes} onChange={e => setF({ ...f, estMes: e.target.value })} placeholder="Solo si se paga con tarjeta" /></F>
+        </div>
+        {f.tipoPago === 'TARJETA_SIN_FACTURA' && <div className="mt-2"><F l="De dónde sale el estimado (aviso)"><textarea className={inp} rows={2} value={f.estNota} onChange={e => setF({ ...f, estNota: e.target.value })} /></F><p className="mt-1 rounded bg-yellow-50 p-2 text-xs text-yellow-900">Cada mes cerrado sin factura ni cargo identificado suma este importe en amarillo. En cuanto llegue la factura o se identifique el cargo del banco, deja de usarse el estimado.</p></div>}
+        {s.descartadoAt && <div className="mt-2 rounded bg-red-50 p-2 text-sm text-red-800">Descartado el {fFecha(s.descartadoAt)}{s.descartadoMotivo ? `: ${s.descartadoMotivo}` : ''}</div>}
         <div className="mt-3"><F l="Dirección (URL pública del servicio)"><input className={inp} value={f.url} onChange={e => setF({ ...f, url: e.target.value })} /></F></div>
         <div className="mt-3"><F l="Notas (sin contraseñas ni tokens)"><textarea className={inp} rows={3} value={f.notas} onChange={e => setF({ ...f, notas: e.target.value })} /></F></div>
         <div className="mt-4 flex justify-end gap-2"><button className={btn2} onClick={cerrar}>Cancelar</button><button className={btn} disabled={guardando} onClick={guardar}>{guardando ? 'Guardando…' : 'Guardar'}</button></div>
@@ -203,7 +209,8 @@ function CostesVista({ servicios, costes, desde, hasta, subida, setDesde, setHas
   const anular = async (id: string) => { try { await api('/api/admin/sistemas/costes', 'DELETE', { id }); avisa('ok', 'Coste anulado.'); recargar(); } catch (e: any) { avisa('err', e.message); } };
   if (!costes) return <div className="text-sm text-gray-500">Calculando costes…</div>;
   const conCoste = costes.servicios.filter(s => s.totalAnio > 0).sort((a, b) => b.totalAnio - a.totalAnio);
-  const sinCoste = costes.servicios.filter(s => s.totalAnio === 0 && s.estado !== 'en_baja');
+  const incluidos = new Set(servicios.filter(s => s.tipoPago === 'INCLUIDO' || s.descartadoAt).map(s => s.slug));
+  const sinCoste = costes.servicios.filter(s => s.totalAnio === 0 && s.estado !== 'en_baja' && !incluidos.has(s.slug));
   const serie = conCoste.map(s => ({ nombre: s.nombre, valores: costes.meses.map(m => s.meses[m].total) }));
   return (
     <div className="space-y-4">

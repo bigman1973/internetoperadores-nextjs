@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { requireSistemasAuth } from '@/lib/sistemas/auth';
-import { listarServicios, auditar, CATEGORIAS, ESTADOS, ENTORNOS, PERIODICIDADES } from '@/lib/sistemas/data';
+import { listarServicios, auditar, CATEGORIAS, ESTADOS, ENTORNOS, PERIODICIDADES, TIPOS_PAGO } from '@/lib/sistemas/data';
 import { ApiError, failure, fechaSchema, readJson, reply, sinCredenciales } from '../_shared';
 
 export const dynamic = 'force-dynamic';
@@ -25,6 +25,7 @@ const editSchema = z.object({
   fechaAlta: fechaSchema.nullable().optional(), fechaRenovacion: fechaSchema.nullable().optional(), periodicidad: z.enum(PERIODICIDADES).optional(),
   url: txt(300).optional(), notas: txt(2000).optional(), estadoManual: txt(1000).optional(),
   prevision2027Manual: z.number().min(0).max(1_000_000).nullable().optional(),
+  tipoPago: z.enum(TIPOS_PAGO).optional(), costeEstimadoMensual: z.number().min(0).max(100_000).nullable().optional(), costeEstimadoNota: txt(500).optional(), descartadoMotivo: txt(500).optional(),
 }).strict();
 
 /** Edita los datos de un servicio. Cada campo es opcional; se audita qué campos cambian (no los valores sensibles). */
@@ -32,7 +33,7 @@ export async function PATCH(req: NextRequest) {
   try {
     const auth = await requireSistemasAuth(); if ('error' in auth) return auth.error;
     const b = editSchema.parse(await readJson(req));
-    sinCredenciales({ nombre: b.nombre, proveedor: b.proveedor, descripcion: b.descripcion, modulos: b.modulos, titular: b.titular, responsable: b.responsable, plan: b.plan, url: b.url, notas: b.notas, estadoManual: b.estadoManual });
+    sinCredenciales({ nombre: b.nombre, proveedor: b.proveedor, descripcion: b.descripcion, modulos: b.modulos, titular: b.titular, responsable: b.responsable, plan: b.plan, url: b.url, notas: b.notas, estadoManual: b.estadoManual, costeEstimadoNota: b.costeEstimadoNota, descartadoMotivo: b.descartadoMotivo });
     const cur: any[] = await prisma.$queryRaw(Prisma.sql`SELECT id FROM area9_sis_servicios WHERE id = ${b.id}`);
     if (!cur.length) throw new ApiError('NO_EXISTE', 404, 'El servicio no existe.');
     const sets: Prisma.Sql[] = []; const campos: string[] = [];
@@ -53,6 +54,10 @@ export async function PATCH(req: NextRequest) {
     if (b.url !== undefined) add('url', Prisma.sql`${b.url || null}`, 'url');
     if (b.notas !== undefined) add('notas', Prisma.sql`${b.notas || null}`, 'notas');
     if (b.estadoManual !== undefined) { add('estado_manual', Prisma.sql`${b.estadoManual || null}`, 'estadoManual'); sets.push(Prisma.sql`estado_manual_at = ${b.estadoManual ? new Date() : null}`); }
+    if (b.tipoPago !== undefined) add('tipo_pago', Prisma.sql`${b.tipoPago}`, 'tipoPago');
+    if (b.costeEstimadoMensual !== undefined) add('coste_estimado_mensual', Prisma.sql`${b.costeEstimadoMensual}`, 'costeEstimadoMensual');
+    if (b.costeEstimadoNota !== undefined) add('coste_estimado_nota', Prisma.sql`${b.costeEstimadoNota || null}`, 'costeEstimadoNota');
+    if (b.descartadoMotivo !== undefined) add('descartado_motivo', Prisma.sql`${b.descartadoMotivo || null}`, 'descartadoMotivo');
     if (b.prevision2027Manual !== undefined) add('prevision_2027_manual', Prisma.sql`${b.prevision2027Manual}`, 'prevision2027Manual');
     if (!sets.length) throw new ApiError('SIN_CAMBIOS', 400, 'No hay nada que guardar.');
     sets.push(Prisma.sql`updated_by = ${auth.userId}`, Prisma.sql`updated_at = now()`);
