@@ -85,6 +85,12 @@ async function run() {
   }
   set('SUPER_ADMIN', 3)
   for (const page of pages) assert.equal(await status(page.path.replace(/\[[^\]]+\]/g, 'area4-synthetic-resource')), 200)
+  for (const endpoint of ['servicios', 'estado-vivo', 'costes', 'incidencias', 'tasas']) assert.equal(await status(`/api/admin/sistemas/${endpoint}`), 200)
+  set('GERENTE')
+  grants = [{ codigo: 'admin.sistemas', lectura: true, escritura: true, confirmar: true, exportar: true }]
+  assert.equal(await status('/admin/sistemas'), 403, 'Sistemas does not accept a Gerente grant')
+  adopted = false
+  assert.equal(await status('/api/admin/sistemas/servicios'), 403, 'Sistemas owner restriction precedes adoption')
   set('SUPER_ADMIN', 4)
   assert.equal(await status('/admin/clientes'), 403, 'secondary superadmin is not owner')
   set(); principal.activo = false

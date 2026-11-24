@@ -5,7 +5,7 @@
   "registros": [
     {
       "titulo": "Área 4: candidato de menú en siete grupos y registro de páginas actualizado",
-      "descripcion": "Preparación sobre staging 840ebdd conservando CRM, Rentabilidad y Subida de precios, URLs y guardias financieras; interruptor persistente y visibilidad efectiva, sin heredar la del actor. Código y pruebas locales; aceptación HTTP y publicación pendientes.",
+      "descripcion": "Preparación sobre staging 46bf9a61 conservando CRM, Rentabilidad, Subida de precios y Sistemas, URLs y guardias financieras; registro113 páginas/295 APIs, interruptor persistente y visibilidad efectiva, sin heredar la del actor. Código y pruebas locales; aceptación HTTP y publicación pendientes.",
       "tipo": "ui",
       "estado": "en_progreso",
       "autor": "Área 4",
@@ -32,7 +32,7 @@
     },
     {
       "titulo": "Área 4: batería ligera ampliada y runner HTTP con pendiente explícito",
-      "descripcion": "Comando test:area4 incluye pruebas puras, 561 comprobaciones de middleware y 19 de componentes cliente/SSR, más la suite SSR existente. Runner HTTP de todas las páginas exige sesiones y fixtures autorizados y no da éxito sin ellos. Auditoría de operaciones completadas y aceptación real siguen pendientes.",
+      "descripcion": "Comando test:area4 incluye pruebas puras, 573 comprobaciones de middleware y 21 de componentes cliente/SSR, más la suite SSR existente. Build final sobre Sistemas verde, 19:30 CET. Runner HTTP exige sesiones/fixtures autorizados y no da éxito sin ellos. Auditoría de operaciones completadas y aceptación real siguen pendientes.",
       "tipo": "feat",
       "estado": "en_progreso",
       "autor": "Área 4",

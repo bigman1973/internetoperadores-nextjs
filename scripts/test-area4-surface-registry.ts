@@ -98,6 +98,12 @@ test('CRM, Rentabilidad y Subida de precios incorporan las superficies reales de
     ['/api/admin/subida-precios/escenarios/123/aprobar', 'api', 'admin.subida_precios'],
     ['/api/admin/subida-precios/escenarios/123/export', 'api', 'admin.subida_precios'],
     ['/api/admin/subida-precios/tipo-cliente', 'api', 'admin.subida_precios'],
+    ['/admin/sistemas', 'page', 'admin.sistemas'],
+    ['/api/admin/sistemas/servicios', 'api', 'admin.sistemas'],
+    ['/api/admin/sistemas/estado-vivo', 'api', 'admin.sistemas'],
+    ['/api/admin/sistemas/costes', 'api', 'admin.sistemas'],
+    ['/api/admin/sistemas/incidencias', 'api', 'admin.sistemas'],
+    ['/api/admin/sistemas/tasas', 'api', 'admin.sistemas'],
   ]
   for (const [path, kind, area] of expected) assert.equal(area4RegisteredSurfaceArea(path, kind), area, path)
   // La rentabilidad financiera anterior no se reclasifica como el nuevo módulo aislado.
@@ -178,7 +184,7 @@ test('las peticiones propias nunca se confunden con la lista administrativa', ()
   assert.equal(area4RegisteredSurfaceArea('/api/admin/peticiones', 'api'), 'admin.peticiones')
 })
 
-test('Sistemas y servicios, Presupuesto e Impuestos no se inventan como páginas activas', () => {
+test('Sistemas usa solo su URL real; Presupuesto e Impuestos no se inventan como páginas activas', () => {
   for (const path of ['/admin/sistemas-servicios', '/admin/sistemas-y-servicios', '/admin/presupuesto', '/admin/impuestos']) {
     assert.equal(area4RegisteredSurfaceArea(path, 'page'), null, path)
   }

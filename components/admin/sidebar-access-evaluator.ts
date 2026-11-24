@@ -86,8 +86,8 @@ export function hasAccess(input: AdminSidebarAccessInput): boolean {
   const grants = rolePreview ? [] : input.permisosGranulares
 
   const owner = input.isArea4Owner && role === 'SUPER_ADMIN' && !preview
-  // El módulo nuevo de staging conserva su restricción: propietario real, sin Actuar como.
-  if (codigoArea === 'admin.rentabilidad' || codigoArea.startsWith('admin.rentabilidad.')) return owner
+  // Los módulos de staging conservan propietario real, sin actuación ni grants.
+  if (['admin.rentabilidad', 'admin.sistemas'].some(area => codigoArea === area || codigoArea.startsWith(`${area}.`))) return owner
   if (owner) return true
   if (isArea4OwnerOnlyArea(codigoArea)) return false
   // Tanto un SUPER_ADMIN no canónico como la previsualización de ese rol fallan cerrados.

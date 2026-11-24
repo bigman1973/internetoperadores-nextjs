@@ -2,8 +2,8 @@
  * Registro único, estático y revisable de superficies del panel de Área 4.
  * No cambia URLs ni autoriza por sí mismo: la política de servidor se resuelve aparte.
  * La batería verifica cada página y API administrativa, portal y peticiones propias.
- * Sistemas y servicios, Presupuesto e Impuestos no tienen rutas independientes en este árbol;
- * no se fabrican URLs ni códigos para ellos. Hacienda y la configuración mantienen sus áreas actuales.
+ * Sistemas se registra con sus rutas reales y guardia exclusiva del propietario.
+ * Presupuesto e Impuestos todavía no tienen rutas propias; no se fabrican URLs ni códigos.
  */
 export const AREA4_MENU_GROUPS = ['Inicio', 'Comercial', 'Clientes y contratos', 'Finanzas', 'Personas', 'Operación', 'Administración'] as const
 export type Area4MenuGroup = typeof AREA4_MENU_GROUPS[number]
@@ -769,6 +769,17 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
     ],
   },
   {
+    key: 'sistemas', areaCode: 'admin.sistemas', group: 'Administración',
+    surfaces: [
+      { path: '/admin/sistemas', kind: 'page' },
+      { path: '/api/admin/sistemas/servicios', kind: 'api' },
+      { path: '/api/admin/sistemas/estado-vivo', kind: 'api' },
+      { path: '/api/admin/sistemas/costes', kind: 'api' },
+      { path: '/api/admin/sistemas/incidencias', kind: 'api' },
+      { path: '/api/admin/sistemas/tasas', kind: 'api' },
+    ],
+  },
+  {
     key: 'asistente.configuracion', areaCode: 'admin.asistente.configuracion', group: 'Comercial',
     surfaces: [
       { path: '/admin/asistente/configuracion', kind: 'page' },
@@ -913,6 +924,7 @@ export const AREA4_GROUPED_MENU: Readonly<Record<Area4MenuGroup, readonly Area4M
     { name: 'Configuración', href: '/admin/configuracion', icon: 'cog', section: 'configuracion' },
   ],
   Administración: [
+    { name: 'Sistemas y servicios', href: '/admin/sistemas', icon: 'cog', section: 'sistemas' },
     { name: 'Usuarios y permisos', href: '/admin/usuarios', icon: 'userGroup', section: 'usuarios-permisos' },
     { name: 'Auditoría', href: '/admin/auditoria', icon: 'shieldCheck', section: 'auditoria' },
     { name: 'Actuar como', href: '/admin/actuar-como', icon: 'user', section: 'actuar-como' },

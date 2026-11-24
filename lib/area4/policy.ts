@@ -18,7 +18,8 @@ export type Area4Grant = Readonly<{
 }>
 
 /**
- * Estas áreas controlan identidades, permisos o la evidencia de seguridad.
+ * Control de identidades/evidencia y módulos reservados al propietario real
+ * por sus guardias existentes de staging (Rentabilidad y Sistemas).
  * No se conceden por el rol Gerente ni por perfiles operativos.
  */
 export const AREA4_OWNER_ONLY_PREFIXES = [
@@ -26,6 +27,8 @@ export const AREA4_OWNER_ONLY_PREFIXES = [
   'admin.permisos',
   'admin.auditoria',
   'admin.actuar_como',
+  'admin.rentabilidad',
+  'admin.sistemas',
 ] as const
 
 export function configuredArea4OwnerId(env: Record<string, string | undefined> = process.env): number | null {
