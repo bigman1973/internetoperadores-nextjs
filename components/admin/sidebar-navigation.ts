@@ -132,6 +132,8 @@ const navigation: SidebarNavigationEntry[] = [
       { name: 'Tickets/Gastos', href: '/admin/finanzas/tickets', icon: 'receiptPercent', section: 'finanzas-tickets' },
       { name: 'Importar Extracto', href: '/admin/finanzas/importar', icon: 'arrowPath', section: 'finanzas' },
       { name: 'Exportar a A3', href: '/admin/finanzas/exportar-a3', icon: 'documentText', section: 'finanzas' },
+      { name: 'Impuestos', href: '/admin/finanzas/impuestos', icon: 'receiptPercent', section: 'finanzas.impuestos' },
+      { name: 'Presupuesto 2027', href: '/admin/finanzas/presupuesto', icon: 'chartBar', section: 'finanzas.presupuesto' },
       { name: 'Datos Fiscales', href: '/admin/finanzas/datos-fiscales', icon: 'buildingOffice', section: 'finanzas' },
       { name: 'Cobros Pendientes', href: '/admin/finanzas/cobros-pendientes', icon: 'banknotes', section: 'finanzas' },
       { name: 'GGCC Draxton', href: '/admin/finanzas/clientes/ggcc-draxton', icon: 'buildingOffice', section: 'finanzas' },

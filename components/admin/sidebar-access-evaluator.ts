@@ -125,6 +125,14 @@ export function hasAccess(input: AdminSidebarAccessInput): boolean {
   // Sistemas y servicios: solo el SUPER_ADMIN real, igual que Rentabilidad.
   if (section === 'sistemas') return isSuperAdmin && effectiveRole === 'SUPER_ADMIN' && !isViewingAs && !isViewingAsUser && !viewingUser && viewAsRole === null
 
+  // Impuestos y Presupuesto (Área 3): solo con el perfil real, sin simulación y sin permisos granulares heredados.
+  // Presupuesto: SUPER_ADMIN y GERENTE. Impuestos: además, quien tenga CONTABILIDAD (solo consulta).
+  if (section === 'finanzas.impuestos' || section === 'finanzas.presupuesto') {
+    if (isViewingAs || isViewingAsUser || viewingUser || viewAsRole !== null) return false
+    const directivo = effectiveRole === 'SUPER_ADMIN' || effectiveRole === 'GERENTE'
+    if (section === 'finanzas.presupuesto') return directivo
+    return directivo || effectiveRole === 'CONTABILIDAD' || userRoles.includes('CONTABILIDAD')
+  }
   // SUPER_ADMIN real sin simulación: acceso total
   if (isSuperAdmin && !isViewingAs) return true
 
