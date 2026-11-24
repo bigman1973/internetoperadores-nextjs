@@ -1,39 +1,30 @@
 import Link from 'next/link'
-import {
-  ArrowRightIcon,
-  BuildingOffice2Icon,
-  ChartBarIcon,
-  CircleStackIcon,
-  UserGroupIcon,
-  UserIcon,
-} from '@heroicons/react/24/outline'
 import { requireAuth } from '../../../lib/middleware/auth'
 import { registrarArea } from '../../../lib/permisos'
 import prisma from '../../../lib/prisma'
-import { SEGMENTO_CRM_CONFIG, type SegmentoCrmValue } from '../../../lib/crm-segmentos'
+import { cargarResumenCrm, fmtEur } from '../../../lib/area1-crm-resumen'
+import { nivelDe, resolverVista, type NivelResumen } from '../../../lib/area1-crm-resumen-vista'
+import { AlcanceSeg, TareaHecho, VerComo } from './ResumenControles'
+import '@/components/io-ui/io-ui.css'
+import { ioFontClasses } from '@/components/io-ui/fonts'
+import './area1-resumen.css'
 
 export const dynamic = 'force-dynamic'
 
-const PRODUCTO_LABELS: Record<string, string> = {
-  EXAGRID: 'ExaGrid',
-  INFRAESTRUCTURA_RED: 'Infraestructura de red',
-  MANTENIMIENTO_IT: 'Mantenimiento IT',
-  MOVILES: 'Movilidad',
-  COMUNICACIONES_UNIFICADAS: 'Comunicaciones unificadas',
-  CONECTIVIDAD_AVANZADA: 'Conectividad avanzada',
-  MIGRACION_WEB: 'Migración web',
-}
+/*
+ * Área 1 · Resumen del CRM (/admin/crm). Marcado copiado de maqueta_crm_resumen_aprobada.html.
+ * Los datos son los reales del panel y se filtran en servidor según el rol (lib/area1-crm-resumen-vista.ts).
+ * Donde aún no hay dato se muestra un estado vacío con el motivo; nunca cifras de ejemplo.
+ */
 
-const SEGMENT_ICON = {
-  PARTICULAR: UserIcon,
-  EMPRESA: BuildingOffice2Icon,
-  PARTNER: UserGroupIcon,
-} as const
+const NIVEL_TXT: Record<NivelResumen, string> = { SUPERADMIN: 'superadmin', GERENTE: 'gerente', COMERCIAL: 'comercial' }
+const n0 = (v: number) => v.toLocaleString('es-ES')
+const COLORES_ETAPA = ['var(--before)', '#F3A37A', 'var(--accent)', '#C23F00', '#8F2E00', '#6B2200', '#4A1800']
 
-export default async function CrmPage() {
+type Busqueda = { alcance?: string; verComo?: string }
+
+export default async function CrmPage({ searchParams }: { searchParams: Promise<Busqueda> }) {
   const session = await requireAuth('admin')
-  const esSuperadmin = session.user.role === 'SUPER_ADMIN'
-
   await Promise.all([
     registrarArea('admin.crm', 'CRM', 'admin'),
     registrarArea('admin.crm.particulares', 'CRM > Particulares', 'admin.crm'),
@@ -42,234 +33,215 @@ export default async function CrmPage() {
     registrarArea('admin.crm.contactos', 'CRM > Contactos', 'admin.crm'),
     registrarArea('admin.crm.listas', 'CRM > Listas y segmentos', 'admin.crm'),
   ])
+  const params = await searchParams
+  const userId = Number(session.user.id)
+  const yo = await prisma.usuarioAdmin.findUnique({ where: { id: userId }, select: { id: true, nombre: true, rol: true, roles: true } })
+  const real = yo || { id: userId, nombre: session.user.name || 'Usuario', rol: (session.user as { role?: string }).role || null, roles: [] as string[] }
+  const esSuper = nivelDe(real.rol, real.roles) === 'SUPERADMIN'
+  // «Ver como» solo existe para el superadmin real: para el resto ni se consultan los usuarios.
+  const usuarios = esSuper
+    ? await prisma.usuarioAdmin.findMany({ where: { activo: true, id: { not: real.id } }, orderBy: { nombre: 'asc' }, select: { id: true, nombre: true, rol: true, roles: true } })
+    : []
+  const candidato = esSuper && params.verComo ? usuarios.find((u) => String(u.id) === String(params.verComo)) || null : null
+  const vista = resolverVista(real, { alcance: params.alcance, verComo: params.verComo }, candidato)
+  const d = await cargarResumenCrm(vista)
+  const hoyTxt = d.fecha.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Madrid' })
+  const mesTxt = d.fecha.toLocaleDateString('es-ES', { month: 'long', timeZone: 'Europe/Madrid' })
+  const enVerComo = vista.verComoActivo
 
-  const visibleContactScope = {
-    objectTypeId: '0-1',
-    OR: [
-      { hubspotId: { startsWith: 'local:' } },
-      { empresasCrm: { some: { activo: true } } },
-      { listas: { some: { activo: true, lista: { activo: true } } } },
-      { negocios: { some: { negocio: { activo: true } } } },
-    ],
-  }
-
-  const [clientesPorSegmento, leadsMigracion, leadsPorProducto, leadsPartner, totalClientes, clientesSinClasificar, listasCrm, listasActivas, membresiasListas, contactosCrm, contactosConvertidos] = await Promise.all([
-    prisma.clienteWeb.groupBy({
-      by: ['segmentoCrm'],
-      where: { activo: true },
-      _count: { _all: true },
-    }),
-    prisma.leadMigracionWeb.count(),
-    prisma.leadSolucion.groupBy({
-      by: ['tipo', 'segmentoCrm'],
-      _count: { _all: true },
-      orderBy: { tipo: 'asc' },
-    }),
-    prisma.leadPartner.count(),
-    prisma.clienteWeb.count(),
-    prisma.$queryRaw<Array<{ total: bigint }>>`
-      SELECT COUNT(*)::bigint AS total
-      FROM clientes_web
-      WHERE segmento_crm IS NULL
-    `,
-    prisma.crmLista.count({ where: { activo: true } }),
-    prisma.crmLista.count({ where: { activo: true, processingType: 'DYNAMIC' } }),
-    prisma.crmLista.aggregate({ where: { activo: true }, _sum: { tamanoHubspot: true } }),
-    prisma.crmRegistroHubspot.count({ where: visibleContactScope }),
-    prisma.crmRegistroHubspot.count({ where: { ...visibleContactScope, clienteWebId: { not: null } } }),
-  ])
-
-  const clientesCount = new Map<SegmentoCrmValue, number>(
-    clientesPorSegmento.map((item) => [item.segmentoCrm as SegmentoCrmValue, item._count._all])
-  )
-  const totalLeadsEmpresa = leadsMigracion + leadsPorProducto.reduce((sum, item) => sum + item._count._all, 0)
-  const cobertura = totalClientes === 0
-    ? 100
-    : Math.round(((totalClientes - Number(clientesSinClasificar[0]?.total || 0)) / totalClientes) * 1000) / 10
-
-  const segmentos: Array<{
-    key: SegmentoCrmValue
-    detalle: string
-    enlace: string
-    meta: string
-  }> = [
-    {
-      key: 'PARTICULAR',
-      detalle: 'Clientes residenciales y futuras oportunidades de fibra, 4G/WiMAX, móvil y telefonía fija.',
-      enlace: '/admin/clientes?segmento=PARTICULAR',
-      meta: 'Cartera activa',
-    },
-    {
-      key: 'EMPRESA',
-      detalle: 'Clientes y oportunidades B2B organizados por producto y por su pipeline comercial específico.',
-      enlace: '/admin/clientes?segmento=EMPRESA',
-      meta: `${totalLeadsEmpresa} leads clasificados`,
-    },
-    {
-      key: 'PARTNER',
-      detalle: 'Gestorías y colaboradores que presentan o comercializan nuestros servicios para terceros.',
-      enlace: '/admin/crm/partners',
-      meta: `${leadsPartner} solicitudes de adhesión`,
-    },
+  const kpis: Array<[string, string, string]> = [
+    vista.nivel === 'COMERCIAL'
+      ? ['Mis clientes activos', '—', 'falta enlazar tu código de comercial de ISP con tu usuario']
+      : ['Clientes activos', d.kpis.clientesActivos == null ? '—' : n0(d.kpis.clientesActivos), d.kpis.clientesActivos == null ? 'pendiente de importar de ISP Gestión' : `de ISP Gestión, ${n0(d.kpis.clientesConFicha)} con ficha`],
+    ['Leads abiertos', n0(d.kpis.leadsAbiertos), d.kpis.leadsAbiertos ? `${n0(d.kpis.leadsSinContactar)} sin contactar en 7 días` : (vista.alcance === 'MIO' ? 'ninguno asignado a ti' : 'ninguno abierto')],
+    ['Pipeline ponderado', fmtEur(d.kpis.ponderado), d.pipelines.some((p) => p.total) ? 'importe × probabilidad de la etapa' : 'sin negocios abiertos todavía'],
+    [`Ganado en ${mesTxt}`, n0(d.kpis.ganadosMes), d.kpis.ganadosMes ? `${fmtEur(d.kpis.ganadosImporte)} de importe` : 'ningún negocio ganado este mes'],
+    ['Reuniones esta semana', n0(d.kpis.reunionesSemana), 'del CRM · Outlook al conectar Microsoft 365'],
+    d.kpis.vinculosPendientes !== undefined
+      ? ['Vínculos ISP por confirmar', d.kpis.vinculosPendientes == null ? '—' : n0(d.kpis.vinculosPendientes), d.kpis.vinculosPendientes == null ? 'aún no se ha importado ISP' : 'fichas propuestas al importar']
+      : ['Tareas vencidas', n0(d.kpis.tareasVencidas), vista.alcance === 'MIO' ? 'tuyas, sin completar' : 'del equipo, sin completar'],
   ]
 
+  const maxOrigen = Math.max(1, ...d.origenes.map((s) => s.n))
+  const W = 380, rh = 26, pl = 170
+  const maxEtapas = Math.max(0, ...d.pipelines.map((p) => p.etapas.length))
+  const verComoOpciones = [
+    { id: null, etiqueta: `Ver como: ${real.nombre} (${NIVEL_TXT[vista.real.nivel]})` },
+    ...usuarios.map((u) => ({ id: u.id, etiqueta: `Ver como: ${u.nombre} (${NIVEL_TXT[nivelDe(u.rol, u.roles)]})` })),
+  ]
+
+  // Misma raíz que <IoShell> (io-ui + fuentes de next/font) con la clase propia del Resumen
   return (
-    <main className="space-y-8 px-4 py-6 sm:px-6 lg:px-8">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold tracking-tight text-gray-900">CRM</h1>
-            <span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-700 ring-1 ring-inset ring-orange-200">
-              Base operativa
-            </span>
+    <div className={`io-ui area1-resumen ${ioFontClasses}`}>
+      <header className="top">
+        <div className="wrap">
+          <div className="bar">
+            <div className="brand"><b>internet<i>operadores</i></b><span className="eyebrow">CRM · <span>{hoyTxt}</span></span></div>
+            <div className="scn">
+              <AlcanceSeg alcance={vista.alcance} habilitado={vista.puede.alternarAlcance} />
+              {vista.puede.verComo && <VerComo opciones={verComoOpciones} actual={enVerComo ? vista.usuarioId : null} />}
+              <button className="btn primary" type="button" disabled title="Hoy los leads entran por los formularios de la web; el alta manual desde aquí llega en la próxima tanda">+ Nuevo lead</button>
+              <Link className="btn" href="/admin/crm/contactos" title="Abre la ficha y registra la reunión desde su actividad">Nueva reunión</Link>
+              <button className="btn" type="button" disabled title="Llega con la integración de Microsoft 365 (borrador con IA, nunca envío automático)">Escribir correo con IA</button>
+            </div>
           </div>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
-            Punto común para gestionar la relación comercial sin mezclar particulares, empresas y partners. La naturaleza fiscal del cliente se conserva como un dato independiente.
-          </p>
+          <form className="row" style={{ paddingBottom: 10 }} action="/admin/crm/contactos" method="get" role="search">
+            <input className="searchbig" type="search" name="search" placeholder="Buscar contacto, empresa, NIF, teléfono o contrato" aria-label="Buscar en el CRM" />
+          </form>
+          <nav className="subnav" aria-label="Secciones del CRM">
+            <Link href="/admin/crm/contactos">Contactos <b>{n0(d.subnav.contactos)}</b></Link>
+            <Link href="/admin/crm/empresas">Empresas y autónomos <b>{n0(d.subnav.empresas)}</b></Link>
+            <Link href="/admin/clientes">Clientes <b>{d.subnav.clientes == null ? '—' : n0(d.subnav.clientes)}</b></Link>
+            <Link href="/admin/leads">Leads <b>{n0(d.subnav.leads)}</b></Link>
+            <Link href="/admin/crm/pipelines">Pipelines <b>{n0(d.subnav.pipelines)}</b></Link>
+            <Link href="/admin/crm/listas">Listas <b>{n0(d.subnav.listas)} activas</b></Link>
+            <Link href="/admin/crm/partners">Partners <b>{n0(d.subnav.partners)}</b></Link>
+            {vista.puede.importarIsp && <Link href="/admin/crm/isp">Importar de ISP</Link>}
+          </nav>
         </div>
-        <Link
-          href="/admin/clientes"
-          className="inline-flex items-center justify-center gap-2 rounded-md bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-700"
-        >
-          Revisar clasificación
-          <ArrowRightIcon className="h-4 w-4" />
-        </Link>
+        <div className="kpis">
+          {kpis.map(([l, v, s]) => <div className="kpi" key={l}><div className="eyebrow">{l}</div><div className="v">{v}</div><div className="s">{s}</div></div>)}
+        </div>
       </header>
 
-      <section className="grid gap-5 xl:grid-cols-2">
-        <article className="rounded-xl border border-orange-200 bg-gradient-to-br from-orange-50 to-white p-5 sm:p-6">
-          <div className="flex h-full flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-            <div><h2 className="text-xl font-bold text-slate-950">Empresas y autónomos</h2><p className="mt-1 text-sm leading-6 text-slate-600">Cuenta comercial independiente, contactos asociados y clientes ISPgestion vinculados explícitamente. El autónomo figura a la vez como titular y contacto.</p></div>
-            <Link href="/admin/crm/empresas" prefetch={false} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-700">Abrir empresas <ArrowRightIcon className="h-4 w-4" /></Link>
-          </div>
-        </article>
-        <article className="rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-5 sm:p-6">
-          <div className="flex h-full flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm"><UserGroupIcon className="h-7 w-7" /></div>
-              <div><div className="flex flex-wrap items-center gap-2"><h2 className="text-xl font-bold text-gray-900">Contactos</h2><span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-800">Leads y clientes</span></div><p className="mt-1 text-sm leading-6 text-gray-600">Directorio central de contactos. Siguen siendo leads hasta que compran y conservan todas sus listas al convertirse.</p><div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-gray-700"><span><strong className="text-gray-900">{contactosCrm.toLocaleString('es-ES')}</strong> contactos</span><span><strong className="text-green-700">{contactosConvertidos.toLocaleString('es-ES')}</strong> clientes</span></div></div>
-            </div>
-            <Link href="/admin/crm/contactos" className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800">Abrir contactos <ArrowRightIcon className="h-4 w-4" /></Link>
-          </div>
-        </article>
+      <main className="wrap">
+        {enVerComo
+          ? <p className="small muted" style={{ margin: 0 }}>Viendo como <b>{vista.usuarioNombre}</b> ({NIVEL_TXT[vista.nivel]}): ves exactamente lo que ve su perfil. Sin cambios de datos en este modo.</p>
+          : <p className="small muted" style={{ margin: 0 }}>{vista.alcance === 'MIO' ? 'Lo tuyo' : 'Todo el equipo'} · perfil {NIVEL_TXT[vista.nivel]}. Datos reales del panel; donde aún no hay dato se indica el motivo.</p>}
 
-        <article className="rounded-xl border border-orange-200 bg-gradient-to-br from-orange-50 to-white p-5 sm:p-6">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-orange-600 text-white shadow-sm">
-              <CircleStackIcon className="h-7 w-7" />
-            </div>
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-xl font-bold text-gray-900">Listas y segmentos</h2>
-                <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-800">HubSpot</span>
-              </div>
-              <p className="mt-1 max-w-3xl text-sm leading-6 text-gray-600">Consulta las listas reales, distingue las activas de las estáticas y revisa sus criterios y miembros sin perder la lógica de segmentación.</p>
-              <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-gray-700">
-                <span><strong className="text-gray-900">{listasCrm}</strong> listas copiadas</span>
-                <span><strong className="text-blue-800">{listasActivas}</strong> activas</span>
-                <span><strong className="text-gray-900">{Number(membresiasListas._sum.tamanoHubspot || 0).toLocaleString('es-ES')}</strong> membresías</span>
-              </div>
-            </div>
-          </div>
-          <Link href="/admin/crm/listas" className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-700">
-            Abrir listas
-            <ArrowRightIcon className="h-4 w-4" />
-          </Link>
-        </div>
-        </article>
-        <article className="rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-5 sm:p-6">
-          <div className="flex h-full flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-            <div><h2 className="text-xl font-bold text-slate-950">Pipelines de venta</h2><p className="mt-1 text-sm leading-6 text-slate-600">Los 8 pipelines de Internet Operadores por producto, con Kanban, previsión ponderada y motivo obligatorio al perder un negocio.</p></div>
-            <Link href="/admin/crm/pipelines" prefetch={false} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800">Abrir pipelines <ArrowRightIcon className="h-4 w-4" /></Link>
-          </div>
-        </article>
-      </section>
-
-      {esSuperadmin && (
-        <section className="flex flex-col gap-3 rounded-xl border border-slate-300 bg-slate-50 p-5 sm:flex-row sm:items-center sm:justify-between">
-          <div><h2 className="text-lg font-bold text-slate-900">Importar clientes de ISP Gestión</h2><p className="mt-1 text-sm text-slate-600">Actualiza clientes, contratos y facturación desde el fichero de ISP y revisa los vínculos propuestos con el CRM. Solo superadministrador.</p></div>
-          <Link href="/admin/crm/isp" prefetch={false} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-slate-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-900">Abrir importación <ArrowRightIcon className="h-4 w-4" /></Link>
-        </section>
-      )}
-      <section className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-        {segmentos.map(({ key, detalle, enlace, meta }) => {
-          const config = SEGMENTO_CRM_CONFIG[key]
-          const Icon = SEGMENT_ICON[key]
-          return (
-            <article key={key} className="rounded-xl border border-gray-200 bg-white p-6">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-gray-50">
-                  <Icon className="h-6 w-6 text-gray-700" />
-                </div>
-                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${config.badgeClass}`}>
-                  {config.label}
-                </span>
-              </div>
-              <p className="mt-6 text-3xl font-bold text-gray-900">{(clientesCount.get(key) || 0).toLocaleString('es-ES')}</p>
-              <p className="mt-1 text-sm font-medium text-gray-700">{meta}</p>
-              <p className="mt-4 min-h-[72px] text-sm leading-6 text-gray-600">{detalle}</p>
-              <Link href={enlace} className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-orange-700 hover:text-orange-800">
-                Ver {config.label.toLowerCase()}s
-                <ArrowRightIcon className="h-4 w-4" />
-              </Link>
-            </article>
-          )
-        })}
-      </section>
-
-      <section className="grid grid-cols-1 gap-5 md:grid-cols-3">
-        <div className="rounded-lg border border-gray-200 bg-white p-5">
-          <p className="text-sm font-medium text-gray-500">Clientes clasificados</p>
-          <p className="mt-2 text-2xl font-bold text-gray-900">{totalClientes.toLocaleString('es-ES')}</p>
-          <p className="mt-1 text-xs text-green-700">Cobertura de clasificación: {cobertura.toLocaleString('es-ES')}%</p>
-        </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-5">
-          <p className="text-sm font-medium text-gray-500">Leads empresariales</p>
-          <p className="mt-2 text-2xl font-bold text-gray-900">{totalLeadsEmpresa.toLocaleString('es-ES')}</p>
-          <p className="mt-1 text-xs text-gray-500">Todos nacen ya informados como Empresa.</p>
-        </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-5">
-          <p className="text-sm font-medium text-gray-500">Leads Partner</p>
-          <p className="mt-2 text-2xl font-bold text-gray-900">{leadsPartner.toLocaleString('es-ES')}</p>
-          <p className="mt-1 text-xs text-gray-500">Las nuevas solicitudes ya quedan guardadas localmente.</p>
-        </div>
-      </section>
-
-      <section className="rounded-xl border border-gray-200 bg-white">
-        <div className="border-b border-gray-200 px-5 py-4 sm:px-6">
-          <div className="flex items-center gap-2">
-            <ChartBarIcon className="h-5 w-5 text-orange-600" />
-            <h2 className="text-lg font-semibold text-gray-900">Captación empresarial ya clasificada</h2>
-          </div>
-          <p className="mt-1 text-sm text-gray-500">Volumen actual que se heredará al pipeline de cada producto.</p>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 sm:px-6">Producto</th>
-                <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Segmento</th>
-                <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-500 sm:px-6">Leads</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 bg-white">
-              <tr>
-                <td className="px-5 py-3 text-sm font-medium text-gray-900 sm:px-6">Migración web</td>
-                <td className="px-5 py-3"><span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">Empresa</span></td>
-                <td className="px-5 py-3 text-right text-sm font-semibold text-gray-900 sm:px-6">{leadsMigracion}</td>
-              </tr>
-              {leadsPorProducto.map((item) => (
-                <tr key={`${item.tipo}-${item.segmentoCrm}`}>
-                  <td className="px-5 py-3 text-sm font-medium text-gray-900 sm:px-6">{PRODUCTO_LABELS[item.tipo] || item.tipo}</td>
-                  <td className="px-5 py-3"><span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">Empresa</span></td>
-                  <td className="px-5 py-3 text-right text-sm font-semibold text-gray-900 sm:px-6">{item._count._all}</td>
-                </tr>
+        <div className="g2">
+          <div className="panel">
+            <h2>Mi día</h2>
+            <p className="help">Reuniones del CRM (las de tu Outlook aparecerán al conectar Microsoft 365) y tareas del CRM. Pulsa una para abrir la ficha.</p>
+            <h3>Reuniones de hoy</h3>
+            {d.reunionesHoy.length === 0
+              ? <div className="empty">Sin reuniones registradas para hoy.</div>
+              : d.reunionesHoy.map((m) => (
+                <div className="item" key={m.id}><span className="time">{m.hora}</span><div><div className="t">{m.quien}</div><div className="w">{m.que}</div></div><Link className="btn small" href={`/admin/crm/contactos/${m.contactoId}`}>Abrir</Link></div>
               ))}
-            </tbody>
-          </table>
+            <h3>Tareas y seguimientos</h3>
+            {d.tareas.length === 0
+              ? <div className="empty">{vista.alcance === 'MIO' ? 'No tienes tareas pendientes.' : 'El equipo no tiene tareas pendientes.'}</div>
+              : d.tareas.map((t) => (
+                <div className="item" key={t.id}><span className={`due ${t.clase}`.trim()}>{t.texto}</span><div><Link href={`/admin/crm/contactos/${t.contactoId}`} style={{ color: 'inherit', textDecoration: 'none' }}><div className="t">{t.titulo}</div><div className="w">{t.detalle}</div></Link></div><TareaHecho id={t.id} deshabilitado={enVerComo} /></div>
+              ))}
+          </div>
+          <div style={{ display: 'grid', gap: 18, minWidth: 0 }}>
+            <div className="panel">
+              <h2>Clientes a cuidar</h2>
+              {d.cuidar == null ? (
+                <>
+                  <p className="help">{vista.puede.avisosMargen ? 'Cruce con Rentabilidad.' : 'Tus clientes con avisos pendientes.'}</p>
+                  <div className="empty">{vista.puede.avisosMargen
+                    ? 'Rentabilidad aún no tiene un cálculo guardado.'
+                    : 'Aún no hay clientes asignados a tu usuario: falta enlazar el comercial de ISP Gestión con los usuarios del panel.'}</div>
+                </>
+              ) : (
+                <>
+                  <p className="help">Cruce con Rentabilidad (cálculo de {d.cuidar.mes}).{vista.puede.importesMargen ? '' : ' Sin importes: los márgenes los ve el superadmin.'}</p>
+                  {d.cuidar.items.length === 0
+                    ? <div className="empty">Ningún aviso de margen ni de vigencia en el último cálculo.</div>
+                    : d.cuidar.items.map((r, i) => (
+                      <div className="item" key={i}><span className={`m ${r.nivel === 'bad' ? 'bad' : 'low'}`}>{r.nivel === 'bad' ? 'riesgo' : 'atención'}</span><div><div className="t">{r.nombre}</div><div className="w">{r.texto}</div></div>
+                        {vista.puede.importesMargen ? <Link className="btn small" href="/admin/rentabilidad">Ver rentabilidad</Link> : <Link className="btn small" href={`/admin/crm/contactos?search=${encodeURIComponent(r.nombre)}`}>Ver ficha</Link>}
+                      </div>
+                    ))}
+                </>
+              )}
+            </div>
+            <div className="panel">
+              <h2>Leads nuevos por origen</h2>
+              <p className="help">Últimos 30 días.{vista.alcance === 'MIO' ? ' Los asignados a ti.' : ' Todo lo que entra por la web y el asistente.'}</p>
+              {d.origenes.length === 0
+                ? <div className="empty">Sin leads nuevos en los últimos 30 días.</div>
+                : (
+                  <div className="chart">
+                    <svg viewBox={`0 0 ${W} ${d.origenes.length * rh + 8}`} role="img" aria-label="Leads por origen">
+                      {d.origenes.map((s, k) => {
+                        const y = k * rh + 4, w = (W - pl - 40) * s.n / maxOrigen
+                        return (<g key={s.etiqueta}><text x={pl - 8} y={y + 14} textAnchor="end" className="lbl">{s.etiqueta}</text><rect x={pl} y={y + 3} width={w} height={14} rx={3} fill="var(--accent)" /><text x={pl + w + 6} y={y + 14}>{s.n}</text></g>)
+                      })}
+                    </svg>
+                  </div>
+                )}
+            </div>
+          </div>
         </div>
-      </section>
-    </main>
+
+        <div className="panel">
+          <h2>Pipelines de venta</h2>
+          <p className="help">Valor en negociación por producto y etapa{vista.alcance === 'MIO' ? ' (tus negocios)' : ''}. Pulsa un pipeline para abrir su tablero Kanban.</p>
+          <div className="pipe">
+            {d.pipelines.length === 0 && <div className="empty">Aún no hay pipelines en el panel.</div>}
+            {d.pipelines.map((p) => {
+              const tot = p.total + p.ganados
+              return (
+                <Link className="prow" key={p.id} href={`/admin/crm/pipelines?pipeline=${encodeURIComponent(p.id)}`} style={{ cursor: 'pointer', color: 'inherit', textDecoration: 'none' }} title="Abrir tablero">
+                  <span>{p.nombre} <span className="muted">· {p.total}</span></span>
+                  <div className="pbar">
+                    {tot > 0 && p.etapas.map((e, i) => e.n > 0 && <span key={i} style={{ width: `${100 * e.n / tot}%`, background: COLORES_ETAPA[Math.min(i, COLORES_ETAPA.length - 1)] }} title={`${e.nombre}: ${e.n}`} />)}
+                    {p.ganados > 0 && <span style={{ width: `${100 * p.ganados / tot}%`, background: 'var(--good)' }} title={`Ganado este mes: ${p.ganados}`} />}
+                  </div>
+                  <span className="n">{fmtEur(p.valor)}</span>
+                </Link>
+              )
+            })}
+          </div>
+          <div className="stages">
+            {COLORES_ETAPA.slice(0, Math.max(1, Math.min(maxEtapas, 4))).map((c, i, a) => <span key={i}><i style={{ background: c }} />{i === 0 ? 'Primera etapa' : i === a.length - 1 ? 'Etapas finales' : `Etapa ${i + 1}`}</span>)}
+            <span><i style={{ background: 'var(--good)' }} />Ganado este mes</span>
+            <span style={{ marginLeft: 'auto' }}>Importe: valor del negocio en negociación</span>
+          </div>
+          {d.porComercial && (
+            <>
+              <h3>Por comercial</h3>
+              {d.porComercial.length === 0
+                ? <div className="empty">Sin negocios abiertos en el equipo.</div>
+                : (
+                  <div className="tablewrap"><table><thead><tr><th>Comercial</th><th className="n">Abiertos</th><th className="n">En negociación</th><th className="n">Ponderado</th></tr></thead>
+                    <tbody>{d.porComercial.map((c) => <tr key={c.nombre}><td>{c.nombre}</td><td className="n">{c.n}</td><td className="n">{fmtEur(c.valor)}</td><td className="n">{fmtEur(c.ponderado)}</td></tr>)}</tbody></table></div>
+                )}
+            </>
+          )}
+        </div>
+
+        <div className="g3">
+          <div className="panel">
+            <h2>Base de contactos</h2>
+            <div className="seg3"><div><span className="small muted">Particulares</span><b>{n0(d.base.particulares)}</b></div><div><span className="small muted">Empresas</span><b>{n0(d.base.empresas)}</b></div><div><span className="small muted">Partners</span><b>{n0(d.base.partners)}</b></div></div>
+            <p className="small muted" style={{ margin: '10px 0 0' }}>Clientes con ficha tipificada. Los {n0(d.subnav.contactos)} contactos incluyen leads y antiguos de HubSpot.</p>
+          </div>
+          {vista.puede.consentimiento && (
+            <div className="panel">
+              <h2>Newsletter y consentimiento</h2>
+              {!d.consentimiento || d.consentimiento.total === 0
+                ? <div className="empty">El consentimiento de HubSpot aún no está importado (se importa en producción con el OK de Víctor).</div>
+                : (
+                  <>
+                    {([
+                      [n0(d.consentimiento.consentimiento), 'Con consentimiento registrado', 'Se les puede enviar newsletter'],
+                      [d.clientesActuales == null ? '—' : n0(d.clientesActuales), 'Clientes actuales', d.clientesActuales == null ? 'Pendiente de importar de ISP Gestión' : 'Se les puede enviar sobre servicios parecidos, con baja en cada envío'],
+                      [n0(d.consentimiento.sinBase), 'Sin base legal registrada', 'No se les puede escribir; el permiso se recoge en formularios y llamadas'],
+                      [n0(d.consentimiento.rebote), 'Correos que rebotan', 'Fuera de todos los envíos'],
+                    ] as const).map(([v, t, s]) => (
+                      <div className="q" key={t}><span className="big">{v}</span><div><div className="t" style={{ fontWeight: 500 }}>{t}</div><div className="small muted">{s}</div></div><span /></div>
+                    ))}
+                    <p className="small muted" style={{ margin: '8px 0 0' }}>Pendiente de validar con el asesor de protección de datos.</p>
+                  </>
+                )}
+            </div>
+          )}
+          {vista.puede.limpieza && d.limpieza && (
+            <div className="panel">
+              <h2>Limpieza de datos pendiente</h2>
+              <div className="q"><span className="big">{d.limpieza.vinculos == null ? '—' : n0(d.limpieza.vinculos)}</span><div className="small">{d.limpieza.vinculos == null ? 'Vínculos ISP ↔ ficha: aún no se ha importado ISP' : 'Vínculos ISP ↔ ficha por confirmar'}</div>{vista.puede.vinculosIsp ? <Link className="btn small" href="/admin/crm/isp">Revisar</Link> : <span />}</div>
+              <div className="q"><span className="big">{d.limpieza.sinEmail == null ? '—' : n0(d.limpieza.sinEmail)}</span><div className="small">{d.limpieza.sinEmail == null ? 'Clientes sin correo: se calcula al importar ISP' : 'Clientes sin correo electrónico'}</div>{d.limpieza.sinEmail ? <Link className="btn small" href="/admin/clientes">Completar</Link> : <span />}</div>
+              <div className="q"><span className="big">—</span><div className="small">Notas, reuniones y tareas de HubSpot sin ficha: se cuentan al simular el historial</div>{vista.puede.importarIsp ? <Link className="btn small" href="/admin/crm/hubspot-historial">Simular</Link> : <span />}</div>
+              <div className="q"><span className="big">{d.brevoListasIO}</span><div className="small">Listas de Brevo marcadas como de IO; el resto de la cuenta del grupo queda bloqueado hasta clasificarlo</div><span /></div>
+            </div>
+          )}
+        </div>
+      </main>
+    </div>
   )
 }

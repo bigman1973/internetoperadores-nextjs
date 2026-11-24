@@ -7,9 +7,11 @@
  *  - Cualquier otra escritura (contactos, listas, campañas, webhooks…): se simula y se registra, sin llamar a Brevo.
  * Modo REAL: producción. No cambia nada respecto a llamar a fetch directamente.
  *
+ * Lista blanca (todos los entornos): solo listas de IO (lib/brevo-listas-io.ts); el resto se bloquea con 403 sin llamar a Brevo.
  * Depende SOLO del entorno (VERCEL_ENV y BREVO_STAGING_SANDBOX), nunca de qué clave haya.
  * Los registros no incluyen emails, nombres ni la clave: solo método, ruta y número de destinatarios.
  */
+import { listasFueraDeIO } from './brevo-listas-io'
 type Env = Record<string, string | undefined>
 
 export type BrevoModo = 'real' | 'aislado'
@@ -29,7 +31,7 @@ export function brevoCorreoPrueba(env: Env = process.env): string | null {
   return EMAIL_OK.test(v) ? v : null
 }
 
-export type BrevoRegistro = { modo: BrevoModo; accion: 'real' | 'lectura' | 'desviado' | 'no_enviado' | 'simulado'; metodo: string; ruta: string; destinatarios?: number }
+export type BrevoRegistro = { modo: BrevoModo; accion: 'real' | 'lectura' | 'desviado' | 'no_enviado' | 'simulado' | 'bloqueado_lista_no_io'; metodo: string; ruta: string; destinatarios?: number }
 
 type Deps = { env?: Env; fetchImpl?: typeof fetch; log?: (r: BrevoRegistro) => void }
 
@@ -59,6 +61,12 @@ export function crearBrevoFetch(deps: Deps = {}) {
     const ruta = rutaDe(url)
     const modo = brevoModo(env)
 
+    // Lista blanca de listas de IO (cuenta compartida con el grupo): se aplica en TODOS los entornos.
+    const fuera = listasFueraDeIO(ruta, init.body, env)
+    if (fuera.length) {
+      log({ modo, accion: 'bloqueado_lista_no_io', metodo, ruta })
+      return new Response(JSON.stringify({ code: 'lista_no_io', message: `Lista(s) de Brevo fuera de Internet Operadores: ${fuera.join(', ')}` }), { status: 403, headers: { 'content-type': 'application/json', 'x-brevo-bloqueado': 'lista_no_io' } })
+    }
     if (modo === 'real') return fetchImpl(input, init)
     if (metodo === 'GET' || metodo === 'HEAD') { log({ modo, accion: 'lectura', metodo, ruta }); return fetchImpl(input, init) }
 

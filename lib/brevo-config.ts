@@ -5,6 +5,7 @@
  * Nunca se devuelve ni se registra el valor fuera de este módulo, salvo para la cabecera `api-key`.
  */
 import { brevoCorreoPrueba, brevoFetch, brevoModo, type BrevoModo } from '@/lib/brevo-fetch'
+import { brevoListasIO } from './brevo-listas-io'
 
 export type BrevoKeySource = 'BREVO_API_KEY_STAGING' | 'BREVO_API_KEY'
 
@@ -34,7 +35,7 @@ export type BrevoEstado = {
   estadoCuenta: string | null
   pruebas: { cuenta: BrevoLectura | null; listas: BrevoLectura | null }
   cuenta: { empresa: string | null; planes: string[] } | null
-  listas: Array<{ id: number; nombre: string; suscriptores: number | null }>
+  listas: Array<{ id: number; nombre: string; suscriptores: number | null; esIO: boolean }>
   totalListas: number | null
 }
 
@@ -59,8 +60,9 @@ export async function comprobarBrevo(fetchImpl: typeof fetch = brevoFetch as typ
   const c = await leer(fetchImpl, 'https://api.brevo.com/v3/account', key)
   const l = await leer(fetchImpl, 'https://api.brevo.com/v3/contacts/lists?limit=50&offset=0', key)
   const cuenta = c.r.ok ? { empresa: c.body?.companyName ?? null, planes: Array.isArray(c.body?.plan) ? c.body.plan.map((p: { type?: string }) => String(p?.type || '')) : [] } : null
+  const listasIO = brevoListasIO(env)
   const listas = l.r.ok ? (Array.isArray(l.body?.lists) ? l.body.lists : []).map((x: { id: number; name: string; uniqueSubscribers?: number; totalSubscribers?: number }) => ({
-    id: Number(x.id), nombre: String(x.name || ''), suscriptores: typeof x.uniqueSubscribers === 'number' ? x.uniqueSubscribers : typeof x.totalSubscribers === 'number' ? x.totalSubscribers : null,
+    id: Number(x.id), nombre: String(x.name || ''), esIO: listasIO.has(Number(x.id)), suscriptores: typeof x.uniqueSubscribers === 'number' ? x.uniqueSubscribers : typeof x.totalSubscribers === 'number' ? x.totalSubscribers : null,
   })) : []
   // La lectura de la cuenta no es necesaria: una clave restringida sin permiso «Cuenta» da 403 y el diagnóstico sigue OK con las listas.
   const cuentaSinPermiso = !c.r.ok && (c.r.httpStatus === 403 || c.r.httpStatus === 401) && l.r.ok

@@ -38,7 +38,7 @@ async function main() {
     assert.ok(r.ok); assert.equal(r.fuente, 'BREVO_API_KEY_STAGING')
     assert.deepEqual(vistas.map((v) => v.method), ['GET', 'GET'])
     assert.ok(vistas.every((v) => v.key === 'clave-secreta-st'))
-    assert.deepEqual(r.listas, [{ id: 30, nombre: 'Empresas', suscriptores: 11 }, { id: 31, nombre: 'Particulares', suscriptores: 4 }])
+    assert.deepEqual(r.listas, [{ id: 30, nombre: 'Empresas', suscriptores: 11, esIO: true }, { id: 31, nombre: 'Particulares', suscriptores: 4, esIO: true }])
     const json = JSON.stringify(r)
     assert.ok(!json.includes('clave-secreta-st') && !json.includes('clave-pr') && !json.includes('no-se-devuelve'))
   })
