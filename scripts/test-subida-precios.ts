@@ -134,4 +134,33 @@ ok('el Excel se genera con tres hojas y la carta no lleva datos personales', () 
   assert.ok(buf.length > 2000); assert.ok(cartaBorrador('R', '2027-01-01').includes('{{CLIENTE}}')); assert.ok(cartaBorrador('R', '2027-01-01').includes('1 de enero de 2027'));
 });
 
+/* ---- Coste de operadores: últimos 3 meses y tendencia (datos simulados de Xfera) ---- */
+import { costeUltimosMeses, tendencia, mesPendiente, type MesCoste } from '../lib/subida-precios/coste';
+const xfera = new Map<string, MesCoste>(Object.entries({
+  '2026-01': { real: 2957, est: 293 }, '2026-02': { real: 2802, est: 293 }, '2026-03': { real: 2982, est: 293 }, '2026-04': { real: 2731, est: 293 }, '2026-05': { real: 2755, est: 293 },
+  '2026-06': { real: 484, est: 2587 }, '2026-07': { real: 485, est: 2260 }, '2026-08': { real: 3128, est: 293 }, '2026-09': { real: 3186, est: 293 }, '2026-10': { real: 3615, est: 293 } }));
+ok('coste actual del operador = media de los 3 últimos meses, no del año', () => {
+  const u = costeUltimosMeses(xfera, 3)!;
+  assert.deepEqual(u.meses, ['2026-08', '2026-09', '2026-10']);
+  assert.ok(Math.abs(u.real - 3309.67) < 0.01 && Math.abs(u.est - 293) < 0.01);
+});
+ok('jun y jul de Xfera son factura pendiente; el estimado fijo de Vola (293) no lo es', () => {
+  assert.equal(mesPendiente(xfera.get('2026-06')!), true); assert.equal(mesPendiente(xfera.get('2026-07')!), true);
+  assert.equal(mesPendiente(xfera.get('2026-05')!), false); assert.equal(mesPendiente(xfera.get('2026-10')!), false);
+  const t = tendencia('Cablemóvil/Xfera', xfera, 3)!;
+  assert.deepEqual(t.pendientes, ['2026-06', '2026-07']);
+});
+ok('la tendencia compara los 3 últimos meses con las facturas anteriores y avisa de la subida', () => {
+  const t = tendencia('Cablemóvil/Xfera', xfera, 3)!;
+  assert.ok(t.previo != null && Math.abs(t.previo - 3138.4) < 0.5, `previo ${t.previo}`);
+  assert.ok(t.actual != null && Math.abs(t.actual - 3602.67) < 0.5, `actual ${t.actual}`);
+  assert.ok(t.variacionPct! > 0.14 && t.variacionPct! < 0.16);
+});
+ok('factura duplicada (copia de otra): no se suma dos veces (abril Xfera = 2.730,92)', () => {
+  const abril = [{ n: 'A/1150907', b: 398.76, copia: null }, { n: 'CC260000002345', b: 2251.28, copia: null }, { n: 'YC260005541225', b: 80.88, copia: null },
+    { n: 'A/1150907', b: 398.76, copia: 'x' }, { n: 'CC260000002345', b: 2251.28, copia: 'y' }];
+  const suma = abril.filter(f => !f.copia).reduce((s, f) => s + f.b, 0);
+  assert.equal(Math.round(suma * 100) / 100, 2730.92);
+});
+
 console.log(`\n${n} pruebas OK`);
