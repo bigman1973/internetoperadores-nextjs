@@ -119,6 +119,10 @@ export function hasAccess(input: AdminSidebarAccessInput): boolean {
     tienePermisosGranulares,
   } = input
 
+  // Entrada nueva exclusivamente para el SUPER_ADMIN real: nunca hereda áreas
+  // granulares ni se abre al simular un rol/usuario, incluso SUPER_ADMIN.
+  if (section === 'rentabilidad') return isSuperAdmin && effectiveRole === 'SUPER_ADMIN' && !isViewingAs && !isViewingAsUser && !viewingUser && viewAsRole === null
+
   // SUPER_ADMIN real sin simulación: acceso total
   if (isSuperAdmin && !isViewingAs) return true
 

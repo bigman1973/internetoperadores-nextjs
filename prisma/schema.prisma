@@ -5825,3 +5825,67 @@ model LineaReciboCobroRemesaB7 {
   @@index([facturaISPId],map:"lineas_recibo_remesa_b7_isp_idx")
   @@map("lineas_recibo_cobro_remesa_b7")
 }
+
+// Rentabilidad mensual IO: additive, append-only staging analytics.
+// Source foreign keys are declared in reviewed SQL without altering legacy models.
+model RentabilidadVersion {
+  id                       String   @id
+  kind                     String
+  stableKey                String   @map("stable_key")
+  version                  Int
+  sourceHash               String   @map("source_hash")
+  payload                  Json     @db.JsonB
+  actorId                  Int      @map("actor_id")
+  contratoServicioId       Int?     @map("contrato_servicio_id")
+  clienteWebId             Int?     @map("cliente_web_id")
+  contratoDraxtonId         String?  @map("contrato_draxton_id")
+  contratoProveedorDraxtonId String? @map("contrato_proveedor_draxton_id")
+  personalContratoDraxtonId String?  @map("personal_contrato_draxton_id")
+  createdAt                DateTime @default(now()) @map("created_at")
+  @@unique([kind, stableKey, version])
+  @@index([kind, stableKey, version(sort: Desc)], map: "rentabilidad_versiones_kind_key_idx")
+  @@index([contratoServicioId], map: "rentabilidad_versiones_contrato_idx")
+  @@index([contratoDraxtonId], map: "rentabilidad_versiones_ggcc_idx")
+  @@map("rentabilidad_versiones")
+}
+
+model RentabilidadLinea {
+  id                    String   @id
+  dedupeKey             String   @unique @map("dedupe_key")
+  codigoContratoIsp     String   @map("codigo_contrato_isp")
+  fechaFuente           DateTime @db.Date @map("fecha_fuente")
+  mesServicio           String   @map("mes_servicio")
+  importeBaseCentimos   BigInt   @map("importe_base_centimos")
+  importeBaseDecimal    String   @map("importe_base_decimal")
+  sourceHash            String   @map("source_hash")
+  payload               Json     @db.JsonB
+  actorId               Int      @map("actor_id")
+  facturaISPId          Int?     @map("factura_isp_id")
+  createdAt             DateTime @default(now()) @map("created_at")
+  @@index([codigoContratoIsp, mesServicio], map: "rentabilidad_lineas_contrato_mes_idx")
+  @@map("rentabilidad_lineas")
+}
+
+model RentabilidadEjecucion {
+  id         String   @id
+  process    String
+  sourceHash String   @map("source_hash")
+  payload    Json     @db.JsonB
+  actorId    Int      @map("actor_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  @@index([createdAt(sort: Desc)], map: "rentabilidad_ejecuciones_fecha_idx")
+  @@map("rentabilidad_ejecuciones")
+}
+
+model RentabilidadSnapshot {
+  id         String   @id
+  month      String
+  kind       String
+  version    Int
+  sourceHash String   @map("source_hash")
+  payload    Json     @db.JsonB
+  actorId    Int      @map("actor_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  @@unique([month, kind, version])
+  @@map("rentabilidad_snapshots")
+}

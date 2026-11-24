@@ -470,6 +470,8 @@ export async function middleware(request) {
       || (['/api/admin/finanzas/modo-facil/terceros', '/api/admin/finanzas/modo-facil/automaticas', '/api/admin/finanzas/reparto-clientes'].includes(path) && request.method === 'POST')
       || (['/api/admin/finanzas/modo-facil/terceros/bloque', '/api/admin/finanzas/modo-facil/cobros'].includes(path) && request.method === 'POST')
       || (path === '/api/admin/finanzas/conciliar' && request.method === 'POST')
+      || (['/api/admin/rentabilidad/recalculate', '/api/admin/rentabilidad/rules', '/api/admin/rentabilidad/exceptions', '/api/admin/rentabilidad/external-costs', '/api/admin/rentabilidad/sync'].includes(path) && request.method === 'POST')
+      || (path === '/api/cron/rentabilidad-daily' && request.method === 'GET')
       || (['/api/asistente/chat', '/api/asistente/valoracion', '/api/asistente/escalado', '/api/asistente/lead'].includes(path) && request.method === 'POST')
       || (['/api/admin/asistente/chat', '/api/admin/asistente/conocimiento', '/api/admin/asistente/conocimiento/web-publica'].includes(path) && request.method === 'POST')
       || (/^\/api\/admin\/asistente\/conocimiento\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
@@ -478,7 +480,7 @@ export async function middleware(request) {
       || (['/api/admin/asistente/derechos', '/api/admin/asistente/retencion'].includes(path) && request.method === 'POST')
       || (/^\/api\/admin\/asistente\/(leads|escalados|aprendizaje|huecos|informes\/propuestas)\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
       || path.startsWith('/api/auth/');
-    if (path.startsWith('/api/cron/') || (mutating && !allowed)) {
+    if ((path.startsWith('/api/cron/') && !(path === '/api/cron/rentabilidad-daily' && request.method === 'GET')) || (mutating && !allowed)) {
       return NextResponse.json({ error: 'Sandbox de Finanzas: esta acción está bloqueada en staging; no se envían comunicaciones ni se ejecutan sincronizaciones ajenas a los bloques autorizados.' }, { status: 403, headers: { 'Cache-Control': 'private, no-store' } });
     }
   }
@@ -538,7 +540,15 @@ export async function middleware(request) {
       && process.env.VERCEL_ENV === 'production'
       && process.env.FINANCE_STAGING_SANDBOX !== '1'
       && process.env.FINANCE_DEPLOYMENT_READ_ONLY !== '1';
-    if (externalPath && !isAuthorizedP2Path(path) && !assistantReportCronAllowed) return blockedBoundary(
+    // Rentabilidad is analytically isolated in staging; its own handler requires
+    // the living superadmin/Bearer, feature gate and approved external origin.
+    const rentabilidadAnalyticAllowed = process.env.FINANCE_STAGING_SANDBOX === '1'
+      && process.env.RENTABILIDAD_ENABLED === '1'
+      && process.env.RENTABILIDAD_STAGING_ONLY === '1'
+      && process.env.VERCEL_ENV !== 'production'
+      && ((path === '/api/cron/rentabilidad-daily' && request.method === 'GET')
+        || (path === '/api/admin/rentabilidad/sync' && request.method === 'POST'));
+    if (externalPath && !isAuthorizedP2Path(path) && !assistantReportCronAllowed && !rentabilidadAnalyticAllowed) return blockedBoundary(
       'Sincronizaciones y comunicaciones externas desactivadas en este lanzamiento; las acciones financieras manuales siguen disponibles.',
       'FINANCE_EXTERNAL_ACTIONS_DISABLED',
     );

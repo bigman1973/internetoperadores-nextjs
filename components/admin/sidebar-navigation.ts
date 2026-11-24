@@ -137,6 +137,7 @@ const navigation: SidebarNavigationEntry[] = [
       { name: 'GGCC Draxton', href: '/admin/finanzas/clientes/ggcc-draxton', icon: 'buildingOffice', section: 'finanzas' },
     ],
   },
+  { name: 'Rentabilidad · staging', href: '/admin/rentabilidad', icon: 'arrowTrendingUp', section: 'rentabilidad' },
   { name: 'Estadísticas', href: '/admin/estadisticas', icon: 'chartBar', section: 'estadisticas' },
   { name: 'Usuarios Admin', href: '/admin/usuarios', icon: 'userGroup', section: 'usuarios' },
   { name: 'Subida de Precios', href: '/admin/subida-precios', icon: 'arrowTrendingUp', section: 'subida-precios' },
@@ -177,7 +178,7 @@ const navigation: SidebarNavigationEntry[] = [
 function withFinanceEnvironment(financeEnvironment: FinanceEnvironment, conciliarEnabled = financeEnvironment === 'staging'): SidebarNavigationEntry[] {
   const financeLabel = financeEnvironment === 'staging' ? ' · staging' : ''
 
-  return navigation.map(entry => {
+  return navigation.filter(entry => isSidebarNavigationGroup(entry) || entry.href !== '/admin/rentabilidad' || financeEnvironment === 'staging').map(entry => {
     if (!isSidebarNavigationGroup(entry) || entry.name !== 'Finanzas') return entry
 
     return {

@@ -26,6 +26,10 @@
     {
       "path": "/api/cron/asistente-informe",
       "schedule": "0 6,7 * * *"
+    },
+    {
+      "path": "/api/cron/rentabilidad-daily",
+      "schedule": "0 3 * * *"
     }
   ]
 }
