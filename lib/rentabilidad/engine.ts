@@ -39,6 +39,23 @@ export function canonicalProduct(value: unknown): string {
   if (/servicios io|io sin coste/.test(n)) return 'Servicios IO sin coste de proveedor';
   return 'Otros';
 }
+export type IncomeNature = 'RECURRENTE' | 'SERVICIOS_IT' | 'INSTALACION_PUNTUAL';
+export const INCOME_NATURES: readonly IncomeNature[] = ['RECURRENTE', 'SERVICIOS_IT', 'INSTALACION_PUNTUAL'];
+/**
+ * Naturaleza del ingreso de una línea facturada, solo a partir de su concepto y tarifa (lo facturado es la realidad).
+ * - INSTALACION_PUNTUAL: cuotas únicas, compras de equipo, altas, instalaciones, migraciones y cargos puntuales. Solo cuenta si
+ *   el concepto EMPIEZA así: «PUESTA EN MARCHA» dentro de una cuota mensual (p. ej. IO BACKUP) sigue siendo recurrente.
+ * - SERVICIOS_IT: externalización IT, bolsas de horas y mantenimiento informático.
+ * - RECURRENTE: todo lo demás (cuotas mensuales de servicio).
+ */
+export function classifyIncomeLine(concept: unknown, tariff?: unknown, product?: unknown): IncomeNature {
+  const c = normalize(concept), t = normalize(tariff);
+  if (/\bcuota unica\b|\bunico pago\b|\bpago unico\b|\balta unica\b/.test(c)) return 'INSTALACION_PUNTUAL';
+  if (/^(puesta en marcha|instalacion|alta |cargo por|migracion|desplazamiento|configuracion inicial|setup)/.test(c)) return 'INSTALACION_PUNTUAL';
+  if (/servicios? de externalizacion it|servicio de horas mensuales|recurso it|bolsa horas|mantenimiento informatico/.test(`${c} ${t}`)) return 'SERVICIOS_IT';
+  if (product === 'Servicios IT') return 'SERVICIOS_IT';
+  return 'RECURRENTE';
+}
 export function periodicity(value: unknown): number | null {
   if ([1,3,6,12].includes(Number(value))) return Number(value);
   const n = normalize(value); if (/mensual|^mes$/.test(n)) return 1; if (/trimes/.test(n)) return 3; if (/semes/.test(n)) return 6; if (/anual|ano/.test(n)) return 12;

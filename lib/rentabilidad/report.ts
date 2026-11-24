@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { facturaEconomicaSQL } from '@/lib/finanzas/invoice-economic-filter';
 import { readInputs, saveSnapshot, listSnapshots, appendRun, listRecentRuns, getRuleHistory, getExternalCostHistory, listResolvedExceptions } from './store';
-import { activeInMonth, allocate, canonicalProduct, classifyContract, hash, imputeInvoices, invoiceRule, money, normalize, periodicity, PRODUCT_LABELS, shiftMonth } from './engine';
+import { activeInMonth, allocate, canonicalProduct, classifyContract, classifyIncomeLine, hash, imputeInvoices, invoiceRule, money, normalize, periodicity, PRODUCT_LABELS, shiftMonth } from './engine';
 import { INITIAL_COST_RULES } from './defaults';
 import { compactReportPresentation } from './presentation';
 import { rentabilidadAutomationStatus } from './status';
@@ -26,7 +26,8 @@ function totals(items:any[]) {
   const rawIncome=items.reduce((s,p)=>s+rawField(p,'income'),0),rawCost=items.reduce((s,p)=>s+rawField(p,'cost'),0),rawEstimatedCost=items.reduce((s,p)=>s+rawField(p,'estimatedCost'),0);
   const incomeUnknown=items.some(p=>p.income===null||p.rawIncome===null||p.incomePending),costUnknown=items.some(p=>p.cost===null||p.rawCost===null);
   const pending=incomeUnknown||costUnknown||items.some(p=>p.pending || p.pendingCost || rawField(p,'estimatedCost')!==0),income=incomeUnknown?null:money(rawIncome),cost=costUnknown?null:money(rawCost);
-  return {income,cost,estimatedCost:money(rawEstimatedCost),margin:incomeUnknown||costUnknown||pending&&items.some(p=>p.contractedBasis)?null:money(rawIncome-rawCost),marginPct:pending||!rawIncome?null:money(100*(rawIncome-rawCost)/rawIncome),pending,incomePending:incomeUnknown,rawIncome:incomeUnknown?null:rawIncome,rawCost:costUnknown?null:rawCost,rawEstimatedCost};
+  const incomeIT=money(items.reduce((t,p)=>t+Number(p.incomeIT||0),0)),incomeOneOff=money(items.reduce((t,p)=>t+Number(p.incomeOneOff||0),0));
+  return {income,incomeIT,incomeOneOff,incomeRecurring:income===null?null:money(income-incomeIT-incomeOneOff),cost,estimatedCost:money(rawEstimatedCost),margin:incomeUnknown||costUnknown||pending&&items.some(p=>p.contractedBasis)?null:money(rawIncome-rawCost),marginPct:pending||!rawIncome?null:money(100*(rawIncome-rawCost)/rawIncome),pending,incomePending:incomeUnknown,rawIncome:incomeUnknown?null:rawIncome,rawCost:costUnknown?null:rawCost,rawEstimatedCost};
 }
 function payrollCost(g:any,month:string) {
   const assignments=(g.personalAsignado||[]).filter((p:any)=>activeInMonth({startDate:p.fechaInicio,endDate:p.fechaFin,active:p.activo},month));
@@ -38,6 +39,11 @@ function payrollCost(g:any,month:string) {
   return {rows,cost:rows.reduce((s:number,p:any)=>s+(p.cost??0),0),pending:!rows.length||rows.some((p:any)=>p.cost==null)};
 }
 function teleco(g:any){return /internet|teleco/.test(normalize(`${g.titulo} ${g.codigoContrato}`));}
+/** Contrato GGCC de telecomunicaciones de Draxton vigente en el mes (firmado = referencia de vigencia). */
+function draxtonTelecoInForce(ggcc:any[],month:string){
+  const last=new Date(Date.UTC(Number(month.slice(0,4)),Number(month.slice(5,7)),0)).toISOString().slice(0,10);
+  return (ggcc||[]).find((g:any)=>teleco(g)&&/draxton|drx/.test(normalize(`${g.codigoContrato} ${g.titulo}`))&&normalize(g.estado)==='activo'&&(!String(g.fechaInicioServicio||g.fechaInicio||'').slice(0,10)||String(g.fechaInicioServicio||g.fechaInicio).slice(0,10)<=last)&&(!g.fechaFin||String(g.fechaFin).slice(0,10)>=`${month}-01`))||null;
+}
 function supplierContracts(g:any,month:string){return (g.contratosProveedor||[]).filter((p:any)=>p.estado==='Activo'&&activeInMonth({startDate:p.fechaInicioServicio||p.fechaInicio,endDate:p.fechaFin,active:true},month));}
 const costActive=(c:any,m:string)=>activeInMonth({startDate:c.startDate||c.fechaAlta||c.fechaInicio,endDate:c.endDate||c.fechaBaja||c.fechaFin,active:c.active??c.activo},m);
 const recurringCost=(c:any)=>c.recurring!==false&&c.recurrent!==false&&c.nonRecurrent!==true&&!/\b(one off|puntual|instalacion|setup|alta unica)\b/.test(normalize(c.description));
@@ -185,12 +191,15 @@ export function calculateReport(input:any,month:string,mode='real',extra:any={})
   alerts.push(...billIssues);
   const months=Array.from({length:12},(_,i)=>`${month.slice(0,4)}-${String(i+1).padStart(2,'0')}`);
   const monthResults=months.map(m=>{
-    const rows=contracts.filter((c:any)=>activeInMonth(c,m)||(lineMap.get(c.contractCode)||[]).some((l:any)=>l.month===m)||c.ggccId).map((c:any)=>({contractCode:c.contractCode,clientCode:c.clientCode,clientName:c.clientName,product:c.product,provider:c.provider,tariff:c.tariff,description:c.description,directSite:c.directSite||c.sede||null,site:c.site||c.ubicacion||null,operatorLineId:c.operatorLineId||c.identificadorLinea||null,clientCif:c.cif||c.clienteCif||null,speedMbps:c.speedMbps||0,active:activeInMonth(c,m),income:0,contractedIncome:activeInMonth(c,m)?c.monthlyContracted:0,contractedIncomePending:activeInMonth(c,m)&&c.monthlyContracted==null,forecastIncome:activeInMonth(c,m)?c.monthlyForecast:0,contractedCost:null as number|null,contractedCostPending:true,cost:0,estimatedCost:0,costSources:[] as any[],hasCost:false,pendingCost:false,origin:c.source,ggccId:c.ggccId,pendingProvider:c.pendingProvider,datesPending:!c.startDate,personalCost:0}));
+    const draxtonGgcc=draxtonTelecoInForce(extra.ggcc||[],m),overridden=new Set<string>();
+    const isActive=(c:any,mm:string)=>{const natural=activeInMonth(c,mm);if(natural)return true;if(c.product!=='Draxton telecomunicaciones'||!draxtonGgcc)return false;const start=String(c.startDate||c.fechaAlta||'').slice(0,10),last=new Date(Date.UTC(Number(mm.slice(0,4)),Number(mm.slice(5,7)),0)).toISOString().slice(0,10);if(start&&start>last)return false;overridden.add(c.contractCode);return true;};
+    const rows=contracts.filter((c:any)=>isActive(c,m)||(lineMap.get(c.contractCode)||[]).some((l:any)=>l.month===m)||c.ggccId).map((c:any)=>({contractCode:c.contractCode,clientCode:c.clientCode,clientName:c.clientName,product:c.product,provider:c.provider,tariff:c.tariff,description:c.description,directSite:c.directSite||c.sede||null,site:c.site||c.ubicacion||null,operatorLineId:c.operatorLineId||c.identificadorLinea||null,clientCif:c.cif||c.clienteCif||null,speedMbps:c.speedMbps||0,active:isActive(c,m),income:0,contractedIncome:isActive(c,m)?c.monthlyContracted:0,contractedIncomePending:isActive(c,m)&&c.monthlyContracted==null,forecastIncome:isActive(c,m)?c.monthlyForecast:0,contractedCost:null as number|null,contractedCostPending:true,cost:0,estimatedCost:0,costSources:[] as any[],hasCost:false,pendingCost:false,origin:c.source,ggccId:c.ggccId,pendingProvider:c.pendingProvider,datesPending:!c.startDate,personalCost:0}));
     const map=new Map<string,any>(rows.map((r:any)=>[r.contractCode,r]));
-    for(const l of lines)if(l.month===m){const r=map.get(l.contractCode);if(r)r.income+=l.baseAmount;}
-    const products:any[]=PRODUCT_LABELS.map(product=>({product,contracts:0,income:0,contractedIncome:0,contractedIncomePending:false,forecastIncome:0,contractedCost:null as number|null,contractedCostPending:true,cost:0,estimatedCost:0,unallocatedCost:0,unallocatedEstimatedCost:0,commission:0,pending:false,sources:[] as any[]}));
+    for(const r of rows){r.incomeIT=0;r.incomeOneOff=0;}
+    for(const l of lines)if(l.month===m){const r=map.get(l.contractCode);if(r){r.income+=l.baseAmount;const nature=classifyIncomeLine(l.concept,l.tariff||r.tariff,r.product);if(nature==='SERVICIOS_IT')r.incomeIT+=l.baseAmount;else if(nature==='INSTALACION_PUNTUAL')r.incomeOneOff+=l.baseAmount;}}
+    const products:any[]=PRODUCT_LABELS.map(product=>({product,contracts:0,income:0,incomeIT:0,incomeOneOff:0,contractedIncome:0,contractedIncomePending:false,forecastIncome:0,contractedCost:null as number|null,contractedCostPending:true,cost:0,estimatedCost:0,unallocatedCost:0,unallocatedEstimatedCost:0,commission:0,pending:false,sources:[] as any[]}));
     const pm=new Map<string,any>(products.map(p=>[p.product,p]));
-    for(const r of rows){const p=pm.get(r.product)!;p.contracts++;p.income+=r.income;p.contractedIncomePending ||= r.contractedIncomePending;p.contractedIncome=p.contractedIncomePending?null:p.contractedIncome+r.contractedIncome;p.forecastIncome+=r.forecastIncome||0;}
+    for(const r of rows){const p=pm.get(r.product)!;p.contracts++;p.income+=r.income;p.incomeIT+=r.incomeIT;p.incomeOneOff+=r.incomeOneOff;p.contractedIncomePending ||= r.contractedIncomePending;p.contractedIncome=p.contractedIncomePending?null:p.contractedIncome+r.contractedIncome;p.forecastIncome+=r.forecastIncome||0;}
     const relevant=costs.filter((c:any)=>c.month===m&&costActive(c,m));
     const coverage=new Map(products.map(p=>[p.product,supplierCoverage(p.product,m,costs,coverageRules,invoiceMap,p.contracts>0,coverageIdentities)]));
     const inferred=[...coverage.values()].flatMap(v=>v.estimates);
@@ -244,7 +253,7 @@ export function calculateReport(input:any,month:string,mode='real',extra:any={})
       }
       p.rawIncome=p.income;p.rawCost=p.cost;p.rawEstimatedCost=p.estimatedCost;p.rawContractedIncome=p.contractedIncome;p.rawForecastIncome=p.forecastIncome;
       p.margin=money(p.income-p.cost);p.forecastMargin=money(p.forecastIncome-p.cost-p.estimatedCost);p.marginPct=p.pending||p.estimatedCost||!p.income?null:money(100*(p.income-p.cost)/p.income);p.status=p.pending?'PENDIENTE':p.estimatedCost?'ESTIMADO':'REAL';
-      p.income=money(p.income);p.cost=money(p.cost);p.estimatedCost=money(p.estimatedCost);p.contractedIncome=p.contractedIncome==null?null:money(p.contractedIncome);p.forecastIncome=money(p.forecastIncome);
+      p.incomeIT=money(p.incomeIT);p.incomeOneOff=money(p.incomeOneOff);p.incomeRecurring=money(p.income-p.incomeIT-p.incomeOneOff);p.income=money(p.income);p.cost=money(p.cost);p.estimatedCost=money(p.estimatedCost);p.contractedIncome=p.contractedIncome==null?null:money(p.contractedIncome);p.forecastIncome=money(p.forecastIncome);
     }
     for(const r of rows){
       if(noSupplierCost.has(r.product)){r.contractedCost=0;r.contractedCostPending=false;}
@@ -254,9 +263,9 @@ export function calculateReport(input:any,month:string,mode='real',extra:any={})
     const cm=new Map<string,any>();
     for(const r of rows){let c=cm.get(r.clientCode);if(!c){c={clientCode:r.clientCode,clientName:r.clientName,income:0,cost:0,estimatedCost:0,contractedIncome:0,contractedIncomePending:false,contractedCost:0,contractedCostPending:false,pending:false,contracts:[]};cm.set(r.clientCode,c);}c.income+=r.rawIncome;c.cost+=r.rawCost;c.estimatedCost+=r.rawEstimatedCost;c.contractedIncomePending ||= r.contractedIncomePending;c.contractedIncome=c.contractedIncomePending?null:c.contractedIncome+r.contractedIncome;c.contractedCost+=r.contractedCost||0;c.contractedCostPending ||= r.contractedCostPending;c.pending ||= r.pendingCost;c.contracts.push(r);}
     const clients=[...cm.values()];for(const c of clients){c.estimatedCostUnallocated=c.contracts.some((r:any)=>r.estimatedCostUnallocated);c.rawIncome=c.income;c.rawCost=c.cost;c.rawEstimatedCost=c.estimatedCost;c.rawContractedIncome=c.contractedIncome;c.margin=money(c.income-c.cost);c.marginPct=c.pending||c.estimatedCost||!c.income?null:money(100*(c.income-c.cost)/c.income);c.income=money(c.income);c.cost=money(c.cost);c.estimatedCost=money(c.estimatedCost);}
-    for(const r of rows){r.income=money(r.income);r.cost=money(r.cost);r.estimatedCost=money(r.estimatedCost);}
+    for(const r of rows){r.income=money(r.income);r.cost=money(r.cost);r.estimatedCost=money(r.estimatedCost);r.incomeIT=money(r.incomeIT);r.incomeOneOff=money(r.incomeOneOff);r.incomeRecurring=money(r.income-r.incomeIT-r.incomeOneOff);}
     clients.sort((a,b)=>b.income-a.income||a.clientCode.localeCompare(b.clientCode));
-    return {month:m,products:products.filter(p=>p.contracts||p.income||p.cost||p.estimatedCost||p.pending),contracts:rows,clients};
+    return {month:m,products:products.filter(p=>p.contracts||p.income||p.cost||p.estimatedCost||p.pending),contracts:rows,clients,vigenciaGgcc:draxtonGgcc?{codigoContrato:draxtonGgcc.codigoContrato,estado:draxtonGgcc.estado,fechaFin:draxtonGgcc.fechaFin?String(draxtonGgcc.fechaFin).slice(0,10):null,contratosForzados:[...overridden].sort()}:null};
   });
   const selected=monthResults.find(m=>m.month===month)!;
   for(const c of contracts){
@@ -269,6 +278,7 @@ export function calculateReport(input:any,month:string,mode='real',extra:any={})
     if(c.endDate&&(lineMap.get(c.contractCode)||[]).some((l:any)=>l.month===month&&l.date>c.endDate))alerts.push({key:`baja:${month}:${r.contractCode}`,type:'BAJA_FACTURADA',title:`Contrato ${r.contractCode}: factura posterior a la baja`,contractCode:r.contractCode});
     if(r.contractedIncome!=null&&Math.abs(r.rawIncome-r.contractedIncome)>1)alerts.push({key:`precio:${month}:${r.contractCode}`,type:'DIFERENCIA_PRECIO',title:`Contrato ${r.contractCode}: contratado ${money(r.contractedIncome)} €, facturado ${r.income} €`,contractCode:r.contractCode,amount:money(r.rawIncome-r.contractedIncome)});
   }
+  if(selected.vigenciaGgcc?.contratosForzados?.length)alerts.push({key:`vigencia-draxton:${month}:${selected.vigenciaGgcc.codigoContrato}`,type:'VIGENCIA_CONTRATO_VS_BAJA',title:`Draxton: el contrato ${selected.vigenciaGgcc.codigoContrato} está Activo${selected.vigenciaGgcc.fechaFin?` hasta ${selected.vigenciaGgcc.fechaFin}`:''}, pero ${selected.vigenciaGgcc.contratosForzados.length} líneas ISP (${selected.vigenciaGgcc.contratosForzados.join(', ')}) constan de baja. Se mantienen activas por contrato firmado; confirmar la baja o la vigencia.`,product:'Draxton telecomunicaciones'});
   for(const p of selected.products)if(p.pending&&!noSupplierCost.has(p.product))alerts.push({key:`coste:${month}:${p.product}`,type:'FACTURA_PROVEEDOR_PENDIENTE',title:`${p.product}: faltan facturas, nóminas o un reparto documental completo en ${month}`,product:p.product,estimatedAmount:p.estimatedCost});
   for(const c of selected.clients)if(c.margin<0)alerts.push({key:`negativo:${month}:${c.clientCode}`,type:'MARGEN_NEGATIVO',title:`${c.clientName}: margen conocido negativo (${c.margin} €)`,clientCode:c.clientCode,amount:c.margin});
   const comparison=(extra.ggcc||[]).map((g:any)=>{

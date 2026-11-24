@@ -63,3 +63,28 @@ export function historicalDraxtonRows(references: unknown): Row[] {
       nature: 'REFERENCIA HISTÓRICA · NO REAL',
     }));
 }
+
+/** Ingreso facturado por naturaleza (recurrente, Servicios IT, instalaciones y puntuales). Solo lectura sobre el informe. */
+export function incomeNatureRows(products: Row[]): Row[] {
+  const rows = array(products).filter(row => numeric(row.income) !== null && (numeric(row.income) !== 0 || numeric(row.incomeIT) || numeric(row.incomeOneOff))).map(row => {
+    const income = numeric(row.income) ?? 0, it = numeric(row.incomeIT) ?? 0, oneOff = numeric(row.incomeOneOff) ?? 0;
+    const recurring = numeric(row.incomeRecurring) ?? Math.round((income - it - oneOff) * 100) / 100;
+    return { key: row.product, product: row.product, incomeRecurring: recurring, incomeIT: it, incomeOneOff: oneOff, income, oneOffPct: income ? Math.round(10000 * oneOff / income) / 100 : null };
+  });
+  const total = rows.reduce((t, r) => ({ incomeRecurring: t.incomeRecurring + r.incomeRecurring, incomeIT: t.incomeIT + r.incomeIT, incomeOneOff: t.incomeOneOff + r.incomeOneOff, income: t.income + r.income }), { incomeRecurring: 0, incomeIT: 0, incomeOneOff: 0, income: 0 });
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  return [...rows, { key: 'TOTAL', product: 'TOTAL', incomeRecurring: r2(total.incomeRecurring), incomeIT: r2(total.incomeIT), incomeOneOff: r2(total.incomeOneOff), income: r2(total.income), oneOffPct: total.income ? Math.round(10000 * total.incomeOneOff / total.income) / 100 : null }];
+}
+/** Coste por producto: real (con factura/nómina/regla firmada) frente a estimado, con cada fuente estimada marcada. */
+export function costRealVsEstimatedRows(products: Row[]): Row[] {
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const rows = array(products).filter(row => (numeric(row.cost) ?? 0) !== 0 || (numeric(row.estimatedCost) ?? 0) !== 0).map(row => {
+    const real = numeric(row.cost) ?? 0, estimated = numeric(row.estimatedCost) ?? 0, sources = array(row.sources);
+    const estimatedSources = sources.filter(source => source.status && source.status !== 'REAL' && (numeric(source.amount) ?? 0) !== 0);
+    const total = r2(real + estimated);
+    return { key: row.product, product: row.product, costReal: r2(real), costEstimated: r2(estimated), costTotal: total, estimatedPct: total ? r2(100 * estimated / total) : null, estimatedSources, status: estimated !== 0 ? (real !== 0 ? 'REAL + ESTIMADO' : 'ESTIMADO') : 'REAL', sources };
+  });
+  const total = rows.reduce((t, r) => ({ real: t.real + r.costReal, estimated: t.estimated + r.costEstimated }), { real: 0, estimated: 0 });
+  const all = r2(total.real + total.estimated);
+  return [...rows, { key: 'TOTAL', product: 'TOTAL', costReal: r2(total.real), costEstimated: r2(total.estimated), costTotal: all, estimatedPct: all ? r2(100 * total.estimated / all) : null, estimatedSources: [], status: total.estimated ? 'REAL + ESTIMADO' : 'REAL', sources: [] }];
+}

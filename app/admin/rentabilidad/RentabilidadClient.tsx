@@ -2,7 +2,7 @@
 import { useRef, useState } from 'react';
 import DataTable, { Status } from './DataTable';
 import { AlertAction, ExternalCostsEditor, RulesEditor, type Mutate } from './Editors';
-import { amount, array, euro, financialColumns, historicalDraxtonRows, isEstimated, isPending, numeric, type Column, type Mode, type Report, type Row } from './view-model';
+import { amount, array, euro, costRealVsEstimatedRows, financialColumns, historicalDraxtonRows, incomeNatureRows, isEstimated, isPending, numeric, type Column, type Mode, type Report, type Row } from './view-model';
 const tabs = [
   ['resumen', 'Resumen'], ['producto', 'Por producto'], ['mes', 'Mes a mes'], ['cliente', 'Por cliente'],
   ['comparacion', 'Contratado vs. real'], ['alertas', 'Alertas'], ['reglas', 'Reglas y costes'], ['estado', 'Estado'],
@@ -69,7 +69,7 @@ export default function RentabilidadClient({ initialReport }: { initialReport: R
     <nav aria-label="Secciones de Rentabilidad" role="tablist" className="flex gap-1 overflow-x-auto border-b border-slate-200 pb-1 panel-dark:border-slate-700">{tabs.map(([key, label]) => <button type="button" key={key} id={`tab-${key}`} role="tab" aria-selected={tab === key} aria-controls={`panel-${key}`} onClick={() => setTab(key)} className={`whitespace-nowrap rounded-t-lg px-4 py-3 text-sm font-semibold ${tab === key ? 'border-b-2 border-primary bg-orange-50 text-primary panel-dark:bg-orange-950/30' : 'text-slate-500 hover:bg-slate-100 panel-dark:text-slate-300 panel-dark:hover:bg-slate-800'}`}>{label}{key === 'alertas' && array(report.alerts).length > 0 && <span className="ml-2 rounded-full bg-orange-100 px-2 py-0.5 text-xs text-orange-800">{array(report.alerts).length}</span>}</button>)}</nav>
     <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="min-w-0 space-y-5">
       {tab === 'resumen' && <Summary report={report} mode={activeMode} />}
-      {tab === 'producto' && <><DataTable title="Contribución por producto" period={report.period} rows={array(report.products)} columns={[{ key: 'product', label: 'Producto' }, { key: 'contracts', label: 'Contratos', kind: 'number' }, ...columns]} description="Coste real completo y margen aparecen como — cuando falta evidencia. Las estimaciones se muestran aparte, no se suman como realidad." detail={row => <DataTable title={`Fuentes · ${row.product}`} period={report.period} rows={array(row.sources)} columns={[{ key: 'source', label: 'Fuente' }, { key: 'provider', label: 'Proveedor' }, { key: 'amount', label: 'Importe', kind: 'money', estimated: isEstimated }, { key: 'status', label: 'Estado', kind: 'status' }, { key: 'payer', label: 'Sociedad pagadora' }, { key: 'sourceCell', label: 'Localizador' }]} />} /><OperatorCommissions report={report} mode={activeMode} /></>}
+      {tab === 'producto' && <><DataTable title="Contribución por producto" period={report.period} rows={array(report.products)} columns={[{ key: 'product', label: 'Producto' }, { key: 'contracts', label: 'Contratos', kind: 'number' }, ...columns]} description="Coste real completo y margen aparecen como — cuando falta evidencia. Las estimaciones se muestran aparte, no se suman como realidad." detail={row => <DataTable title={`Fuentes · ${row.product}`} period={report.period} rows={array(row.sources)} columns={[{ key: 'source', label: 'Fuente' }, { key: 'provider', label: 'Proveedor' }, { key: 'amount', label: 'Importe', kind: 'money', estimated: isEstimated }, { key: 'status', label: 'Estado', kind: 'status' }, { key: 'payer', label: 'Sociedad pagadora' }, { key: 'sourceCell', label: 'Localizador' }]} />} /><CostRealVsEstimated report={report} /><IncomeByNature report={report} /><OperatorCommissions report={report} mode={activeMode} /></>}
       {tab === 'mes' && <Monthly report={report} mode={activeMode} />}
       {tab === 'cliente' && <DataTable title="Contribución por cliente" period={report.period} rows={array(report.clients)} columns={[{ key: 'clientCode', label: 'Código cliente' }, { key: 'clientName', label: 'Cliente' }, ...columns]} description="Ordena pulsando cada cabecera. Despliega los contratos para revisar producto, coste, origen y método de reparto." detail={client => <DataTable title={`Contratos · ${client.clientName}`} period={report.period} rows={array(client.contracts)} columns={[{ key: 'contractCode', label: 'Contrato' }, { key: 'product', label: 'Producto' }, { key: 'tariff', label: 'Tarifa' }, { key: 'provider', label: 'Proveedor' }, { key: 'speedMbps', label: 'Mb contratados', kind: 'number' }, ...columns]} detail={contract => <DataTable title={`Coste asignado · ${contract.contractCode}`} period={report.period} rows={array(contract.costSources)} columns={[{ key: 'source', label: 'Fuente' }, { key: 'amount', label: 'Coste asignado', kind: 'money', estimated: isEstimated }, { key: 'method', label: 'Método de reparto' }, { key: 'status', label: 'Estado', kind: 'status' }, { key: 'provider', label: 'Proveedor' }, { key: 'payer', label: 'Paga' }]} />} />} />}
       {tab === 'comparacion' && <Comparison report={report} />}
@@ -164,4 +164,28 @@ function SystemState({ report, busy, sync }: { report: Report; busy: boolean; sy
     {!!maturityRows.length && <DataTable title="Madurez y pendientes de evidencia" period={report.period} rows={maturityRows} columns={[{ key: 'metric', label: 'Control', value: row => row.metric ?? row.type ?? row.label }, { key: 'value', label: 'Resultado', value: row => row.value ?? row.count ?? row.note }]} />}
     <DataTable title="Snapshots y cierres versionados" period={report.period} rows={array(report.snapshots)} columns={[{ key: 'month', label: 'Mes' }, { key: 'kind', label: 'Tipo' }, { key: 'version', label: 'Versión', kind: 'number' }, { key: 'createdAt', label: 'Fecha de preparación' }, { key: 'sourceHash', label: 'Hash inmutable' }, { key: 'id', label: 'Identificador' }]} />
   </>;
+}
+
+function CostRealVsEstimated({ report }: { report: Report }) {
+  const rows = costRealVsEstimatedRows(array(report.products));
+  return <DataTable title={`Coste real frente a estimado por producto · ${report.period}`} period={report.period} rows={rows} columns={[
+    { key: 'product', label: 'Producto' },
+    { key: 'costReal', label: 'Coste REAL (factura, nómina o regla firmada)', kind: 'money' },
+    { key: 'costEstimated', label: 'Coste ESTIMADO (no real)', kind: 'money', estimated: () => true },
+    { key: 'costTotal', label: 'Coste total (real + estimado)', kind: 'money' },
+    { key: 'estimatedPct', label: '% estimado', kind: 'percent' },
+    { key: 'status', label: 'Estado', kind: 'status' },
+  ]} description="El coste REAL solo incluye facturas de proveedor, nóminas o reglas firmadas. Lo ESTIMADO (celdas ámbar) se ha inferido de periodos anteriores o de una factura sin fecha de servicio clara y no se suma al margen verificable. Despliega un producto para ver cada fuente con su marca REAL o ESTIMADO."
+    detail={row => <DataTable title={`Fuentes de coste · ${row.product}`} period={report.period} rows={array(row.sources).filter(source => source.provider || source.payer)} columns={[{ key: 'status', label: 'Estado', kind: 'status', value: source => source.status === 'REAL' ? 'REAL' : 'ESTIMADO' }, { key: 'source', label: 'Fuente' }, { key: 'provider', label: 'Proveedor' }, { key: 'description', label: 'Concepto' }, { key: 'periodBasis', label: 'Base del periodo' }, { key: 'amount', label: 'Importe', kind: 'money', estimated: source => source.status !== 'REAL' }, { key: 'payer', label: 'Sociedad pagadora' }]} />} />;
+}
+function IncomeByNature({ report }: { report: Report }) {
+  const rows = incomeNatureRows(array(report.products));
+  return <DataTable title={`Ingreso por naturaleza: recurrente, Servicios IT e instalaciones · ${report.period}`} period={report.period} rows={rows} columns={[
+    { key: 'product', label: 'Producto' },
+    { key: 'incomeRecurring', label: 'Recurrente (cuotas mensuales)', kind: 'money' },
+    { key: 'incomeIT', label: 'Servicios IT (horas, externalización, mantenimiento)', kind: 'money' },
+    { key: 'incomeOneOff', label: 'Instalaciones y puntuales (cuota única, equipos, altas)', kind: 'money' },
+    { key: 'income', label: 'Ingreso facturado total', kind: 'money' },
+    { key: 'oneOffPct', label: '% puntual', kind: 'percent' },
+  ]} description="Clasificación automática por el concepto de cada línea facturada. Los puntuales no son ingreso recurrente: no deben usarse para proyectar meses futuros. «PUESTA EN MARCHA» incluida dentro de una cuota mensual sigue contando como recurrente." />;
 }
