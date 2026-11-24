@@ -8,7 +8,7 @@
  */
 const READ_METHODS = new Set(['GET', 'HEAD'])
 
-function access(area, method, legacyRoles = [], forcedAction) {
+function access(area, method, legacyRoles = [], forcedAction = undefined) {
   if (method === 'OPTIONS') return null
   return Object.freeze({
     area,

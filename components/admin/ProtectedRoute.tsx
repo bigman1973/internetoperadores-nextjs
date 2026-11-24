@@ -2,7 +2,8 @@
 
 import { usePathname } from 'next/navigation'
 import { useRole } from './RoleContext'
-import { useEffect } from 'react'
+import { area4RegisteredSurfaceArea } from '@/lib/area4/section-registry'
+import { isArea4OwnerOnlyArea } from '@/lib/area4/policy'
 
 /**
  * Mapeo de rutas planas a su padre lógico en el árbol de permisos.
@@ -25,15 +26,14 @@ const ROUTE_PARENT_MAP: Record<string, string> = {
   'admin.finanzas.estado_cuentas': 'admin.finanzas.importar',
 }
 
-const recentlyRegistered = new Map<string, number>()
-const REGISTRATION_TTL_MS = 5 * 60 * 1000
-
 /**
  * Mapea una ruta del panel admin a un código de área de permisos.
  * La conversión es automática: /admin/clientes/ggcc/draxton/contratos → admin.clientes.ggcc.draxton.contratos
  * Con corrección de rutas planas que deberían estar anidadas.
  */
 export function pathToAreaCode(pathname: string): string {
+  const registered = area4RegisteredSurfaceArea(pathname, 'page')
+  if (registered) return registered
   // Una ficha no es un área: /contactos/[id] hereda de /contactos.
   // Evita crear un permiso distinto (y un POST) por cada registro visitado.
   const segments = pathname.replace(/^\/admin\/?/, '').split('/').filter(Boolean)
@@ -61,63 +61,33 @@ export function pathToAreaCode(pathname: string): string {
 }
 
 /**
- * Auto-registra el área en la base de datos si no existe.
- * No registra áreas que están en la lista de ignorados (ya mapeadas manualmente).
- */
-function useAutoRegisterArea(areaCode: string) {
-  useEffect(() => {
-    if (!areaCode || areaCode === 'admin') return
-    if ((recentlyRegistered.get(areaCode) || 0) > Date.now()) return
-    recentlyRegistered.set(areaCode, Date.now() + REGISTRATION_TTL_MS)
-    fetch('/api/admin/permisos', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'auto_registrar',
-        codigo: areaCode,
-      }),
-    }).then((response) => {
-      if (!response.ok) recentlyRegistered.delete(areaCode)
-    }).catch(() => { recentlyRegistered.delete(areaCode) })
-  }, [areaCode])
-}
-
-/**
  * Componente que protege las rutas del panel admin según permisos granulares.
  * 
  * Reglas:
- * - SUPER_ADMIN sin simulación: acceso total
- * - GERENTE sin simulación: acceso total
- * - Usuario con permisos granulares: solo accede a las áreas permitidas
- * - Usuario sin permisos granulares: usa sistema legacy de roles (no bloquea)
- * - Mientras se cargan permisos: muestra loading (no bloquea ni deniega)
+ * - Víctor sin simulación: acceso total
+ * - Gerente respeta también las revocaciones de su ACL
+ * - Usuario con ACL explícita: solo accede a las áreas permitidas
+ * - Compatibilidad legacy se evalúa, no concede todo por tener cero grants
+ * - Mientras se verifican permisos: no muestra contenido
  */
 export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const { 
     hasAreaAccess, 
-    isSuperAdmin, 
+    isArea4Owner,
     isViewingAs, 
-    isViewingAsUser,
-    tienePermisosGranulares, 
-    effectiveRole, 
     permisosLoaded 
   } = useRole()
   
   const areaCode = pathToAreaCode(pathname)
   
-  // Auto-registrar el área (solo para SUPER_ADMIN, en background)
-  useAutoRegisterArea(isSuperAdmin && !isViewingAs ? areaCode : '')
+  // Víctor sin simulación: acceso total.
+  if (isArea4Owner && !isViewingAs) {
+    return <>{children}</>
+  }
 
-  // SUPER_ADMIN real sin simulación: acceso total
-  if (isSuperAdmin && !isViewingAs) {
-    return <>{children}</>
-  }
-  
-  // GERENTE sin simulación de usuario: acceso total
-  if (effectiveRole === 'GERENTE' && !isViewingAsUser) {
-    return <>{children}</>
-  }
+  // Usuarios, auditoría y actuación nunca se habilitan por rol ni por un grant visual.
+  if (isArea4OwnerOnlyArea(areaCode)) return <AccessDenied />
   
   // Dashboard siempre accesible
   if (areaCode === 'admin') {
@@ -133,14 +103,7 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
     )
   }
   
-  // Si el usuario tiene permisos granulares, verificar acceso por área
-  if (tienePermisosGranulares) {
-    if (!hasAreaAccess(areaCode, 'lectura')) {
-      return <AccessDenied />
-    }
-  }
-  
-  // Sin permisos granulares → no bloquear (usa sistema legacy de roles del sidebar)
+  if (!hasAreaAccess(areaCode, 'lectura')) return <AccessDenied />
   return <>{children}</>
 }
 

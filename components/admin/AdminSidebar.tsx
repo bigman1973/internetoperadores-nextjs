@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useRole } from './RoleContext'
 import { useSidebar } from './AdminSidebarContext'
 import { permissionSignature } from './sidebar-access-evaluator'
-import type { FinanceEnvironment } from './sidebar-navigation'
+import type { FinanceEnvironment, SidebarPresentation } from './sidebar-navigation'
 import type { AdminSidebarUser } from './server/AdminSidebarMenu'
 import { AdminSidebarPlaceholder } from './presentation/AdminSidebarPlaceholder'
 
@@ -34,6 +34,8 @@ interface AdminSidebarProps {
   initialMenu: ReactNode
   initialMenuMode: InitialMenuMode
   initialPermissionSignature?: string
+  /** Sólo presentación; los permisos efectivos se recalculan dentro del menú. */
+  menuPresentation?: SidebarPresentation
 }
 
 /**
@@ -49,6 +51,7 @@ export default function AdminSidebar({
   initialMenu,
   initialMenuMode,
   initialPermissionSignature = '',
+  menuPresentation = 'historico',
 }: AdminSidebarProps) {
   const { isOpen, setIsOpen } = useSidebar()
   const pathname = usePathname()
@@ -191,6 +194,7 @@ export default function AdminSidebar({
         easyOnly={easyOnly}
         financeEnvironment={financeEnvironment}
         conciliarEnabled={conciliarEnabled}
+        menuPresentation={menuPresentation}
         onNavigate={onNavigate}
       />
     )

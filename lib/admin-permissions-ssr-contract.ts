@@ -7,23 +7,27 @@ export type AdminPermissionSsrSeed = Readonly<{
   codigo: string
   lectura: boolean
   escritura: boolean
+  confirmar: boolean
+  exportar: boolean
 }>
 
 export type AdminPermissionSeedLoadMode = 'seed' | 'skip' | 'privileged' | 'fetch' | 'idle'
 
 export function serializeAdminPermissionSsrSeed(
-  rows: readonly Readonly<{ area: Readonly<{ codigo: string }>; lectura: boolean; escritura: boolean }>[],
+  rows: readonly Readonly<{ area: Readonly<{ codigo: string }>; lectura: boolean; escritura: boolean; confirmar: boolean; exportar: boolean }>[],
 ): AdminPermissionSsrSeed[] {
-  return rows.map(({ area, lectura, escritura }) => ({
+  return rows.map(({ area, lectura, escritura, confirmar, exportar }) => ({
     codigo: area.codigo,
     lectura,
     escritura,
+    confirmar,
+    exportar,
   }))
 }
 
-/** Mantiene el criterio histórico de entrada al panel: al menos una lectura. */
+/** Sólo una lectura administrativa habilita el panel; Portal propio no cuenta. */
 export function countReadableAdminPermissionSeeds(permissions: readonly AdminPermissionSsrSeed[]): number {
-  return permissions.reduce((count, permission) => count + (permission.lectura ? 1 : 0), 0)
+  return permissions.reduce((count, permission) => count + (permission.lectura && permission.codigo.startsWith('admin.') ? 1 : 0), 0)
 }
 
 /**

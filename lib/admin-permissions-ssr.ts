@@ -25,6 +25,8 @@ export async function readAdminPermissionsSsr(
     select: {
       lectura: true,
       escritura: true,
+      confirmar: true,
+      exportar: true,
       area: { select: { codigo: true } },
     },
   })

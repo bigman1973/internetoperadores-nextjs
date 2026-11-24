@@ -6,6 +6,9 @@ import ts from 'typescript'
 import { NextRequest, NextResponse } from 'next/server'
 import { HIGH_RISK_API_MANIFEST, highRiskApiRequirement } from '../lib/high-risk-api-policy'
 import { hasAltaContractCapability } from '../lib/altas/contrato-access'
+import * as area4Registry from '../lib/area4/section-registry'
+import * as area4Policy from '../lib/area4/policy'
+import * as area4RequestPolicy from '../lib/area4/request-policy'
 
 type Token = { id: string; userType: 'admin'; role?: string } | null
 
@@ -42,6 +45,9 @@ vm.runInNewContext(code, {
     if (name === './lib/high-risk-api-policy') return policy
     if (name === './lib/altas/contrato-access') return { hasAltaContractCapability }
     if (name === 'next-auth/jwt') return { getToken: async () => token }
+    if (name === '@/lib/area4/section-registry') return area4Registry
+    if (name === '@/lib/area4/policy') return area4Policy
+    if (name === '@/lib/area4/request-policy') return area4RequestPolicy
     if (name === '@/lib/prisma') {
       return {
         default: {
