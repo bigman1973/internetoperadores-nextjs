@@ -8,6 +8,7 @@
  *   una persona.
  * - Brevo: solo lectura de bajas (contactos bloqueados); jamás escribe ni envía.
  */
+import { getBrevoApiKey } from '@/lib/brevo-config'
 import { randomUUID as createId } from 'node:crypto'
 import type { Prisma, PrismaClient } from '@prisma/client'
 import prismaDefault from '@/lib/prisma'
@@ -49,7 +50,7 @@ export async function bajasLocales(db: Db): Promise<Map<string, BajaConocida>> {
 }
 
 /** Lectura (GET) de contactos bloqueados en Brevo. Sin clave o con error, se informa y no se presupone consentimiento extra. */
-export async function bajasBrevo(fetchImpl: typeof fetch = fetch, apiKey = (process.env.BREVO_API_KEY || '').trim()): Promise<{ bajas: Map<string, BajaConocida>; verificado: boolean; error: string | null }> {
+export async function bajasBrevo(fetchImpl: typeof fetch = fetch, apiKey = getBrevoApiKey()): Promise<{ bajas: Map<string, BajaConocida>; verificado: boolean; error: string | null }> {
   const bajas = new Map<string, BajaConocida>()
   if (!apiKey) return { bajas, verificado: false, error: 'BREVO_API_KEY_NO_CONFIGURADA' }
   const get = async (url: string) => {

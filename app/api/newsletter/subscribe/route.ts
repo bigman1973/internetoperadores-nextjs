@@ -1,7 +1,8 @@
+import { getBrevoApiKey } from '@/lib/brevo-config'
 import { NextRequest, NextResponse } from 'next/server';
 import { guardarCaptacionWeb } from '@/lib/crm-captacion-web';
 
-const BREVO_API_KEY = (process.env.BREVO_API_KEY || '').trim();
+const BREVO_API_KEY = getBrevoApiKey();
 
 const BREVO_LISTA_EMPRESAS = 30;
 const BREVO_LISTA_PARTICULARES = 31;

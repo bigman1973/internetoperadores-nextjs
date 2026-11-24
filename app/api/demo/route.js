@@ -1,4 +1,5 @@
 export const dynamic = "force-dynamic";
+import { getBrevoApiKey } from '@/lib/brevo-config';
 import { NextResponse } from 'next/server';
 import { guardarCaptacionWeb } from '@/lib/crm-captacion-web';
 
@@ -66,7 +67,7 @@ export async function POST(request) {
     };
     if (captacion.repetido) return NextResponse.json(resultadoLocal);
 
-    const brevoApiKey = (process.env.BREVO_API_KEY || '').trim();
+    const brevoApiKey = getBrevoApiKey();
     const demoNombre = DEMOS_MAP[interes] || interes;
     const fechaTexto = fecha || 'No especificada';
     const horarioTexto = horario ? `${horario.replace('-', ':00 - ')}:00` : 'No especificado';

@@ -1,4 +1,5 @@
 export const dynamic = "force-dynamic";
+import { getBrevoApiKey } from '@/lib/brevo-config';
 import { NextResponse } from 'next/server';
 import { guardarCaptacionWeb } from '@/lib/crm-captacion-web';
 
@@ -83,7 +84,7 @@ export async function POST(request) {
     const respuesta = { ...resultadoLocal, id: captacion.registro.id };
     if (captacion.repetido) return NextResponse.json(respuesta, { status: 201 });
 
-    const brevoApiKey = (process.env.BREVO_API_KEY || '').trim();
+    const brevoApiKey = getBrevoApiKey();
 
     // Ejecutar todas las acciones externas en paralelo
     const promises = [];

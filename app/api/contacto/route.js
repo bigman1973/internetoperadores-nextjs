@@ -1,4 +1,5 @@
 export const dynamic = "force-dynamic";
+import { getBrevoApiKey } from '@/lib/brevo-config';
 import { NextResponse } from 'next/server';
 import { guardarCaptacionWeb } from '@/lib/crm-captacion-web';
 
@@ -72,7 +73,7 @@ export async function POST(request) {
     }
 
     let emailSent = false;
-    const brevoApiKey = (process.env.BREVO_API_KEY || '').trim();
+    const brevoApiKey = getBrevoApiKey();
     const emailDestino = EMAILS_DESTINO[motivo] || 'comercial@internetoperadores.com';
     const motivoNombre = MOTIVOS_MAP[motivo] || motivo;
     const origenTexto = origen || 'Formulario de contacto';

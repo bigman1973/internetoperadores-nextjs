@@ -1,4 +1,5 @@
-const BREVO_API_KEY = (process.env.BREVO_API_KEY || '').trim()
+import { getBrevoApiKey } from '@/lib/brevo-config'
+const BREVO_API_KEY = getBrevoApiKey()
 const BASE_URL = process.env.NEXTAUTH_URL || 'https://www.internetoperadores.com'
 
 interface OrderData {

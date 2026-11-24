@@ -1,7 +1,8 @@
+import { getBrevoApiKey } from '@/lib/brevo-config'
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
-const BREVO_API_KEY = (process.env.BREVO_API_KEY || '').trim();
+const BREVO_API_KEY = getBrevoApiKey();
 
 async function sendBrevoEmail(to: { email: string; name: string }, subject: string, htmlContent: string) {
   try {

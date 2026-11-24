@@ -1,4 +1,5 @@
 export const dynamic = "force-dynamic";
+import { getBrevoApiKey } from '@/lib/brevo-config';
 import { NextResponse } from 'next/server';
 
 export async function POST(request) {
@@ -16,7 +17,7 @@ export async function POST(request) {
     console.log('País:', pais);
 
     // Enviar email con Brevo
-    const brevoApiKey = process.env.BREVO_API_KEY;
+    const brevoApiKey = getBrevoApiKey();
 
     if (!brevoApiKey) {
       console.error('⚠️ BREVO_API_KEY no configurada');

@@ -1,7 +1,8 @@
+import { getBrevoApiKey } from '@/lib/brevo-config'
 import { NextResponse } from 'next/server';
 import { guardarCaptacionWeb } from '@/lib/crm-captacion-web';
 
-const BREVO_API_KEY = (process.env.BREVO_API_KEY || '').trim();
+const BREVO_API_KEY = getBrevoApiKey();
 const BREVO_LIST_NEWSLETTER_EMPRESAS = 30;
 
 async function sendBrevoEmail(to: { email: string; name: string }, subject: string, htmlContent: string) {

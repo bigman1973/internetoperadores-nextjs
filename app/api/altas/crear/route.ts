@@ -1,10 +1,11 @@
+import { getBrevoApiKey } from '@/lib/brevo-config'
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { initiatePayment, type PaymentMethod } from '@/lib/payments'
 import { guardarCaptacionWeb } from '@/lib/crm-captacion-web'
 
 const BASE_URL = process.env.NEXTAUTH_URL || 'https://www.internetoperadores.com'
-const BREVO_API_KEY = (process.env.BREVO_API_KEY || '').trim()
+const BREVO_API_KEY = getBrevoApiKey()
 
 // IDs de listas de newsletter
 const NEWSLETTER_LISTS: Record<string, number> = {

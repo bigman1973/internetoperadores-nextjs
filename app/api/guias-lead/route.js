@@ -1,8 +1,9 @@
 export const dynamic = "force-dynamic";
+import { getBrevoApiKey } from '@/lib/brevo-config';
 import { NextResponse } from 'next/server';
 import { guardarCaptacionWeb } from '@/lib/crm-captacion-web';
 
-const BREVO_API_KEY = process.env.BREVO_API_KEY;
+const BREVO_API_KEY = getBrevoApiKey();
 
 // IDs de listas
 const BREVO_LIST_NEWSLETTER_EMPRESAS = 30;
