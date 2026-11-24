@@ -84,6 +84,18 @@ async function main() {
     assert.ok(src.includes('ON CONFLICT (hubspot_id) DO NOTHING')); assert.ok(src.includes('ON CONFLICT (contacto_id, canal, fuente)'))
     assert.equal(textoPlano('<p>a&amp;b</p>'), 'a&b')
   })
+  await t('ruta: simular es GET (pasa el sandbox de staging) e importar solo POST con confirmar', () => {
+    const r = readFileSync(join(root, 'app/api/admin/crm/hubspot/historial/route.ts'), 'utf8')
+    assert.match(r, /export async function GET\(\)\s*\{\s*return ejecutar\('simular'\)/)
+    assert.match(r, /export async function POST[\s\S]*confirmar !== true[\s\S]*ejecutar\('importar'\)/)
+    assert.ok(!r.split('export async function POST')[0].includes("ejecutar('importar')"))
+    const lib = readFileSync(join(root, 'lib/area1-hubspot-historial.ts'), 'utf8')
+    const i = lib.indexOf("if (modo === 'simular') return resultado"); const w = lib.search(/crmSincronizacionHubspot\.create|INSERT INTO/)
+    assert.ok(i > 0 && i < w, 'simular vuelve antes de cualquier escritura')
+    const mw = readFileSync(join(root, 'middleware.js'), 'utf8')
+    assert.ok(mw.includes("['GET', 'HEAD', 'OPTIONS'].includes(request.method)"), 'el sandbox de staging deja pasar GET')
+    assert.ok(!mw.includes('/api/admin/crm/hubspot/historial'), 'importar no tiene excepción en el sandbox')
+  })
   console.log(`\n${ok} pruebas OK`)
 }
 main().catch((err) => { console.error(err); process.exit(1) })

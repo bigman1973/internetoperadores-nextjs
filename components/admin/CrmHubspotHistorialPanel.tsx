@@ -20,7 +20,9 @@ export default function CrmHubspotHistorialPanel() {
     if (modo === 'importar' && !window.confirm('Se importarán al panel las notas, correos, reuniones, tareas y consentimientos mostrados. No se escribe nada en HubSpot. ¿Continuar?')) return
     setCargando(modo); setError(null)
     try {
-      const r = await fetch('/api/admin/crm/hubspot/historial', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ modo, confirmar: modo === 'importar' }) })
+      const r = modo === 'simular'
+        ? await fetch('/api/admin/crm/hubspot/historial', { method: 'GET', cache: 'no-store' })
+        : await fetch('/api/admin/crm/hubspot/historial', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ confirmar: true }) })
       const j = await r.json()
       if (!r.ok) throw new Error(j.error || `Error ${r.status}`)
       setRes(j)
