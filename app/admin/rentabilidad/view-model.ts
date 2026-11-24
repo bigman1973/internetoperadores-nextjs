@@ -44,3 +44,22 @@ export function sumKnown(rows: Row[], field: string): number | null {
   return rows.reduce((total, row) => total + numeric(row[field])!, 0);
 }
 export function cleanExcelText(value: string): string { return /^[\s]*[=+\-@]/.test(value) ? `'${value}` : value; }
+
+/** Historical pairs remain reference-only, without a monthly operational cost. */
+export function historicalDraxtonRows(references: unknown): Row[] {
+  const locator = (value: Row | undefined) => value?.file && value?.sheet && value?.cell
+    ? `${value.file} → ${value.sheet}!${value.cell}` : 'Localizador pendiente';
+  return array(references).filter(row => row.kind === 'draxton_contract_reference'
+    && row.referenceOnly === true && row.operationalImportAllowed === false).map(row => ({
+      key: row.key,
+      title: row.title,
+      referenceContractedCost: numeric(row.referenceContractedCost),
+      referenceBilledCost: numeric(row.referenceBilledCost),
+      referenceDifference: numeric(row.referenceDifference),
+      periodLabel: row.periodLabel ?? 'Cobertura mensual no acreditada',
+      contractedLocator: locator(row.contractedSourceLocator),
+      billedLocator: locator(row.billedSourceLocator),
+      note: row.note,
+      nature: 'REFERENCIA HISTÓRICA · NO REAL',
+    }));
+}

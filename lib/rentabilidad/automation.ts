@@ -1,7 +1,8 @@
 import { readInputs, appendRun, importInitial, saveRule, assertRentabilidadConfiguration } from './store';
-import { ispAvailability, readConfiguredLineExport } from './isp';
+import { ispAvailability, readConfiguredLineExport, readIspContracts, createIspReadTransport } from './isp';
 import { rebuildRentabilidadReport, checkedMonth } from './report';
 import { normalize, shiftMonth } from './engine';
+import { RentabilidadError, type ImportPayload } from './types';
 
 export function assertAutomationEnabled(env:Record<string,string|undefined>=process.env) {
   assertRentabilidadConfiguration(env);
@@ -31,25 +32,84 @@ export async function proposeExternalCosts(month:string,actorId:number) {
   }
   return {proposed};
 }
-export async function synchronizeRentabilidad(actorId:number) {
-  assertAutomationEnabled();const availability=ispAvailability();
-  if(!availability.lines||process.env.RENTABILIDAD_SYNC_APPROVED!=='1'){
-    const result={actorId,process:'ISP_DAILY',estado:'BLOQUEADO',reason:!availability.lines?availability.reason:'SYNC_EXPLICIT_APPROVAL_REQUIRED',rows:0,alternative:'Exportador listado299 HTTPS de host autorizado pendiente de acreditar; carga inicial CSV conservada.'};await appendRun(result);return result;
-  }
-  try {
-    const exported=await readConfiguredLineExport();
-    // Remote exports cannot reset the independently edited masters or replay initial defaults.
-    const report=await importInitial({...exported.payload,contracts:[],costs:[],references:[],products:[],rules:[]},actorId);
-    const result={actorId,process:'ISP_DAILY',estado:report.rechazadas?'REVISION':'COMPLETADO',rows:report.leidas,inserted:report.insertadas,unchanged:report.sinCambios,rejected:report.rechazadas,sourceHash:exported.sourceHash};await appendRun(result);return result;
-  } catch(error){const result={actorId,process:'ISP_DAILY',estado:'ERROR',reason:error instanceof Error&&/^[A-Z0-9_]+$/.test(error.message)?error.message:'ISP_EXPORT_FAILED',rows:0};await appendRun(result);return result;}
+/** Explicit empty masters are mandatory: importInitial otherwise installs initial defaults. */
+export function remoteSyncPayload(payload:ImportPayload):ImportPayload {
+  return {source:payload.source??'ISP_REMOTE_SYNC',contracts:payload.contracts??[],lines:payload.lines??[],costs:[],references:[],products:[],rules:[]};
 }
-export async function runRentabilidadDaily(actorId:number,date=new Date()) {
-  assertAutomationEnabled();const now=madridDate(date),month=shiftMonth(now.month,-1);
-  const isp=await synchronizeRentabilidad(actorId),external=await proposeExternalCosts(now.month,actorId);
-  // Current-month incoming invoices and alerts must not wait until the next closure.
-  const current=await rebuildRentabilidadReport(now.month,actorId),projection=await rebuildRentabilidadReport(month,actorId);
-  await appendRun({actorId,process:'INVOICES_AND_ALERTS',estado:current.summary.month.pending?'PROVISIONAL':'COMPLETADO',month:now.month,alerts:current.alerts.length,sourceHash:current.controls.sourceHash,projectionVersion:current.snapshot.version});
-  let close:any=null;
-  if(now.day===5){const report=await rebuildRentabilidadReport(month,actorId,'CIERRE');close=report.snapshot;}
-  return {month,currentMonth:now.month,isp,external,projection:projection.snapshot,currentProjection:current.snapshot,alerts:current.alerts.length,close,notifications:'PANEL_ONLY',scheduler:'PREVIEW_NOT_AUTOMATIC'};
+/** Only an already accredited ID/code association can link these two distinct identities. */
+export function accreditedContractCodes(contracts:ReadonlyArray<Record<string,any>>):Map<string,string> {
+  const map=new Map<string,string>(),codes=new Set<string>();
+  for(const row of contracts){
+    if(row.ispGestionContratoId==null||row.ispIdentityVerified!==true)continue;
+    const id=String(row.ispGestionContratoId),code=row.codigoContratoIsp??row.contractCode;
+    if(!/^[1-9]\d*$/.test(id)||!Number.isSafeInteger(Number(id))||typeof code!=='string'||!code||code!==code.trim())throw new RentabilidadError('ISP_CONTRACT_IDENTITY_CONFLICT');
+    if(map.has(id)||codes.has(code))throw new RentabilidadError('ISP_CONTRACT_IDENTITY_CONFLICT');
+    map.set(id,code);codes.add(code);
+  }
+  return map;
+}
+export type SyncDependencies = {
+  env?:Record<string,string|undefined>;
+  readInputs?:typeof readInputs;
+  contracts?:(codes:ReadonlyMap<string,string>)=>Promise<ImportPayload>;
+  lines?:()=>ReturnType<typeof readConfiguredLineExport>;
+  importPayload?:typeof importInitial;
+  append?:typeof appendRun;
+};
+function safeSourceFailure(error:unknown) {return error instanceof RentabilidadError?error.code:'ISP_SOURCE_READ_FAILED';}
+export async function synchronizeRentabilidad(actorId:number,dependencies:SyncDependencies={}) {
+  const env=dependencies.env??process.env;assertAutomationEnabled(env);
+  const availability=ispAvailability(env),append=dependencies.append??appendRun;
+  const alternative='Exportación HTTPS explícita de líneas y mapeo acreditado ID/código contractual; CSV inicial conservado, sin inventar listado299 ni proveedor/periodicidad.';
+  if(env.RENTABILIDAD_SYNC_APPROVED!=='1'){
+    const result={actorId,process:'ISP_DAILY',estado:'BLOQUEADO',reason:'SYNC_EXPLICIT_APPROVAL_REQUIRED',rows:0,availability,alternative};await append(result);return result;
+  }
+  const sources={...availability.sources},missingFields=new Set<string>();let payload:ImportPayload={source:'ISP_REMOTE_SYNC',contracts:[],lines:[]};
+  if(sources.contracts.configured){
+    try{
+      const inputs=await (dependencies.readInputs??readInputs)();
+      const codes=accreditedContractCodes(inputs.contracts);
+      const contracts=await (dependencies.contracts??(mapping=>readIspContracts(createIspReadTransport(env),mapping)))(codes);
+      payload.contracts=contracts.contracts??[];
+      sources.contracts={estado:'DISPONIBLE',reason:'ISP_CONTRACT_READ_VERIFIED_IDENTITY_REQUIRED',configured:true};
+      if(payload.contracts.some(row=>row.periodicidadMeses==null))missingFields.add('CONTRACT_PERIODICITY_NOT_SUPPLIED');
+      if(payload.contracts.some(row=>!row.proveedor&&!row.provider))missingFields.add('CONTRACT_PROVIDER_NOT_SUPPLIED');
+      if(payload.contracts.some(row=>row.precioPeriodo==null))missingFields.add('CONTRACT_PRICE_NOT_SUPPLIED');
+    }catch(error){sources.contracts={estado:'ERROR',reason:safeSourceFailure(error),configured:true};}
+  }
+  if(sources.lines.configured){
+    try{
+      const exported=await (dependencies.lines??(()=>readConfiguredLineExport(env)))();payload.lines=exported.payload.lines??[];
+      for(const field of exported.missingFields)missingFields.add(field);
+      sources.lines={estado:'DISPONIBLE',reason:'ISP_LINE_EXPORT_READ_VERIFIED_FIELDS_MAY_BE_PARTIAL',configured:true};
+    }catch(error){sources.lines={estado:'ERROR',reason:safeSourceFailure(error),configured:true};}
+  }
+  const observed=ispAvailability(env,sources);const anyRead=Object.values(sources).some(source=>source.estado==='DISPONIBLE');
+  if(!anyRead){
+    const failed=Object.values(sources).some(source=>source.estado==='ERROR');
+    const result={actorId,process:'ISP_DAILY',estado:failed?'ERROR':'BLOQUEADO',reason:failed?'ISP_SOURCE_READ_FAILED':observed.reason,rows:0,availability:observed,alternative};await append(result);return result;
+  }
+  // These reads never write ISP/financial sources; append-only analytical store performs identity/conflict checks.
+  try{
+    const report=await (dependencies.importPayload??importInitial)(remoteSyncPayload(payload),actorId);
+    const partial=observed.estado!=='DISPONIBLE'||missingFields.size>0;
+    const result={actorId,process:'ISP_DAILY',estado:report.rechazadas?'REVISION':partial?'PARCIAL':'COMPLETADO',rows:report.leidas,inserted:report.insertadas,updated:report.actualizadas,unchanged:report.sinCambios,rejected:report.rechazadas,sourceHash:report.sourceHash,availability:observed,missingFields:[...missingFields].sort(),collections:report.byCollection};await append(result);return result;
+  }catch(error){const result={actorId,process:'ISP_DAILY',estado:'ERROR',reason:safeSourceFailure(error),rows:0,availability:observed};await append(result);return result;}
+}
+export type DailyDependencies={env?:Record<string,string|undefined>;sync?:typeof synchronizeRentabilidad;external?:typeof proposeExternalCosts;rebuild?:typeof rebuildRentabilidadReport;append?:typeof appendRun};
+export async function runRentabilidadDaily(actorId:number,date=new Date(),dependencies:DailyDependencies={}) {
+  const env=dependencies.env??process.env;assertAutomationEnabled(env);const now=madridDate(date),month=shiftMonth(now.month,-1),append=dependencies.append??appendRun;
+  const scheduler=env.RENTABILIDAD_SCHEDULER==='MANUS_SCHEDULE'?'MANUS_SCHEDULE':'MANUAL_ONLY';
+  await append({actorId,process:'DAILY_START',estado:'INICIADO',month,currentMonth:now.month,scheduler});
+  try{
+    const isp=await (dependencies.sync??synchronizeRentabilidad)(actorId),external=await (dependencies.external??proposeExternalCosts)(now.month,actorId);
+    const rebuild=dependencies.rebuild??rebuildRentabilidadReport;
+    // Current-month incoming invoices and alerts must not wait until the next closure.
+    const current=await rebuild(now.month,actorId),projection=await rebuild(month,actorId);
+    await append({actorId,process:'INVOICES_AND_ALERTS',estado:current.summary.month.pending?'PROVISIONAL':'COMPLETADO',month:now.month,alerts:current.alerts.length,sourceHash:current.controls.sourceHash,projectionVersion:current.snapshot.version});
+    let close:any=null;if(now.day===5){const report=await rebuild(month,actorId,'CIERRE');close=report.snapshot;}
+    const estado=isp.estado!=='COMPLETADO'?'PARCIAL':current.summary.month.pending||projection.summary.month.pending?'PROVISIONAL':'COMPLETADO';
+    await append({actorId,process:'DAILY_END',estado,month,currentMonth:now.month,scheduler,ispEstado:isp.estado,rows:isp.rows,externalProposed:external.proposed,alerts:current.alerts.length,closed:close!==null});
+    return {month,currentMonth:now.month,isp,external,projection:projection.snapshot,currentProjection:current.snapshot,alerts:current.alerts.length,close,notifications:'PANEL_ONLY',scheduler,estado};
+  }catch(error){await append({actorId,process:'DAILY_END',estado:'ERROR',month,currentMonth:now.month,scheduler,reason:error instanceof RentabilidadError?error.code:'RENTABILIDAD_DAILY_FAILED'});throw error;}
 }

@@ -127,9 +127,12 @@ test('ISP advanced API blocker makes zero requests and unconfigured export stays
 })
 test('ISP read contract pagination uses only allowlisted upstream GET and detects duplicates', async () => {
   const calls: string[] = []
-  const result = await readIspContracts(async (endpoint, method) => { calls.push(`${method}:${endpoint}`); return [{ id: '7', clienteid: '100', precio: '5.5372' }] })
+  const codes = new Map([['7', '0007']])
+  const result = await readIspContracts(async (endpoint, method) => { calls.push(`${method}:${endpoint}`); return [{ id: '7', clienteid: '100', precio: '5.5372' }] }, codes)
   assert.deepEqual(calls, ['GET:contratos_todos']); assert.equal(result.contracts![0].precioPeriodo, '5.5372')
-  await assert.rejects(() => readIspContracts(async () => [{ id: '7', clienteid: '100' }, { id: '7', clienteid: '100' }]), /DUPLICATE/)
+  assert.equal(result.contracts![0].codigoContratoIsp, '0007')
+  await assert.rejects(() => readIspContracts(async () => [{ id: '7', clienteid: '100' }, { id: '7', clienteid: '100' }], codes), /DUPLICATE/)
+  await assert.rejects(() => readIspContracts(async () => [{ id: '7', clienteid: '100' }]), /CODE_UNVERIFIED/)
 })
 
 // Exact planner used by applyVersions. No emulated spread-merge or database fixture diverging from imports.
@@ -161,7 +164,7 @@ test('normalized initial English aliases are replaced by incoming Spanish ISP al
   assert.equal(planVersion(incoming, current), null)
 })
 test('real ISP adapter termination and price replace English initial values and invalidate old net monthly', async () => {
-  const payload = await readIspContracts(async () => [{ id: '7', clienteid: '100', precio: '120.5372', fecha_baja: '2026-09-30' }])
+  const payload = await readIspContracts(async () => [{ id: '7', clienteid: '100', precio: '120.5372', fecha_baja: '2026-09-30' }], new Map([['7', '7']]))
   const old = initialContract({ contractCode: '7' })
   const current = saved(prepareVersion('contract', payload.contracts![0], payload.source), old)
   assert.equal(current.payload.price, '120.5372'); assert.equal(current.payload.endDate, '2026-09-30')
@@ -321,4 +324,92 @@ test('annual invoice-month anchor is explicit, never defaulted, and rejected out
   for (const periodAnchor of [null, '', 'JANUARY', 'invoice_month', true]) assert.throws(() => prepareRule({ ...rule, periodAnchor }), /INVALID_PERIOD_ANCHOR/)
   for (const period of ['MES', 'BIMESTRAL_VENCIDO']) assert.throws(() => prepareRule({ ...rule, period, periodAnchor: 'INVOICE_MONTH' }), /INVALID_PERIOD_ANCHOR/)
   assert.doesNotThrow(() => prepareRule({ ...rule, method: 'EXCLUIR', period: 'MES', productoId: 'OTROS' }))
+})
+
+const ispStage = { DATABASE_URL: 'postgresql://io_staging_finanzas@fixture.invalid/io_staging_finanzas', FINANCE_STAGING_SANDBOX: '1', VERCEL_ENV: 'preview' }
+const accreditedIspEnv = { ...ispStage, RENTABILIDAD_ISP_ADVANCED_REACCREDITED: '1', ISPGESTION_API_URL: 'https://isp.fixture.invalid/api', ISPGESTION_API_USER: 'synthetic', ISPGESTION_API_HASH: 'synthetic' }
+const lineExportEnv = { ...ispStage, RENTABILIDAD_EXPORT_ENABLED: '1', RENTABILIDAD_EXPORT_URL: 'https://export.fixture.invalid/lines', RENTABILIDAD_EXPORT_ALLOWED_HOST: 'export.fixture.invalid', RENTABILIDAD_EXPORT_TOKEN: 'synthetic' }
+test('ISP configuration is not verified availability; token is required before export capability', () => {
+  const configured = ispAvailability({ ...accreditedIspEnv, ...lineExportEnv })
+  assert.equal(configured.estado, 'PARCIAL')
+  assert.equal(configured.sources.contracts.estado, 'NO_VERIFICADO'); assert.equal(configured.sources.lines.estado, 'NO_VERIFICADO')
+  assert.equal(ispAvailability({ ...lineExportEnv, RENTABILIDAD_EXPORT_TOKEN: '' }).lines, false)
+  const observed = ispAvailability({ ...accreditedIspEnv, ...lineExportEnv }, { contracts: { estado: 'ERROR', reason: 'ISP_ACCESS_FORBIDDEN', configured: true }, lines: { estado: 'DISPONIBLE', reason: 'VERIFIED', configured: true } })
+  assert.equal(observed.estado, 'PARCIAL'); assert.equal(observed.sources.contracts.reason, 'ISP_ACCESS_FORBIDDEN')
+})
+test('ISP GET direct transport denies production, unexpected endpoint, oversized pages and injected params before network', async () => {
+  let calls = 0; const http = async () => { calls++; return new Response('[]') }
+  await assert.rejects(() => createIspReadTransport({ ...accreditedIspEnv, VERCEL_ENV: 'production' }, http as any)('contratos_todos', 'GET', { mostrar: 5, pagina: 1 }), /STAGING_REQUIRED/)
+  const transport = createIspReadTransport(accreditedIspEnv, http as any)
+  for (const params of [{ mostrar: 501, pagina: 1 }, { mostrar: 5, pagina: 201 }, { mostrar: 5, pagina: 1, unknown: 'injected' }]) await assert.rejects(() => transport('contratos_todos', 'GET', params as any), /REQUEST_NOT_ALLOWED/)
+  await assert.rejects(() => transport('listado299' as any, 'GET', { mostrar: 5, pagina: 1 }), /REQUEST_NOT_ALLOWED/)
+  await assert.rejects(() => transport('contratos_todos', 'POST' as any, { mostrar: 5, pagina: 1 }), /REQUEST_NOT_ALLOWED/)
+  assert.equal(calls, 0)
+})
+test('ISP middleware POST is solely an allow-listed GET envelope and network errors are sanitized', async () => {
+  const transport = createIspReadTransport({ ...accreditedIspEnv, RENTABILIDAD_ISP_PROXY_URL: 'https://proxy.fixture.invalid/read', RENTABILIDAD_ISP_PROXY_TOKEN: 'synthetic' }, (async (_url, init) => {
+    assert.equal(init?.method, 'POST'); assert.equal(init?.redirect, 'error')
+    assert.deepEqual(JSON.parse(String(init?.body)), { endpoint: 'contratos_todos', method: 'GET', data: null, params: { mostrar: 5, pagina: 1 } })
+    return new Response('[]')
+  }) as typeof fetch)
+  assert.deepEqual(await transport('contratos_todos', 'GET', { mostrar: 5, pagina: 1 }), [])
+  await assert.rejects(() => createIspReadTransport(accreditedIspEnv, (async () => { throw Error('sensitive provider response must not escape') }) as any)('contratos_todos', 'GET', { mostrar: 5, pagina: 1 }), { message: 'ISP_READ_FAILED' })
+  await assert.rejects(() => createIspReadTransport(accreditedIspEnv, (async () => new Response('{}', { status: 403 })) as any)('contratos_todos', 'GET', { mostrar: 5, pagina: 1 }), { message: 'ISP_ACCESS_FORBIDDEN' })
+})
+test('ISP absent fields never erase titles, manufacture active state or infer provider/period from tariff', async () => {
+  const payload = await readIspContracts(async () => [{ id: '7', clienteid: '100', fecha_baja: null }], new Map([['7', '0007']]))
+  const row = payload.contracts![0]
+  for (const field of ['titulo', 'tarifa', 'estado', 'fechaBaja', 'periodicidadMeses', 'proveedor', 'precioPeriodo']) assert.equal(row[field], undefined)
+  const old = initialContract({ active: false, endDate: '2026-09-30' })
+  const incoming = prepareVersion('contract', row, 'ISP_READ'); const current = saved(incoming, old)
+  assert.equal(current.payload.active, false); assert.equal(current.payload.endDate, '2026-09-30')
+  assert.equal(current.payload.provider, 'Aire Networks'); assert.equal(planVersion(incoming, current), null)
+  assert.deepEqual(row.sourceLocator, { endpoint: 'contratos_todos', id: '7' })
+  await assert.rejects(() => readIspContracts(async () => [{ id: '7', clienteid: '100', precio: 'invalid' }], new Map([['7', '0007']])), /INVALID_MONEY/)
+})
+test('ISP pagination rejects overfull and repeated pages instead of importing an incomplete inventory', async () => {
+  await assert.rejects(() => readIspContracts(async () => Array(501).fill({ id: '7', clienteid: '100' })), /RESPONSE_INVALID/)
+  const page = Array.from({ length: 500 }, (_, index) => ({ id: String(index + 1), clienteid: '100' }))
+  const codes = new Map(page.map(row => [row.id, `code-${row.id}`]))
+  let calls = 0
+  await assert.rejects(() => readIspContracts(async (_endpoint, method, params) => { assert.equal(method, 'GET'); assert.equal(params.pagina, ++calls); return page }, codes), /DUPLICATE/)
+  assert.equal(calls, 2)
+})
+test('explicit line export preserves exact decimals, leading zeroes, credits and source locator; missing service period stays documented', async () => {
+  const csv = 'CODIGO CONTRATO,CONCEPTO,PRECIO,FECHA\n0007,Abono,-5.5372,01/10/2026\n0008,Cero,0,01/10/2026\n'
+  const read = () => readConfiguredLineExport(lineExportEnv, (async (_url, init) => { assert.equal(init?.method, 'GET'); assert.equal(init?.redirect, 'error'); return new Response(csv) }) as typeof fetch)
+  const first = await read(), repeated = await read()
+  assert.equal(first.sourceHash, repeated.sourceHash); assert.equal(first.payload.lines![0].importeBaseExacto, '-5.5372')
+  assert.equal(first.payload.lines![0].codigoContratoIsp, '0007'); assert.equal(first.payload.lines![1].importeBaseExacto, '0')
+  assert.deepEqual(first.payload.lines![0].sourceLocator, { endpoint: 'CONFIGURED_REMOTE_EXPORT', row: 2 })
+  assert.ok(first.missingFields.includes('SERVICE_PERIOD_UNVERIFIED')); assert.equal(first.payload.lines![0].periodoFuente, 'INVOICE_DATE_FALLBACK')
+  assert.equal(prepareLine(first.payload.lines![0]).key, prepareLine(repeated.payload.lines![0]).key)
+  let calls = 0
+  await assert.rejects(() => readConfiguredLineExport({ ...lineExportEnv, VERCEL_ENV: 'production' }, (async () => { calls++; return new Response(csv) }) as any), /STAGING_REQUIRED/)
+  assert.equal(calls, 0)
+})
+test('explicit service month is preserved and conflicting identity/column count fails closed', async () => {
+  const header = 'CODIGO CONTRATO,CONCEPTO,PRECIO,FECHA,MES SERVICIO\n'
+  const read = (text: string) => readConfiguredLineExport(lineExportEnv, (async () => new Response(text)) as any)
+  const result = await read(header + '0007,Servicio,5.5372,01/10/2026,2026-09\n')
+  assert.equal(result.payload.lines![0].mesServicio, '2026-09'); assert.ok(!result.missingFields.includes('SERVICE_PERIOD_UNVERIFIED'))
+  await assert.rejects(() => read(header + '0007,Servicio,5.5372,01/10/2026,2026-09\n0007,Servicio,5.5372,01/10/2026,2026-10\n'), /LINE_IDENTITY_COLLISION/)
+  await assert.rejects(() => read(header + '0007,Servicio,5.5372,01/10/2026\n'), /COLUMN_COUNT/)
+})
+
+test('ISP fractional JSON numbers fail precision accreditation; safe integer and exact text remain valid', async () => {
+  const codes = new Map([['7', '0007']])
+  await assert.rejects(() => readIspContracts(async () => [{ id: '7', clienteid: '100', precio: 5.5372 }], codes), /MONEY_PRECISION_UNVERIFIED/)
+  const integer = await readIspContracts(async () => [{ id: '7', clienteid: '100', precio: 0 }], codes)
+  assert.equal(integer.contracts![0].precioPeriodo, '0')
+})
+
+test('remote export rejects internal CONTRATOID and conflicting code aliases before attribution', async () => {
+  const read = (text: string) => readConfiguredLineExport(lineExportEnv, (async () => new Response(text)) as any)
+  await assert.rejects(() => read('CONTRATOID,CONCEPTO,PRECIO,FECHA,MES SERVICIO\n7,Servicio,1,01/10/2026,2026-10\n'), /ISP_CONTRACT_CODE_UNVERIFIED/)
+  await assert.rejects(() => read('CODIGO CONTRATO,CONTRATOID,CONCEPTO,PRECIO,FECHA\n0007,7,Servicio,1,01/10/2026\n'), /ISP_CONTRACT_CODE_UNVERIFIED/)
+  await assert.rejects(() => read('CODIGO CONTRATO,NUMERO CONTRATO,CONCEPTO,PRECIO,FECHA\n0007,7,Servicio,1,01/10/2026\n'), /ISP_CONTRACT_IDENTITY_CONFLICT/)
+  await assert.rejects(() => read('CODIGO CONTRATO,CONCEPTO,PRECIO,FECHA\n,Servicio,1,01/10/2026\n'), /ISP_CONTRACT_IDENTITY_CONFLICT/)
+  const correct = await read('CODIGO CONTRATO,NUMERO CONTRATO,CONCEPTO,PRECIO,FECHA\n0007,0007,Servicio,1,01/10/2026\n')
+  assert.equal(correct.payload.lines![0].codigoContratoIsp, '0007')
 })
