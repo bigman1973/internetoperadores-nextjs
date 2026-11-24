@@ -29,7 +29,7 @@ export const PERMISOS_POR_ROL: Record<string, readonly string[]> = {
     'dashboard', 'crm', 'tarifas', 'clientes', 'leads', 'altas-pendientes', 'contratos',
   ],
   CONTABILIDAD: [
-    'dashboard', 'facturacion', 'finanzas', 'subida-precios', 'estadisticas',
+    'dashboard', 'facturacion', 'finanzas', 'estadisticas',
   ],
   RRHH: [
     'dashboard', 'personal',
