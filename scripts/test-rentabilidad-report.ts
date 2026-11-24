@@ -75,7 +75,7 @@ test('R1 servicio no recurrente no crea una exigencia mensual nueva',()=>{
 });
 const signedIT=(mixed=false)=>{
   const i:any=base();Object.assign(i.contracts[0],{provider:'IO',tariff:'MANTENIMIENTO INFORMÁTICO GENERAL',description:'ORDEN SYNTH-IT',price:100,discount:0});
-  if(mixed){i.contracts.push({...i.contracts[0],contractCode:'2',provider:'IO',tariff:'SERVICIO GENERAL',description:'Sin IT',price:30});i.lines.push({...i.lines[0],contractCode:'2',baseAmount:30});}
+  if(mixed){i.contracts.push({...i.contracts[0],contractCode:'2',provider:'IO',tariff:'SERVICIO GENERAL',product:'Servicios IO sin coste de proveedor',description:'Sin IT',price:30});i.lines.push({...i.lines[0],contractCode:'2',baseAmount:30});}
   const g={id:'SYNTH-G',codigoContrato:'SYNTH-IT',titulo:'Servicios IT sintéticos',personalAsignado:[],contratosProveedor:[{id:'SYNTH-P',proveedor:'Proveedor IT sintético',estado:'Activo',importeMensual:10,fechaInicio:'2026-01-01'}]};
   return {i,g};
 };
@@ -89,7 +89,8 @@ test('R2 cliente mixto propaga personal IT desconocido sin sustituirlo por nómi
   assert.equal(r.clients[0].income,130);assert.equal(r.clients[0].pending,true);assert.equal(r.clients[0].margin,null);assert.equal(r.clients[0].actualCost,25);
   assert.equal(r.contracts.find((c:any)=>c.contractCode==='2').pending,false);
 });
-const noSupplierIncome=()=>{const i:any=base();Object.assign(i.contracts[0],{provider:'IO',tariff:'SERVICIO GENERAL'});return i;};
+// This fixture explicitly accredits a zero-supplier-cost service; IO alone is insufficient.
+const noSupplierIncome=()=>{const i:any=base();Object.assign(i.contracts[0],{provider:'IO',tariff:'SERVICIO GENERAL',product:'Servicios IO sin coste de proveedor'});return i;};
 test('R3 cuota firmada ausente permanece null en contrato producto cliente mes resumen y diciembre',()=>{
   const i=noSupplierIncome();i.contracts[0].price=null;const real=result(i),r=calculateReport(i,'2026-10','contratado');
   assert.equal(real.summary.month.income,55);assert.equal(real.summary.month.pending,false);
@@ -192,4 +193,14 @@ test('porcentaje de previsión usa precisión original y queda nulo cuando la co
 test('R1 una factura puntual actual no acredita la recurrencia del mismo proveedor',()=>{
   const i:any=base();i.costs=[{...syntheticCost('Aire Networks','2026-09',10),product:'Aire Networks'},{...syntheticCost('Aire Networks','2026-10',5),product:'Aire Networks',recurring:false}];
   const r=result(i);assert.equal(product(r,'Aire Networks').pending,true);assert(r.alerts.some((a:any)=>a.provider==='Aire Networks'));assert.equal(product(r,'Aire Networks').cost,5);
+});
+
+test('IO no clasificado no acredita margen sin coste en producto cliente ni contratado',()=>{
+  const i:any=base();Object.assign(i.contracts[0],{provider:'IO',tariff:'SERVICIO SINTÉTICO NO CLASIFICADO'});
+  const real=result(i),signed=calculateReport(i,'2026-10','contratado');
+  assert.equal(real.contracts[0].product,'Otros');assert.equal(real.contracts[0].pending,true);
+  assert.equal(real.clients[0].pending,true);assert.equal(amount(real.clients[0],'margin','real'),null);
+  assert.equal(signed.contracts[0].cost,null);assert.equal(signed.clients[0].margin,null);
+  Object.assign(i.contracts[0],{product:'Red propia',tariff:'IP FIJA'});
+  assert.equal(result(i).contracts[0].product,'Red propia');
 });

@@ -57,7 +57,11 @@ export function classifyContract(contract: any, rules: any[] = []): { provider: 
   const tariff = String(contract.tariff || contract.tarifa || ''); const name = normalize(`${contract.clientName || ''} ${contract.description || ''} ${tariff}`);
   if (/mantenimiento informatico|servicio.*externalizacion|servicios it/.test(normalize(tariff))) return {provider:contract.provider||'IO',product:'Servicios IT',origin:'tipología IT del contrato',pending:false};
   if (name.includes('draxton') && /conexion internet draxton/.test(normalize(tariff))) return {provider:contract.provider||null,product:'Draxton telecomunicaciones',origin:'contrato Draxton de telecomunicaciones',pending:!contract.provider};
-  if (normalize(contract.provider)==='io') return {provider:contract.provider,product:/volibri|perdiu|radio|transito|transit/.test(normalize(tariff))?'Red propia':'Servicios IO sin coste de proveedor',origin:'proveedor propio y tipología del servicio',pending:false};
+  if (normalize(contract.provider)==='io') {
+    if (contract.product) { const product=canonicalProduct(contract.product); return {provider:contract.provider,product,origin:contract.source||'producto propio acreditado en carga inicial',pending:product==='Otros'}; }
+    if (/volibri|perdiu|radio|transito|transit/.test(normalize(tariff))) return {provider:contract.provider,product:'Red propia',origin:'tipología acreditada de red propia',pending:false};
+    return {provider:contract.provider,product:'Otros',origin:'servicio propio sin producto acreditado; no se presume coste cero',pending:true};
+  }
   if (contract.product) return { provider: contract.provider || null, product: canonicalProduct(contract.product), origin: contract.source || 'metadato', pending: false };
   if (contract.provider && normalize(contract.provider) !== 'otros' && normalize(contract.provider) !== 'sin proveedor') {
     let product = canonicalProduct(contract.provider);

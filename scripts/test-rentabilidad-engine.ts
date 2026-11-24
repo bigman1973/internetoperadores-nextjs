@@ -17,6 +17,9 @@ test('proveedor Lorena prevalece sobre tarifa',()=>assert.equal(classifyContract
 test('regla solo cuando falta proveedor',()=>assert.equal(classifyContract({tariff:'CANARIO 50'},rules).product,'Aire Networks'));
 test('tarifa nueva a cola',()=>assert.equal(classifyContract({tariff:'INVENTADA'},rules).pending,true));
 test('prefijo sin coincidencia en mitad',()=>assert.equal(classifyContract({tariff:'PACK CM-FIBRA'},rules).pending,true));
+test('producto propio acreditado no se sustituye por coste cero',()=>{assert.equal(classifyContract({provider:'IO',tariff:'IP FIJA',product:'Red propia'}).product,'Red propia');assert.equal(classifyContract({provider:'IO',tariff:'TRENCALOS 12',product:'Red propia'}).product,'Red propia');});
+test('IO sin tipología ni producto queda pendiente y nunca sin coste',()=>{const r=classifyContract({provider:'IO',tariff:'SERVICIO SINTÉTICO NO CLASIFICADO'});assert.equal(r.product,'Otros');assert.equal(r.pending,true);});
+test('sin coste debe ser producto explícito y tipología IT conserva prioridad',()=>{assert.equal(classifyContract({provider:'IO',product:'Servicios IO sin coste de proveedor'}).product,'Servicios IO sin coste de proveedor');assert.equal(classifyContract({provider:'IO',tariff:'MANTENIMIENTO INFORMÁTICO GENERAL',product:'Red propia'}).product,'Servicios IT');});
 test('Draxton y Borges directos',()=>{assert.equal(classifyContract({provider:'Telefónica',clientName:'Draxton'}).product,'Draxton telecomunicaciones');assert.equal(classifyContract({provider:'Wildix',clientName:'Borges'}).product,'Wildix Borges');});
 test('producto hotspot separado',()=>assert.equal(classifyContract({provider:'Xfera',tariff:'HTSP'}).product,'Hotspot'));
 test('factura sin regla en cola no coste cero',()=>{const r=imputeInvoices([{id:'f1',provider:'nuevo',base:10,date:'2026-01-01',number:'1'}],[]);assert.equal(r.alerts.length,1);assert.equal(r.costs.length,0);});
