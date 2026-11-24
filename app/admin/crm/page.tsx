@@ -178,6 +178,12 @@ export default async function CrmPage() {
           </Link>
         </div>
         </article>
+        <article className="rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-5 sm:p-6">
+          <div className="flex h-full flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+            <div><h2 className="text-xl font-bold text-slate-950">Pipelines de venta</h2><p className="mt-1 text-sm leading-6 text-slate-600">Los 8 pipelines de Internet Operadores por producto, con Kanban, previsión ponderada y motivo obligatorio al perder un negocio.</p></div>
+            <Link href="/admin/crm/pipelines" prefetch={false} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800">Abrir pipelines <ArrowRightIcon className="h-4 w-4" /></Link>
+          </div>
+        </article>
       </section>
 
       {esSuperadmin && (
