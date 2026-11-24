@@ -121,6 +121,46 @@ function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
+function sanitizeInventoryCause(value: string): string {
+  return value
+    .replace(/\b(?:https?|ftp):\/\/[^\s<>"']+|\bwww\.[^\s<>"']+/gi, ' ')
+    .replace(/\b(?:authorization\b\s*[:=]?\s*(?:(?:bearer|basic)\s+)?|bearer\s+|token\b\s*[:=]?\s*)\S+/gi, ' ')
+    .replace(/\S*@\S*/g, ' ')
+    .replace(/[A-Za-z0-9]{24,}/g, ' ')
+    .replace(/[\u0000-\u001f\u007f<>]|https?:|bearer|token/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function inventoryFailure(error: unknown): IspInvoiceSyncError {
+  const e = isRecord(error) ? error : {}
+  const response = isRecord(e.response) ? e.response : null
+  const data = response && isRecord(response.data) ? response.data : {}
+  const status = typeof response?.status === 'number' && Number.isInteger(response.status)
+    && response.status >= 100 && response.status <= 599 ? response.status : null
+  // Read only the API cause, never axios config, headers, request, stack or message.
+  const cause = [data.details, data.error].filter((value): value is string => typeof value === 'string').join('. ')
+  let code = 'ISP_ERROR_INVENTARIO'
+  let message = 'No se pudo obtener el inventario de facturas de ISP: fallo inesperado de la petición.'
+  if (status !== null) {
+    if (status === 403 && /api avanzada|no est[aá] contratada|licen/i.test(cause)) {
+      code = 'ISP_API_LICENCIA_NO_CONTRATADA'
+      message = 'ISP respondió 403: la API avanzada no está contratada en esta instancia.'
+    } else {
+      code = `ISP_HTTP_${status}`
+      const fallback = status === 401 ? 'la petición no está autorizada.'
+        : status === 403 ? 'el acceso está prohibido.' : 'fallo al solicitar el inventario de facturas.'
+      message = `ISP respondió ${status}: ${sanitizeInventoryCause(cause) || fallback}`
+    }
+  } else if (!response && typeof e.code === 'string' && /^(ECONNABORTED|ETIMEDOUT|ENOTFOUND|ECONNRESET)$/.test(e.code)) {
+    code = 'ISP_RED_O_TIMEOUT'
+    message = 'ISP no respondió: fallo de red o tiempo de espera agotado al solicitar el inventario de facturas.'
+  }
+  message = message.slice(0, 500).trim()
+  const diagnostic: SyncFailureDetail = { code, name: 'Error', operation: 'ISP.inventory', sqlState: null, constraint: null, message }
+  return new IspInvoiceSyncError(code, message, diagnostic)
+}
+
 /**
  * Projection is intentionally allow-listed.  `situacion`, `total_pendiente`,
  * payment references, IBANs, bank fields and arbitrary future API fields cannot
@@ -505,7 +545,12 @@ function safeTruncatedCheckpoint(previous: unknown): Readonly<{ version: typeof 
 export function createIspIssuedInvoiceProvider(options: IspIssuedInvoiceProviderOptions): SyncProvider {
   return {
     async inventory(checkpoint: unknown) {
-      const response = await options.request(ISP_FACTURACION_ENDPOINT, 'GET', null, { mostrar: ISP_FACTURACION_LIMIT })
+      let response: unknown
+      try {
+        response = await options.request(ISP_FACTURACION_ENDPOINT, 'GET', null, { mostrar: ISP_FACTURACION_LIMIT })
+      } catch (error) {
+        throw inventoryFailure(error)
+      }
       if (!Array.isArray(response)) {
         throw new IspInvoiceSyncError('RESPUESTA_FACTURACION_INVALIDA', 'facturacion debe responder un array; no se inventa paginación.')
       }

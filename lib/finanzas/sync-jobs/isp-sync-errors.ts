@@ -9,7 +9,7 @@ export type SyncFailureDetail = {
 }
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]{0,119}$/
 const CODE = /^[A-Z0-9_]{2,64}$/
-const OPERATIONS = new Set(['Factura.findUnique','Factura.create','Factura.update','FacturaEmitida.findUnique','FacturaEmitida.create','FacturaEmitida.update','B7.create','DocumentoConciliable.findFirst','DocumentoConciliable.create'])
+const OPERATIONS = new Set(['ISP.inventory','Factura.findUnique','Factura.create','Factura.update','FacturaEmitida.findUnique','FacturaEmitida.create','FacturaEmitida.update','B7.create','DocumentoConciliable.findFirst','DocumentoConciliable.create'])
 const ERROR_NAMES = new Set(['PrismaClientKnownRequestError','PrismaClientUnknownRequestError','PrismaClientValidationError','PrismaClientInitializationError','DatabaseError','Error'])
 const MESSAGES: Record<string,string> = {
   P2000: 'Un campo supera la longitud permitida en la base de datos.',
