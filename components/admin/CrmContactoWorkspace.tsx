@@ -35,6 +35,7 @@ import CrmContactoDataEditor, {
 } from './CrmContactoDataEditor'
 import type { CrmActivityType } from './CrmActivityComposer'
 import { useRole } from './RoleContext'
+import CrmWebCaptures, { type CrmWebCapture, type CrmOriginalDetail } from '@/components/crm/CrmWebCaptures'
 
 const CrmContactoSettings = dynamic(() => import('./CrmContactoSettings'), { loading: () => <PanelLoading label="Cargando ajustes…" /> })
 const CrmActivityComposer = dynamic(() => import('./CrmActivityComposer'), { loading: () => <PanelLoading label="Cargando formulario de actividad…" /> })
@@ -91,7 +92,7 @@ type ContactActivity = {
 type Props = {
   contact: {
     id: string
-    hubspotId: string
+    hubspotId: string | null
     name: string
     email: string
     phone: string
@@ -120,6 +121,8 @@ type Props = {
   deals: Deal[]
   lists: ListMembership[]
   activities?: ContactActivity[]
+  webCaptures?: CrmWebCapture[]
+  originalDetails?: CrmOriginalDetail[]
   emailSender: string
   outlookConnection: {
     enabled: boolean
@@ -146,7 +149,7 @@ const QUICK_FIELDS = [
   { name: 'hs_lead_status', icon: <CheckBadgeIcon className="h-4 w-4" /> },
 ]
 
-export default function CrmContactoWorkspace({ contact, statusNotice, customer, companies, deals, lists, activities = [], emailSender, outlookConnection, qualityIssues, history, dataEditor, settings }: Props) {
+export default function CrmContactoWorkspace({ contact, statusNotice, customer, companies, deals, lists, activities = [], webCaptures = [], originalDetails = [], emailSender, outlookConnection, qualityIssues, history, dataEditor, settings }: Props) {
   const router = useRouter()
   const { hasAreaAccess, isSuperAdmin, isViewingAs } = useRole()
   const canWrite = !isViewingAs && (isSuperAdmin || hasAreaAccess('admin.crm.contactos', 'escritura'))
@@ -307,7 +310,7 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
               <div className="mt-3 flex flex-wrap gap-2">
                 {contact.units.length > 0 ? contact.units.map((unit) => <span key={unit} className="rounded-full border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-800">{unit}</span>) : <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">Sin unidad de negocio</span>}
               </div>
-              <p className="mt-3 text-xs text-slate-400">{contact.hubspotId.startsWith('local:') ? 'Origen: CRM local' : `Referencia #${contact.hubspotId}`} · {openDeals.length.toLocaleString('es-ES')} {openDeals.length === 1 ? 'negocio abierto' : 'negocios abiertos'} · {lists.length.toLocaleString('es-ES')} {lists.length === 1 ? 'lista' : 'listas'}</p>
+              <p className="mt-3 text-xs text-slate-400">{!contact.hubspotId || contact.hubspotId.startsWith('local:') ? 'Origen: CRM local (sin HubSpot)' : `Referencia #${contact.hubspotId}`} · {openDeals.length.toLocaleString('es-ES')} {openDeals.length === 1 ? 'negocio abierto' : 'negocios abiertos'} · {lists.length.toLocaleString('es-ES')} {lists.length === 1 ? 'lista' : 'listas'}</p>
             </div>
           </div>
 
@@ -354,6 +357,8 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
                   <Highlight label="Última actualización" value={contact.sourceUpdatedAt || 'Sin fecha'} />
                 </div>
               </Panel>
+
+              <CrmWebCaptures captures={webCaptures} originalDetails={originalDetails} />
 
               <Panel>
                 <div className="flex items-center justify-between gap-3">

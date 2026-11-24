@@ -1,10 +1,7 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { guardarCaptacionWeb } from '@/lib/crm-captacion-web';
 
 const BREVO_API_KEY = (process.env.BREVO_API_KEY || '').trim();
-const HUBSPOT_API_KEY = (process.env.HUBSPOT_API_KEY || '').trim();
-const HUBSPOT_LIST_AUDITORIA = '501'; // Lista IO-MIGRACION-WEB
-const HUBSPOT_LIST_NEWSLETTER_EMPRESAS = '489';
 const BREVO_LIST_NEWSLETTER_EMPRESAS = 30;
 
 async function sendBrevoEmail(to: { email: string; name: string }, subject: string, htmlContent: string) {
@@ -20,56 +17,6 @@ async function sendBrevoEmail(to: { email: string; name: string }, subject: stri
       }),
     });
     return res.ok;
-  } catch { return false; }
-}
-
-async function addToHubSpot(email: string, nombre: string, empresa: string, telefono: string, listIds: string[], nota: string) {
-  try {
-    const searchRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: email }] }] }),
-    });
-    const searchData = await searchRes.json();
-    let contactId: string;
-
-    if (searchData.results && searchData.results.length > 0) {
-      contactId = searchData.results[0].id;
-      await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}`, {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ properties: { firstname: nombre, company: empresa, phone: telefono } }),
-      });
-    } else {
-      const createRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ properties: { email, firstname: nombre, company: empresa, phone: telefono } }),
-      });
-      const createData = await createRes.json();
-      contactId = createData.id;
-    }
-
-    for (const listId of listIds) {
-      await fetch(`https://api.hubapi.com/crm/v3/lists/${listId}/memberships/add`, {
-        method: 'PUT',
-        headers: { 'Authorization': `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify([contactId]),
-      });
-    }
-
-    if (nota) {
-      await fetch('https://api.hubapi.com/crm/v3/objects/notes', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          properties: { hs_note_body: nota, hs_timestamp: new Date().toISOString() },
-          associations: [{ to: { id: contactId }, types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 202 }] }],
-        }),
-      });
-    }
-
-    return true;
   } catch { return false; }
 }
 
@@ -110,13 +57,14 @@ export async function POST(request: Request) {
     }
 
     // Crear lead en LeadMigracionWeb (formulario simplificado)
-    const lead = await prisma.leadMigracionWeb.create({
-      data: {
-        segmentoCrm: 'EMPRESA',
-        nombreEmpresa: empresa,
-        contacto: nombre,
-        email,
-        telefono: telefono || null,
+    const { contactoId, registro: lead, repetido } = await guardarCaptacionWeb(request, {
+      formulario: '/api/contrata/auditoria-web-rapida',
+      segmentoCrm: 'EMPRESA',
+      nombre: nombre,
+      email,
+      telefono: telefono || null,
+      empresa: empresa,
+      datos: {
         urlWebActual: urlWeb || null,
         frustracionActual: mensaje || null,
         comoNosConocio: 'Formulario rápido - Página Soluciones',
@@ -124,7 +72,29 @@ export async function POST(request: Request) {
         estado: 'NUEVO',
         prioridad: 'MEDIA',
       },
+      newsletter: body.newsletter === true,
+      privacidad: typeof body.privacidad === 'boolean' ? body.privacidad : null,
+      persistir: async (tx, contactoId) => tx.leadMigracionWeb.create({
+        data: {
+          crmContactoId: contactoId,
+          segmentoCrm: 'EMPRESA',
+          nombreEmpresa: empresa,
+          contacto: nombre,
+          email,
+          telefono: telefono || null,
+          urlWebActual: urlWeb || null,
+          frustracionActual: mensaje || null,
+          comoNosConocio: 'Formulario rápido - Página Soluciones',
+          origenFormulario: 'rapido',
+          estado: 'NUEVO',
+          prioridad: 'MEDIA',
+        },
+      }),
     });
+
+    if (repetido) {
+      return NextResponse.json({ success: true, id: lead.id, contactoId, repetido: true }, { status: 201 });
+    }
 
     // === EMAILS ===
     const emailComercialHtml = `
@@ -205,17 +175,13 @@ export async function POST(request: Request) {
       sendBrevoEmail({ email, name: nombre }, `Tu solicitud de auditoría web ha sido recibida - Internet Operadores`, emailInteresadoHtml),
     ];
 
-    // HubSpot: lista Auditoría Web + Newsletter Empresas
-    const notaHubspot = `Solicitud de Auditoría Web (formulario rápido)\n- Web actual: ${urlWeb || 'N/A'}\n- Problemas: ${mensaje || 'N/A'}\n- Origen: Página Soluciones Migración Web`;
-    const integrationPromises = [
-      addToHubSpot(email, nombre, empresa, telefono || '', [HUBSPOT_LIST_AUDITORIA, HUBSPOT_LIST_NEWSLETTER_EMPRESAS], notaHubspot),
-      addToBrevoNewsletter(email, nombre, empresa, telefono || ''),
-    ];
+    // La suscripción comercial es opcional y requiere un opt-in explícito.
+    const newsletterPromises = body.newsletter === true
+      ? [addToBrevoNewsletter(email, nombre, empresa, telefono || '')]
+      : [];
+    await Promise.allSettled([...emailPromises, ...newsletterPromises]);
 
-    // Ejecutar sin bloquear la respuesta
-    await Promise.allSettled([...emailPromises, ...integrationPromises]);
-
-    return NextResponse.json({ success: true, id: lead.id }, { status: 201 });
+    return NextResponse.json({ success: true, id: lead.id, contactoId, repetido: false }, { status: 201 });
   } catch (error: any) {
     console.error('Error al crear lead (auditoría rápida):', error);
     return NextResponse.json(

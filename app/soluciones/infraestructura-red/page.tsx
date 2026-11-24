@@ -3,7 +3,7 @@ import Link from 'next/link';
 import EmpresaNav from '../../../components/EmpresaNav';
 import EmpresaFooter from '../../../components/EmpresaFooter';
 import ProductosSolucionDynamic from '../../../components/public/ProductosSolucionDynamic';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 
 const servicios = [
   { titulo: 'WiFi Empresarial', descripcion: 'Diseño e implementación de redes WiFi de alto rendimiento. Cobertura total, roaming seamless y gestión centralizada.', caracteristicas: ['Alta densidad de usuarios', 'Roaming sin cortes', 'Gestión cloud', 'Analíticas de uso'] },
@@ -41,6 +41,7 @@ export default function InfraestructuraRedPage() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const envioRef = useRef<{ payload: string; key: string } | null>(null);
   const [error, setError] = useState('');
 
   const handleServicioChange = (servicio: string) => {
@@ -57,23 +58,28 @@ export default function InfraestructuraRedPage() {
     setIsSubmitting(true);
     setError('');
     try {
+      const payload = JSON.stringify({
+        nombre: formData.nombre,
+        email: formData.email,
+        empresa: formData.empresa,
+        telefono: formData.telefono,
+        tipoProyecto: formData.tipoProyecto,
+        numUsuarios: formData.numUsuarios,
+        superficieM2: formData.superficieM2,
+        numPlantas: formData.numPlantas,
+        servicios: formData.servicios,
+        infraestructuraActual: formData.infraestructuraActual,
+        fabricantePreferido: formData.fabricantePreferido,
+        comentarios: formData.comentarios,
+        newsletter: formData.newsletter,
+      });
+      if (!envioRef.current || envioRef.current.payload !== payload) {
+        envioRef.current = { payload, key: crypto.randomUUID() };
+      }
       const response = await fetch('/api/contrata/infraestructura-red', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          nombre: formData.nombre,
-          email: formData.email,
-          empresa: formData.empresa,
-          telefono: formData.telefono,
-          tipoProyecto: formData.tipoProyecto,
-          numUsuarios: formData.numUsuarios,
-          superficieM2: formData.superficieM2,
-          numPlantas: formData.numPlantas,
-          servicios: formData.servicios,
-          infraestructuraActual: formData.infraestructuraActual,
-          fabricantePreferido: formData.fabricantePreferido,
-          comentarios: formData.comentarios,
-        }),
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': envioRef.current.key },
+        body: payload,
       });
       if (response.ok) {
         setIsSubmitted(true);
@@ -327,8 +333,8 @@ export default function InfraestructuraRedPage() {
 
                     <div className="mb-6">
                       <label className="flex items-start gap-2 cursor-pointer">
-                        <input type="checkbox" required checked={formData.newsletter} onChange={e => setFormData({...formData, newsletter: e.target.checked})} className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500 mt-0.5" />
-                        <span className="text-xs text-gray-600">Acepto recibir la propuesta de infraestructura y suscribirme al newsletter de Internet Operadores con novedades y consejos para empresas. Puedo darme de baja en cualquier momento.</span>
+                        <input type="checkbox" checked={formData.newsletter} onChange={e => setFormData({...formData, newsletter: e.target.checked})} className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500 mt-0.5" />
+                        <span className="text-xs text-gray-600">Quiero suscribirme al newsletter de Internet Operadores con novedades y consejos para empresas. Puedo darme de baja en cualquier momento.</span>
                       </label>
                     </div>
 

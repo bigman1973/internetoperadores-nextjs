@@ -1,9 +1,8 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
+import { guardarCaptacionWeb } from '@/lib/crm-captacion-web';
 
 // IDs de listas
-const HUBSPOT_LISTA_DEMO = '494';
-const HUBSPOT_LISTA_NEWSLETTER_EMPRESAS = '489';
 const BREVO_LISTA_NEWSLETTER_EMPRESAS = 30;
 
 // Mapa de nombres legibles para las demos
@@ -22,24 +21,52 @@ const DEMOS_MAP = {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { nombre, empresa, email, telefono, empleados, interes, fecha, horario, mensaje, newsletter } = body;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return NextResponse.json({ error: 'El formulario debe ser un objeto válido' }, { status: 400 });
+    }
+    const { nombre, empresa, email, telefono, empleados, interes, fecha, horario, mensaje } = body;
 
-    console.log('🎯 NUEVA SOLICITUD DE DEMO:');
-    console.log('Nombre:', nombre, '| Empresa:', empresa);
-    console.log('Email:', email, '| Tel:', telefono);
-    console.log('Interés:', interes, '| Fecha:', fecha, '| Horario:', horario);
-    console.log('Newsletter:', newsletter);
+    if (![nombre, empresa, email, telefono, empleados, interes, fecha, horario, mensaje].every(value => value == null || typeof value === 'string')) {
+      return NextResponse.json({ error: 'Los campos del formulario deben ser texto' }, { status: 400 });
+    }
 
     // Validación
-    if (!nombre || !email || !telefono || !interes) {
+    if (!nombre?.trim() || !email?.trim() || !telefono?.trim() || !interes?.trim()) {
       return NextResponse.json(
         { error: 'Faltan campos obligatorios' },
         { status: 400 }
       );
     }
 
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      return NextResponse.json({ error: 'El email no es válido' }, { status: 400 });
+    }
+
+    const newsletterOptIn = body.newsletter === true;
+    const privacidad = typeof body.privacidad === 'boolean'
+      ? body.privacidad
+      : typeof body.acepta === 'boolean' ? body.acepta : null;
+    const captacion = await guardarCaptacionWeb(request, {
+      formulario: '/api/demo',
+      segmentoCrm: 'EMPRESA',
+      nombre, email, telefono, empresa,
+      datos: {
+        nombre, email, telefono, empresa: empresa || null, interes,
+        empleados: empleados || null, fecha: fecha || null,
+        horario: horario || null, mensaje: mensaje || null,
+      },
+      newsletter: newsletterOptIn,
+      privacidad,
+    });
+    const resultadoLocal = {
+      success: true,
+      contactoId: captacion.contactoId,
+      captacionId: captacion.captacionId,
+      repetido: captacion.repetido,
+    };
+    if (captacion.repetido) return NextResponse.json(resultadoLocal);
+
     const brevoApiKey = (process.env.BREVO_API_KEY || '').trim();
-    const hubspotToken = (process.env.HUBSPOT_API_KEY || '').trim();
     const demoNombre = DEMOS_MAP[interes] || interes;
     const fechaTexto = fecha || 'No especificada';
     const horarioTexto = horario ? `${horario.replace('-', ':00 - ')}:00` : 'No especificado';
@@ -57,22 +84,17 @@ export async function POST(request) {
       promises.push(enviarEmailConfirmacion(brevoApiKey, { nombre, empresa, email, demoNombre, fechaTexto, horarioTexto }));
     }
 
-    // 3. Crear contacto en HubSpot y añadir a lista de demos
-    if (hubspotToken) {
-      promises.push(crearContactoHubSpot(hubspotToken, { nombre, empresa, email, telefono, demoNombre, newsletter }));
-    }
-
-    // 4. Si se suscribe al newsletter, crear contacto en Brevo con lista
-    if (newsletter && brevoApiKey) {
+    // 3. Si se suscribe al newsletter, crear contacto en Brevo con lista
+    if (newsletterOptIn && brevoApiKey) {
       promises.push(crearContactoBrevo(brevoApiKey, { nombre, empresa, email, telefono }));
     }
 
     await Promise.allSettled(promises);
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json(resultadoLocal);
 
-  } catch (error) {
-    console.error('❌ Error procesando solicitud de demo:', error);
+  } catch {
+    console.error('[demo] No se pudo completar la operación');
     return NextResponse.json(
       { error: 'Error al procesar la solicitud' },
       { status: 500 }
@@ -158,14 +180,12 @@ async function enviarEmailComercial(apiKey, data) {
       })
     });
 
-    if (res.ok) {
-      console.log('✅ Email notificación enviado a comercial');
-    } else {
-      const err = await res.json();
-      console.error('❌ Error email comercial:', err);
+    if (!res.ok) {
+
+      console.error('[demo] No se pudo completar la operación');
     }
-  } catch (e) {
-    console.error('❌ Error enviando email comercial:', e);
+  } catch {
+    console.error('[demo] No se pudo completar la operación');
   }
 }
 
@@ -245,94 +265,12 @@ async function enviarEmailConfirmacion(apiKey, data) {
       })
     });
 
-    if (res.ok) {
-      console.log('✅ Email confirmación enviado al interesado:', email);
-    } else {
-      const err = await res.json();
-      console.error('❌ Error email confirmación:', err);
+    if (!res.ok) {
+
+      console.error('[demo] No se pudo completar la operación');
     }
-  } catch (e) {
-    console.error('❌ Error enviando email confirmación:', e);
-  }
-}
-
-// Crear contacto en HubSpot y añadir a lista de demos (+ newsletter si aplica)
-async function crearContactoHubSpot(token, data) {
-  const { nombre, empresa, email, telefono, demoNombre, newsletter } = data;
-  
-  try {
-    const properties = {
-      email,
-      firstname: nombre,
-      phone: telefono,
-      company: empresa || '',
-    };
-
-    // Crear contacto
-    const contactRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ properties }),
-    });
-
-    let contactId = '';
-
-    if (contactRes.status === 409) {
-      // Ya existe, buscar ID
-      const searchRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: email }] }],
-        }),
-      });
-      const searchData = await searchRes.json();
-      contactId = searchData.results?.[0]?.id || '';
-    } else if (contactRes.ok) {
-      const contactData = await contactRes.json();
-      contactId = contactData.id;
-    }
-
-    if (contactId) {
-      // Añadir a lista de Solicitudes de Demo
-      await fetch(`https://api.hubapi.com/crm/v3/lists/${HUBSPOT_LISTA_DEMO}/memberships/add`, {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify([contactId]),
-      });
-      console.log('✅ Contacto añadido a lista Solicitudes de Demo en HubSpot:', contactId);
-
-      // Si se suscribe al newsletter, añadir también a esa lista
-      if (newsletter) {
-        await fetch(`https://api.hubapi.com/crm/v3/lists/${HUBSPOT_LISTA_NEWSLETTER_EMPRESAS}/memberships/add`, {
-          method: 'PUT',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify([contactId]),
-        });
-        console.log('✅ Contacto añadido a newsletter empresas HubSpot');
-      }
-
-      // Crear nota con detalles de la demo
-      await fetch('https://api.hubapi.com/crm/v3/objects/notes', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          properties: {
-            hs_note_body: `Solicitud de Demo: ${demoNombre}\nOrigen: Web internetoperadores.com`,
-            hs_timestamp: new Date().toISOString(),
-          },
-          associations: [{
-            to: { id: contactId },
-            types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 202 }]
-          }]
-        }),
-      });
-    }
-  } catch (e) {
-    console.error('❌ Error HubSpot demo:', e);
+  } catch {
+    console.error('[demo] No se pudo completar la operación');
   }
 }
 
@@ -363,9 +301,7 @@ async function crearContactoBrevo(apiKey, data) {
       body: JSON.stringify(contactData)
     });
 
-    if (res.ok) {
-      console.log('✅ Contacto creado en Brevo con newsletter');
-    } else {
+    if (!res.ok) {
       const err = await res.json();
       if (err.code === 'duplicate_parameter') {
         // Ya existe, añadir a lista
@@ -374,10 +310,9 @@ async function crearContactoBrevo(apiKey, data) {
           headers: { 'accept': 'application/json', 'api-key': apiKey, 'content-type': 'application/json' },
           body: JSON.stringify({ emails: [email] })
         });
-        console.log('✅ Contacto existente añadido a newsletter Brevo');
       }
     }
-  } catch (e) {
-    console.error('❌ Error Brevo newsletter:', e);
+  } catch {
+    console.error('[demo] No se pudo completar la operación');
   }
 }

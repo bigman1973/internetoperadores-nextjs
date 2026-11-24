@@ -6,6 +6,7 @@ import CrmCompanyWorkspace from '@/components/admin/CrmCompanyWorkspace'
 import CrmCompanyContactsMore from '@/components/admin/CrmCompanyContactsMore'
 import type { CompanyFormFields } from '@/components/admin/CrmCompanyForm'
 import { canAccessCrmRelated } from '@/lib/crm-empresas-auth'
+import CrmIspFichaResumen from '@/components/admin/CrmIspFichaResumen'
 
 export const dynamic = 'force-dynamic'
 
@@ -42,5 +43,5 @@ export default async function CrmCompanyDetailPage({ params }: { params: Promise
     isPrimary: association.principal, isCustomer: Boolean(association.contacto.clienteWebId), origin: association.origen,
   })) : []} customers={canReadClients ? company.clientes.map(({ cliente }) => ({ id: cliente.id, name: cliente.nombre, code: cliente.codigo,
     active: Boolean(cliente.activo), segment: cliente.segmentoCrm, personaFisica: Boolean(cliente.personaFisica), nif: cliente.cif || cliente.nif,
-  })) : []} /><CrmCompanyContactsMore companyId={company.id} total={canReadContacts ? company._count.contactos : 0} /></>
+  })) : []} /><CrmCompanyContactsMore companyId={company.id} total={canReadContacts ? company._count.contactos : 0} />{canReadClients && <CrmIspFichaResumen crmEmpresaId={company.id} clienteWebIds={company.clientes.map((link) => link.clienteId)} />}</>
 }
