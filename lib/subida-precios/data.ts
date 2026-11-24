@@ -4,6 +4,7 @@ import {
   type Cliente, type Contrato, type Dataset, type Grupo, type Periodicidad, type TipoCliente,
   COSTE_FIJO, SIN_PRECIO, propuestaPorDefecto, r2, tipoPorDocumento, tipoPorNombre,
 } from './calc';
+import { OPERADORES, costeUltimosMeses, tendencia, type Tendencia } from './coste';
 
 export const PERIODO_DEFECTO = { desde: '2026-01', hasta: '2026-10' };
 const MES = /^20\d{2}-(0[1-9]|1[0-2])$/;
@@ -25,6 +26,8 @@ export interface DatasetMeta {
   avisos: string[];
   sinImporte: { contratos: number; productos: Record<string, number> };
   reglasCoste: { producto: string; regla: string }[];
+  /** Evolución mensual del coste de cada operador, con los meses de factura pendiente y la variación de los últimos 3 meses. */
+  tendencias: Tendencia[];
 }
 export interface DatasetResp extends Dataset { meta: DatasetMeta }
 
@@ -103,10 +106,26 @@ export async function construirDataset(desdeIn?: string | null, hastaIn?: string
       const mm = costeMes.get(prod); const ult = mm ? Array.from(mm.keys()).sort().pop() : undefined;
       if (mm && ult) { const v = mm.get(ult)!; return { real: v.real, est: v.est }; }
     }
+    if (OPERADORES.has(prod)) {
+      const u = costeUltimosMeses(costeMes.get(prod) ?? new Map(), 3);
+      if (u) return { real: u.real, est: u.est };
+    }
     if (ANUALES_IRREGULARES.has(prod) && cp.real > 0) return { real: cp.real / div, est: 0 };
     return { real: cp.real / div, est: cp.est / div };
   };
   for (const prod of COSTE_VIGENTE) if (costeMes.has(prod)) reglasCoste.push({ producto: prod, regla: `Coste vigente del último mes del periodo (${Array.from(costeMes.get(prod)!.keys()).sort().pop()}), según el contrato por sede; no la media del año.` });
+  const tendencias: Tendencia[] = [];
+  const mesTxt = (m: string) => new Date(`${m}-01T00:00:00Z`).toLocaleDateString('es-ES', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+  const eurTxt = (v: number) => v.toLocaleString('es-ES', { maximumFractionDigits: 0 });
+  for (const prod of Array.from(OPERADORES).sort()) {
+    const mm = costeMes.get(prod); if (!mm) continue;
+    const t = tendencia(prod, mm, 3); if (!t) continue;
+    tendencias.push(t);
+    reglasCoste.push({ producto: prod, regla: `Coste actual del operador = media de los últimos 3 meses del periodo (${t.ultimos.map(mesTxt).join(', ')}), no la media del año, porque la factura del operador cambia con el tiempo.` });
+    if (t.pendientes.length) avisos.push(`${prod}: factura pendiente en ${t.pendientes.map(mesTxt).join(', ')}. Ese mes lleva un coste estimado (en amarillo) hasta que entre la factura.`);
+    if (t.variacionPct != null && Math.abs(t.variacionPct) >= 0.05 && t.previo != null && t.actual != null)
+      avisos.push(`Tendencia de coste, ${prod}: ${t.variacionPct > 0 ? 'sube' : 'baja'} un ${Math.abs(t.variacionPct * 100).toFixed(1).replace('.', ',')} % (de ${eurTxt(t.previo)} a ${eurTxt(t.actual)} €/mes en los últimos 3 meses con factura). El simulador usa el coste de los últimos 3 meses.`);
+  }
   for (const prod of ANUALES_IRREGULARES) if (costeProd.has(prod)) reglasCoste.push({ producto: prod, regla: 'Licencias anuales: coste = facturas recibidas del periodo entre los meses; no se añade estimado en los meses sin factura (duplicaría licencias ya pagadas).' });
 
   const activos = contratos.filter(c => c.active && c.product);
@@ -194,7 +213,7 @@ export async function construirDataset(desdeIn?: string | null, hastaIn?: string
   if (!contratosOut.length) avisos.push('No hay contratos activos en la foto de Rentabilidad.');
   return {
     grupos, clientes, contratos: contratosOut,
-    meta: { desde, hasta, mesReferencia: s.month, snapshotVersion: s.version, generadoAt: new Date().toISOString(), fuenteCoste: 'REPARTO_RENTABILIDAD', excluidos, calidadCoste: calidad, avisos, sinImporte, reglasCoste },
+    meta: { desde, hasta, mesReferencia: s.month, snapshotVersion: s.version, generadoAt: new Date().toISOString(), fuenteCoste: 'REPARTO_RENTABILIDAD', excluidos, calidadCoste: calidad, avisos, sinImporte, reglasCoste, tendencias },
   };
 }
 

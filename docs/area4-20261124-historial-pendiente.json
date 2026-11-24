@@ -1,0 +1,43 @@
+{
+  "estadoAplicacion": "PENDIENTE_INTEGRADOR_NO_INSERTADO",
+  "destinoAutorizadoPosterior": "Historial de staging tras integración aprobada por WEB INTERNET OPERADORES",
+  "instrucciones": "No ejecutar contra producción. Completar commitHash con el SHA integrado y verificar duplicados del GitHub Action antes de insertar los desarrollos que falten. Esta rama no dispara el Action de staging. El objetivo general sigue en progreso y no es READY.",
+  "registros": [
+    {
+      "titulo": "Área 4: candidato de menú en siete grupos y registro de páginas actualizado",
+      "descripcion": "Preparación sobre staging 840ebdd conservando CRM, Rentabilidad y Subida de precios, URLs y guardias financieras; interruptor persistente y visibilidad efectiva, sin heredar la del actor. Código y pruebas locales; aceptación HTTP y publicación pendientes.",
+      "tipo": "ui",
+      "estado": "en_progreso",
+      "autor": "Área 4",
+      "commitHash": null,
+      "rama": "area4-usuarios-permisos"
+    },
+    {
+      "titulo": "Área 4: permisos vivos y revocaciones explícitas en servidor y cliente",
+      "descripcion": "Candidato con propietario canónico, V/E/C/X adicionales en el borde, lectura de ACL propia, negativa hija prevalente y cero grants adoptados sin fallback. No se han asignado usuarios ni aplicado la migración; mapa funcional completo pendiente.",
+      "tipo": "fix",
+      "estado": "en_progreso",
+      "autor": "Área 4",
+      "commitHash": null,
+      "rama": "area4-usuarios-permisos"
+    },
+    {
+      "titulo": "Área 4: regresiones de comandos C y preview de Conciliar",
+      "descripcion": "Código local corregido: Content-Type no elude C, parejas manuales requieren C, REVIEW_PREVIEW cerrado exige solo V y el clon grande se rechaza sin esperar cancelación. Lotes ordinarios y uploads conservan guardias del handler. Verificado con dobles, no con operaciones reales.",
+      "tipo": "fix",
+      "estado": "en_progreso",
+      "autor": "Área 4",
+      "commitHash": null,
+      "rama": "area4-usuarios-permisos"
+    },
+    {
+      "titulo": "Área 4: batería ligera ampliada y runner HTTP con pendiente explícito",
+      "descripcion": "Comando test:area4 incluye pruebas puras, 561 comprobaciones de middleware y 19 de componentes cliente/SSR, más la suite SSR existente. Runner HTTP de todas las páginas exige sesiones y fixtures autorizados y no da éxito sin ellos. Auditoría de operaciones completadas y aceptación real siguen pendientes.",
+      "tipo": "feat",
+      "estado": "en_progreso",
+      "autor": "Área 4",
+      "commitHash": null,
+      "rama": "area4-usuarios-permisos"
+    }
+  ]
+}

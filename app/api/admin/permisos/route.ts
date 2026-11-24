@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { appendArea4Audit } from '@/lib/area4/audit'
 import { evaluateArea4Capability, isArea4Owner } from '@/lib/area4/policy'
-import { normalizeArea4Grants, requireArea4Owner, requireLiveArea4Admin } from '@/lib/area4/live-admin'
+import { normalizeArea4Grants, requireArea4Owner, requireLiveArea4Admin, readLiveArea4Adoption } from '@/lib/area4/live-admin'
 
 export const dynamic = 'force-dynamic'
 
@@ -67,7 +67,8 @@ export async function GET(request: Request) {
       include: { area: true },
       orderBy: { area: { codigo: 'asc' } },
     })
-    return NextResponse.json({ permisos })
+    const permisosArea4Vivos = await readLiveArea4Adoption(prisma, requestedUserId)
+    return NextResponse.json({ permisos, permisosArea4Vivos })
   }
 
   if (action === 'verificar') {

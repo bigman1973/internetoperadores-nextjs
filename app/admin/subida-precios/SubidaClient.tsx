@@ -197,8 +197,33 @@ function Productos({ ds, st, set, res, base }: { ds: DS; st: Estado; set: (p: Pa
         </table>
       </div>
       <p className="text-xs text-gray-500"><span className="rounded bg-yellow-50 px-1 text-yellow-900">Amarillo</span>: el coste del producto incluye parte estimada por falta de facturas del periodo (mismo criterio que Rentabilidad). El coste es la media mensual del periodo elegido.</p>
+      {ds.meta.tendencias?.length ? <Tendencias ds={ds} /> : null}
       <div className={`${card} p-4`}><h3 className="mb-2 text-sm font-semibold text-gray-900">Margen por producto: antes y después</h3>
         <BeforeAfter rows={filas.map(({ g, a, b }) => ({ name: g.nombre, m0: b.i0 - b.c0, m1: a.i1 - a.c1 }))} /></div>
+    </div>
+  );
+}
+function Tendencias({ ds }: { ds: DS }) {
+  const ts = ds.meta.tendencias;
+  const meses = Array.from(new Set(ts.flatMap(t => t.meses.map(m => m.mes)))).sort();
+  const lab = (m: string) => new Date(`${m}-01T00:00:00Z`).toLocaleDateString('es-ES', { month: 'short', timeZone: 'UTC' });
+  return (
+    <div className={`${card} p-4`}>
+      <h3 className="text-sm font-semibold text-gray-900">Tendencia del coste por operador (€/mes)</h3>
+      <p className="mb-2 text-xs text-gray-500">El coste que usa el simulador para cada operador es la media de los 3 últimos meses (recuadro naranja), no la media del año. <span className="rounded bg-yellow-50 px-1 text-yellow-900">Amarillo</span>: factura pendiente, el mes lleva estimado.</p>
+      <div className="overflow-x-auto"><table className="w-full text-xs">
+        <thead className="text-gray-500"><tr><th className="px-2 py-1 text-left">Operador</th>{meses.map(m => <th key={m} className="px-1.5 text-right capitalize">{lab(m)}</th>)}<th className="px-2 text-right">Antes</th><th className="px-2 text-right">Últ. 3 m</th><th className="px-2 text-right">Variación</th></tr></thead>
+        <tbody>{ts.map(t => {
+          const by = new Map(t.meses.map(m => [m.mes, m]));
+          const sube = (t.variacionPct ?? 0) > 0.05; const baja = (t.variacionPct ?? 0) < -0.05;
+          return (
+            <tr key={t.producto} className="border-t border-gray-100">
+              <td className="px-2 py-1 font-medium">{t.producto}</td>
+              {meses.map(m => { const x = by.get(m); const ult = t.ultimos.includes(m);
+                return <td key={m} className={`px-1.5 text-right ${x?.pendiente ? 'bg-yellow-50 text-yellow-900' : ''} ${ult ? 'outline outline-1 outline-[#FF5300]/60' : ''}`} title={x?.pendiente ? 'Factura pendiente: coste estimado' : undefined}>{x ? eur(x.total) : '—'}</td>; })}
+              <td className="px-2 text-right">{t.previo != null ? eur(t.previo) : '—'}</td><td className="px-2 text-right">{t.actual != null ? eur(t.actual) : '—'}</td>
+              <td className={`px-2 text-right font-semibold ${sube ? 'text-red-700' : baja ? 'text-green-700' : 'text-gray-600'}`}>{t.variacionPct != null ? `${t.variacionPct > 0 ? '+' : ''}${(t.variacionPct * 100).toFixed(1).replace('.', ',')} %` : '—'}</td></tr>);
+        })}</tbody></table></div>
     </div>
   );
 }

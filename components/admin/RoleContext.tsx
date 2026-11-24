@@ -84,6 +84,8 @@ export function RoleProvider({
   initialPermissions,
   initialPermissionsLoaded,
   skipPermissionLoad,
+  permissionsAdopted = false,
+  actingUser,
 }: {
   children: React.ReactNode
   userRole: string
@@ -96,6 +98,10 @@ export function RoleProvider({
   initialPermissionsLoaded?: boolean
   /** MODO_FACIL_ONLY no monta ProtectedRoute y no debe competir con un GET inútil. */
   skipPermissionLoad?: boolean
+  /** Marcador vivo: cero grants adoptados nunca activa compatibilidad legacy. */
+  permissionsAdopted?: boolean
+  /** Destino efectivo resuelto por el servidor, nunca el actor original. */
+  actingUser?: UsuarioSimulado
 }) {
   const [viewAsRole, setViewAsRoleState] = useState<RolId | null>(null)
   const [viewingUser, setViewingUser] = useState<UsuarioSimulado | null>(null)
@@ -103,24 +109,27 @@ export function RoleProvider({
     (initialPermissions || []).map(permission => ({ ...permission })),
   )
   const [permisosLoaded, setPermisosLoaded] = useState(initialPermissionsLoaded === true)
+  const [adopted, setAdopted] = useState(permissionsAdopted)
   // Una previsualización es local y no cambia la sesión. Tras usarla no se puede
   // restaurar una ACL serializada al hidratar: incluso al volver al actor inicial
   // se consulta de nuevo la API, que vuelve a validar la sesión.
   const [initialSeedInvalidated, setInitialSeedInvalidated] = useState(false)
 
   const isSuperAdmin = userRole === 'SUPER_ADMIN'
-  const isViewingAsUser = isArea4Owner && viewingUser !== null
-  const isViewingAs = isArea4Owner && (viewAsRole !== null || viewingUser !== null)
+  const effectiveViewingUser = actingUser || (isArea4Owner ? viewingUser : null)
+  const isViewingAsUser = effectiveViewingUser !== null
+  const isViewingAs = Boolean(actingUser) || (isArea4Owner && (viewAsRole !== null || viewingUser !== null))
 
   const effectiveRole: RolId = isViewingAsUser
-    ? (viewingUser!.rol as RolId)
+    ? (effectiveViewingUser!.rol as RolId)
     : (viewAsRole ? viewAsRole : (userRole as RolId))
 
-  const effectiveUserId = isViewingAsUser ? viewingUser!.id : (userId || null)
-  const isPrivilegedRealRole = !isViewingAs && (isArea4Owner || userRole === 'GERENTE')
+  const effectiveUserId = isViewingAsUser ? effectiveViewingUser!.id : (userId || null)
+  // Gerente necesita leer su ACL: también puede tener denegaciones explícitas.
+  const isPrivilegedRealRole = !isViewingAs && isArea4Owner
 
-  // ¿Tiene permisos granulares asignados? (con al menos 1 lectura=true)
-  const tienePermisosGranulares = permisosGranulares.some(p => p.lectura || p.escritura)
+  // Una ACL negativa o adoptada vacía sigue siendo una política explícita.
+  const tienePermisosGranulares = adopted || permisosGranulares.length > 0
 
   // Cargar permisos granulares del usuario efectivo. La foto SSR sólo evita el
   // GET inicial del mismo actor, no concede permisos a una API ni sobrevive a
@@ -160,6 +169,7 @@ export function RoleProvider({
       .then(data => {
         if (!current) return
         if (Array.isArray(data.permisos)) {
+          setAdopted(data.permisosArea4Vivos === true)
           setPermisosGranulares(data.permisos.map((p: any) => ({
             areaId: p.areaId,
             codigo: p.area.codigo,
@@ -197,7 +207,7 @@ export function RoleProvider({
     }
   }, [])
 
-  const hasAccess = useCallback((section: string) => evaluateSidebarAccess({
+  const hasAccess = useCallback((section: string) => (permisosLoaded || (isArea4Owner && !isViewingAs)) && evaluateSidebarAccess({
     section,
     effectiveRole,
     isSuperAdmin,
@@ -206,28 +216,30 @@ export function RoleProvider({
     isViewingAsUser,
     viewAsRole,
     userRoles,
-    viewingUser,
+    viewingUser: effectiveViewingUser,
     permisosGranulares,
     tienePermisosGranulares,
-  }), [effectiveRole, isSuperAdmin, isArea4Owner, isViewingAs, isViewingAsUser, viewAsRole, userRoles, viewingUser, permisosGranulares, tienePermisosGranulares])
+  }), [effectiveRole, isSuperAdmin, isArea4Owner, isViewingAs, isViewingAsUser, viewAsRole, userRoles, effectiveViewingUser, permisosGranulares, tienePermisosGranulares, permisosLoaded])
 
   // Verificación granular por código de área
   const hasAreaAccess = useCallback((codigoArea: string, tipo: Area4Capability = 'lectura') => {
     if (isArea4Owner && !isViewingAs) return true
     if (isArea4OwnerOnlyArea(codigoArea)) return false
     if (!permisosLoaded) return false
+    if (!hasAccess(codigoArea)) return false
+    if (tipo === 'lectura') return true
     const matches = permisosGranulares.filter(p => codigoArea === p.codigo || codigoArea.startsWith(`${p.codigo}.`))
     if (effectiveRole === 'GERENTE' && matches.length === 0) return true
     // Un hijo sólo abre su enlace; nunca concede datos ni edición del padre.
     return grantAllowsArea4Capability(permisosGranulares, codigoArea, tipo)
-  }, [isArea4Owner, isViewingAs, effectiveRole, permisosLoaded, permisosGranulares])
+  }, [isArea4Owner, isViewingAs, effectiveRole, permisosLoaded, permisosGranulares, hasAccess])
 
   return (
     <RoleContext.Provider value={{
       activeRole: viewAsRole,
       isViewingAs,
       isViewingAsUser,
-      viewingUser,
+      viewingUser: effectiveViewingUser,
       realRole: userRole,
       realRoles: userRoles,
       isSuperAdmin,

@@ -32,7 +32,7 @@ const source = readFileSync('middleware.js', 'utf8') + '\nmodule.exports.area4Bo
 const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
 const mod: any = { exports: {} }
 vm.runInNewContext(code, {
-  module: mod, exports: mod.exports, process: { env: process.env }, console: { error() {} }, Headers, URL, performance, TextDecoder,
+  module: mod, exports: mod.exports, process: { env: process.env }, console: { error() {} }, Headers, URL, performance, TextDecoder, JSON,
   require(name: string) {
     if (name === 'next/server') return { NextResponse }
     if (name === './lib/admin-render-surface') return {}
@@ -50,10 +50,18 @@ vm.runInNewContext(code, {
   },
 })
 let checks = 0
-async function status(path: string, method = 'GET', body?: unknown) {
-  const response = await mod.exports.area4Boundary(new NextRequest(`https://area4.example.test${path}`, {
-    method, ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }),
-  }))
+async function status(path: string, method = 'GET', body?: unknown, contentType = 'application/json', raw = false) {
+  const request = new NextRequest(`https://area4.example.test${path}`, {
+    method, ...(body === undefined ? {} : { body: raw ? String(body) : JSON.stringify(body), headers: { 'Content-Type': contentType } }),
+  })
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const response = await Promise.race([
+    mod.exports.area4Boundary(request),
+    new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('BOUNDARY_TIMEOUT_UNCONSUMED_CLONE')), 1500) }),
+  ]).finally(() => { if (timer) clearTimeout(timer) })
+  // Release the untouched original branch only AFTER the boundary returns.
+  // Thus this cannot hide a blocking await of clone.cancel() in the boundary.
+  await request.body?.cancel()
   checks++
   return response?.status ?? 200 // 200 here means dispatch, NOT successful page rendering.
 }
@@ -91,9 +99,32 @@ async function run() {
   assert.equal(await status('/admin/clientes'), 403, 'adopted zero grants do not fall back')
   grants = [{ codigo: 'admin.finanzas', lectura: true, escritura: true, confirmar: false, exportar: false }]
   assert.equal(await status('/api/admin/finanzas/conciliar', 'POST', { action: 'confirmar' }), 403)
+  const manual = { action: 'confirmar_traspasos_propios_manual', idempotencyKey: '00000000-0000-4000-8000-000000000001',
+    items: [{ id: 'area4-synthetic-pair', decisionHash: 'a'.repeat(64) }] }
+  assert.equal(await status('/api/admin/finanzas/conciliar', 'POST', manual), 403, 'manual pairs require C')
+  assert.equal(await status('/api/admin/finanzas/imputacion', 'POST', { action: 'guardar-lineas' }), 403)
+  assert.equal(await status('/api/admin/finanzas/imputacion', 'POST', { action: 'guardar-lineas' }, 'text/plain'), 415, 'Content-Type cannot bypass C')
+  assert.equal(await status('/api/admin/finanzas/imputacion', 'POST', { action: 'guardar-lineas' }, 'multipart/form-data'), 415, 'JSON command is not a multipart upload')
+  assert.equal(await status('/api/admin/finanzas/imputacion', 'POST', { action: 'editar', accion: 'guardar-lineas' }), 400, 'conflicting selectors cannot bypass C')
+  assert.equal(await status('/api/admin/finanzas/imputacion', 'POST', '{broken', 'application/json', true), 400)
+  const preview = { action: 'confirmar', review: { kind: 'REVIEW_PREVIEW', id: 'area4-synthetic-review', decisionHash: 'b'.repeat(64) } }
+  grants[0].escritura = false
+  const auditBeforePreview = audit.length
+  assert.equal(await status('/api/admin/finanzas/conciliar', 'POST', preview), 200, 'closed READ ONLY preview requires only V')
+  assert.equal(audit.length, auditBeforePreview, 'preview does not emit confirmation intent')
+  grants[0].escritura = true
+  assert.equal(await status('/api/admin/finanzas/conciliar', 'POST', { ...preview, preview: true }), 403, 'extra keys cannot forge preview')
+  assert.equal(await status('/api/admin/finanzas/conciliar', 'POST', { action: 'confirmar', preview: true }), 403, 'boolean preview cannot downgrade command')
+  grants[0].lectura = false
+  assert.equal(await status('/api/admin/finanzas/conciliar', 'POST', preview), 403, 'preview still requires V')
+  grants[0].lectura = true; grants[0].escritura = true
+  assert.equal(await status('/api/admin/finanzas/conciliar', 'POST', { action: 'confirmar', padding: 'x'.repeat(17 * 1024) }), 400, 'oversize clone denies promptly without Content-Length')
+  assert.equal(await status('/api/admin/finanzas/facturas-emitidas', 'POST', { facturas: Array.from({ length: 200 }, (_, i) => ({ id: `area4-test-${i}`, concepto: 'x'.repeat(180) })) }), 200, 'ordinary batch retains handler limit, not global 16KiB')
+  assert.equal(await status('/api/admin/finanzas/tickets/upload', 'POST', 'synthetic-upload', 'multipart/form-data', true), 200, 'non-command uploads preserve handler guard')
   assert.equal(await status('/api/admin/finanzas/exportar-a3?action=download'), 403)
   grants[0].confirmar = true
   assert.equal(await status('/api/admin/finanzas/conciliar', 'POST', { action: 'confirmar' }), 200)
+  assert.equal(await status('/api/admin/finanzas/conciliar', 'POST', manual), 200)
   assert.equal(audit.at(-1).operacion, 'CONFIRMACION_SOLICITADA')
   assert.equal(audit.at(-1).despues.resultado, 'INTENTO')
   auditFailure = true

@@ -105,7 +105,7 @@ async function impersonationAction(request, area4Strict = false) {
       const part = await reader.read();
       if (part.done) break;
       bytes += part.value.byteLength;
-      if (bytes > 16 * 1024) { await reader.cancel().catch(() => undefined); return area4Strict ? '__area4_unverifiable__' : null; }
+      if (bytes > 16 * 1024) { void reader.cancel().catch(() => undefined); return area4Strict ? '__area4_unverifiable__' : null; }
       text += decoder.decode(part.value, { stream: true });
     }
     text += decoder.decode();
@@ -116,6 +116,41 @@ async function impersonationAction(request, area4Strict = false) {
     if (area4Strict && action === undefined) return null;
     return typeof action === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(action) ? action : (area4Strict ? '__area4_unverifiable__' : null);
   } catch { return area4Strict ? '__area4_unverifiable__' : null; }
+}
+
+/** Inspect only registered JSON command handlers. Non-command batch/upload
+ * bodies retain their own limits; an unverifiable command never becomes E-only.
+ */
+async function area4JsonCommand(request, maximumBytes) {
+  const type = request.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
+  if (type !== 'application/json') return { errorStatus: 415 };
+  const declared = request.headers.get('content-length');
+  if (declared && (!/^\d+$/.test(declared) || Number(declared) > maximumBytes)) return { errorStatus: 400 };
+  try {
+    const reader = request.clone().body?.getReader();
+    if (!reader) return { errorStatus: 400 };
+    const decoder = new TextDecoder('utf-8', { fatal: true });
+    let bytes = 0; let text = '';
+    for (;;) {
+      const part = await reader.read();
+      if (part.done) break;
+      bytes += part.value.byteLength;
+      if (bytes > maximumBytes) {
+        // A cancelled tee branch can await consumption of the untouched handler
+        // branch. Do not await that promise before returning the rejection.
+        void reader.cancel().catch(() => undefined);
+        return { errorStatus: 400 };
+      }
+      text += decoder.decode(part.value, { stream: true });
+    }
+    text += decoder.decode();
+    const body = JSON.parse(text);
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return { errorStatus: 400 };
+    if (body.action !== undefined && body.accion !== undefined && body.action !== body.accion) return { errorStatus: 400 };
+    const action = body.action ?? body.accion;
+    if (action !== undefined && (typeof action !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(action))) return { errorStatus: 400 };
+    return { action: action ?? null, body };
+  } catch { return { errorStatus: 400 }; }
 }
 
 /**
@@ -481,9 +516,11 @@ async function area4RegisteredAdminApiBoundary(request) {
     if (isPage && pathname === '/admin' && user.rol !== 'GERENTE' && !policy.isArea4Owner(user)) {
       return grants.some(p => p.codigo.startsWith('admin.') && p.lectura) ? null : privateBoundary({ error: 'Usa tu Portal del empleado' }, 403);
     }
-    const action = isApi && !SAFE_API_METHODS.has(request.method) ? await impersonationAction(request, true) : null;
-    if (action === '__area4_unverifiable__') return privateBoundary({ error: 'No se pudo verificar la acción del cuerpo JSON' }, 400);
-    const capabilities = requestPolicy.area4RequestCapabilities({ path: pathname, method: request.method, action, queryAction: query.get('action') || query.get('accion') });
+    const maximumBytes = isApi ? requestPolicy.area4CommandBodyLimit(pathname, request.method) : null;
+    const command = maximumBytes === null ? { action: null } : await area4JsonCommand(request, maximumBytes);
+    if (command.errorStatus) return privateBoundary({ error: 'No se pudo verificar el comando JSON solicitado' }, command.errorStatus);
+    const capabilities = requestPolicy.area4RequestCapabilities({ path: pathname, method: request.method, action: command.action,
+      body: command.body, queryAction: query.get('action') || query.get('accion') });
     for (const capability of capabilities) {
       if (!policy.evaluateArea4Capability({ principal: user, grants, codigoArea, capability })) {
         return privateBoundary({ error: `Sin permiso de ${capability}` }, 403);

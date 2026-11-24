@@ -63,6 +63,18 @@ export async function resolveLiveAdminPrincipal(
   return user
 }
 
+export async function readLiveArea4Adoption(database: Area4Database, userId: number): Promise<boolean> {
+  if (!Number.isSafeInteger(userId) || userId <= 0) return false
+  try {
+    const marker = await database.usuarioAdmin.findUnique({ where: { id: userId }, select: { permisosArea4Vivos: true } })
+    return marker?.permisosArea4Vivos === true
+  } catch (error) {
+    const missing = error as { code?: string; meta?: { column?: string } }
+    if (missing.code === 'P2022' && String(missing.meta?.column || '').includes('permisos_area4_vivos')) return false
+    throw error
+  }
+}
+
 async function sessionPrincipal(database: Area4Database): Promise<{ principal: Area4Principal; session: Awaited<ReturnType<typeof getServerSession>> } | null> {
   const session = await getServerSession(authOptions)
   if (!session?.user || session.user.userType !== 'admin') return null
