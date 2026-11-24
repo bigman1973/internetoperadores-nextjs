@@ -138,6 +138,7 @@ const navigation: SidebarNavigationEntry[] = [
     ],
   },
   { name: 'Rentabilidad · staging', href: '/admin/rentabilidad', icon: 'arrowTrendingUp', section: 'rentabilidad' },
+  { name: 'Sistemas y servicios', href: '/admin/sistemas', icon: 'cog', section: 'sistemas' },
   { name: 'Estadísticas', href: '/admin/estadisticas', icon: 'chartBar', section: 'estadisticas' },
   { name: 'Usuarios Admin', href: '/admin/usuarios', icon: 'userGroup', section: 'usuarios' },
   { name: 'Subida de Precios', href: '/admin/subida-precios', icon: 'arrowTrendingUp', section: 'subida-precios' },
