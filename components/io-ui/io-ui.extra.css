@@ -86,3 +86,7 @@
 .io-ui .legacy .text-primary{color:var(--accent-fg)}
 @media (max-width:1000px){.io-ui .grid3,.io-ui .grid2b{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:560px){.io-ui .hide-sm{display:none}.io-ui .hb .r{grid-template-columns:minmax(70px,100px) minmax(0,1fr) auto}.io-ui .menu>.drop{right:auto;left:0}}
+/* Subida de precios: selector de tipo de cliente con aspecto de etiqueta, avisos y barra */
+.io-ui select.tsel{padding:2px 6px;font-size:12px;border:1px solid var(--line);cursor:pointer}
+.io-ui .tablewrap td .btn.small{padding:2px 8px}
+.io-ui .prodchart svg{max-width:900px}
