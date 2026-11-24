@@ -289,6 +289,7 @@ model ClienteWeb {
   contratosDraxton     ContratoDraxton[]
   contactosCrm         CrmRegistroHubspot[]
   empresasCrm          CrmEmpresaCliente[]
+  ispClientesArea1     IspClienteArea1[]
 
   @@index([email])
   @@index([activo])
@@ -3760,6 +3761,7 @@ model CrmRegistroHubspot {
   leadsSoluciones      LeadSolucion[]
   leadsPartners        LeadPartner[]
   altasServicio        AltaServicio[]
+  ispClientesArea1     IspClienteArea1[]
 
   @@unique([objectTypeId, hubspotId])
   @@index([email])
@@ -3827,6 +3829,7 @@ model CrmEmpresa {
   updatedAt          DateTime               @updatedAt @map("updated_at")
   contactos          CrmEmpresaContacto[]
   clientes           CrmEmpresaCliente[]
+  ispClientesArea1   IspClienteArea1[]
 
   @@index([nombre])
   @@index([nifNormalizado])
@@ -3866,6 +3869,151 @@ model CrmEmpresaCliente {
   @@map("crm_empresa_clientes")
 }
 
+// Área 1 · Copia trazable de ISP Gestión (fichero de importación del superadmin).
+// ISP manda en estos datos; los vínculos con fichas CRM los confirma una persona.
+model IspImportacionArea1 {
+  id              String   @id @default(cuid())
+  ficheroNombre   String   @map("fichero_nombre")
+  ficheroHash     String   @map("fichero_hash")
+  ficheroBytes    Int      @map("fichero_bytes")
+  estado          String   @default("APLICADA")
+  actorId         Int?     @map("actor_id")
+  actorEmail      String?  @map("actor_email")
+  resumen         Json     @db.JsonB
+  brevoVerificado Boolean  @default(false) @map("brevo_verificado")
+  createdAt       DateTime @default(now()) @map("created_at")
+  @@index([ficheroHash])
+  @@index([createdAt])
+  @@map("area1_isp_importaciones")
+}
+model IspClienteArea1 {
+  id                      String              @id @default(cuid())
+  ispClienteId            String              @unique @map("isp_cliente_id")
+  codigo                  String
+  nombre                  String
+  nombreComercial         String?             @map("nombre_comercial")
+  cif                     String?
+  nif                     String?
+  docNormalizado          String?             @map("doc_normalizado")
+  personaFisica           Boolean             @map("persona_fisica")
+  segmentoCrm             SegmentoCrm         @map("segmento_crm")
+  categoria               Int?
+  email                   String?
+  emails                  String[]            @default([])
+  telefono                String?
+  movil                   String?
+  domicilio               String?
+  numero                  String?
+  piso                    String?
+  puerta                  String?
+  codigoPostal            String?             @map("codigo_postal")
+  municipio               String?
+  provincia               String?
+  pais                    String?
+  comercial               Int?
+  agente                  Int?
+  fechaInicio             DateTime?           @map("fecha_inicio") @db.Date
+  fechaFin                DateTime?           @map("fecha_fin") @db.Date
+  facturaMail             Boolean             @default(false) @map("factura_mail")
+  recibePublicidadIsp     Boolean             @default(false) @map("recibe_publicidad_isp")
+  idioma                  String?
+  baneado                 Boolean             @default(false)
+  estadoMarketing         String              @default("SIN_CONSENTIMIENTO") @map("estado_marketing")
+  bajaMarketingMotivo     String?             @map("baja_marketing_motivo")
+  bajaMarketingAt         DateTime?           @map("baja_marketing_at")
+  huella                  String
+  clienteWebId            Int?                @map("cliente_web_id")
+  crmContactoId           String?             @map("crm_contacto_id")
+  crmEmpresaId            String?             @map("crm_empresa_id")
+  presenteEnUltimoFichero Boolean             @default(true) @map("presente_en_ultimo_fichero")
+  primeraImportacionId    String?             @map("primera_importacion_id")
+  ultimaImportacionId     String?             @map("ultima_importacion_id")
+  createdAt               DateTime            @default(now()) @map("created_at")
+  updatedAt               DateTime            @default(now()) @updatedAt @map("updated_at")
+  clienteWeb              ClienteWeb?         @relation(fields: [clienteWebId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  crmContacto             CrmRegistroHubspot? @relation(fields: [crmContactoId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  crmEmpresa              CrmEmpresa?         @relation(fields: [crmEmpresaId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  contratos               IspContratoArea1[]
+  vinculos                IspVinculoArea1[]
+  @@index([codigo])
+  @@index([docNormalizado])
+  @@index([clienteWebId])
+  @@index([crmContactoId])
+  @@index([crmEmpresaId])
+  @@index([estadoMarketing])
+  @@map("area1_isp_clientes")
+}
+model IspContratoArea1 {
+  id                      String           @id @default(cuid())
+  ispContratoId           Int              @unique @map("isp_contrato_id")
+  codigoContratoIsp       String           @map("codigo_contrato_isp")
+  serie                   String?
+  ispClienteRowId         String?          @map("isp_cliente_row_id")
+  asignacionCliente       String           @map("asignacion_cliente")
+  candidatosCliente       String[]         @default([]) @map("candidatos_cliente")
+  clienteNombreFichero    String           @map("cliente_nombre_fichero")
+  docNormalizado          String?          @map("doc_normalizado")
+  estado                  String
+  activo                  Boolean
+  tarifa                  String?
+  descripcion             String?
+  lineaAsociada           String?          @map("linea_asociada")
+  importeSinIva           Decimal?         @map("importe_sin_iva") @db.Decimal(14, 4)
+  descuento               Decimal?         @db.Decimal(14, 4)
+  velocidad               String?
+  fechaAlta               DateTime?        @map("fecha_alta") @db.Date
+  fechaBaja               DateTime?        @map("fecha_baja") @db.Date
+  permanenciaHasta        DateTime?        @map("permanencia_hasta") @db.Date
+  permanenciaTexto        String?          @map("permanencia_texto")
+  periodicidad            String?
+  formaPago               String?          @map("forma_pago")
+  proveedor               String?
+  identificadorOperador   String?          @map("identificador_operador")
+  observaciones           String?
+  contratoServicioId      Int?             @map("contrato_servicio_id")
+  huella                  String
+  presenteEnUltimoFichero Boolean          @default(true) @map("presente_en_ultimo_fichero")
+  ultimaImportacionId     String?          @map("ultima_importacion_id")
+  createdAt               DateTime         @default(now()) @map("created_at")
+  updatedAt               DateTime         @default(now()) @updatedAt @map("updated_at")
+  cliente                 IspClienteArea1? @relation(fields: [ispClienteRowId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  @@index([codigoContratoIsp])
+  @@index([ispClienteRowId])
+  @@index([contratoServicioId])
+  @@map("area1_isp_contratos")
+}
+model IspFacturacionMensualArea1 {
+  id                  String   @id @default(cuid())
+  codigoCliente       String   @map("codigo_cliente")
+  anio                Int
+  mes                 Int
+  importeBase         Decimal  @map("importe_base") @db.Decimal(14, 2)
+  ultimaImportacionId String?  @map("ultima_importacion_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at")
+  @@unique([codigoCliente, anio, mes], map: "area1_isp_facturacion_mensual_codigo_anio_mes_key")
+  @@index([anio, mes])
+  @@map("area1_isp_facturacion_mensual")
+}
+model IspVinculoArea1 {
+  id                  String          @id @default(cuid())
+  ispClienteRowId     String          @map("isp_cliente_row_id")
+  tipo                String
+  destinoId           String          @map("destino_id")
+  motivo              String
+  confianza           String
+  estado              String          @default("PENDIENTE")
+  detalle             Json?           @db.JsonB
+  revisadoPor         String?         @map("revisado_por")
+  revisadoAt          DateTime?       @map("revisado_at")
+  ultimaImportacionId String?         @map("ultima_importacion_id")
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @default(now()) @updatedAt @map("updated_at")
+  cliente             IspClienteArea1 @relation(fields: [ispClienteRowId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  @@unique([ispClienteRowId, tipo, destinoId], map: "area1_isp_vinculos_cliente_tipo_destino_key")
+  @@index([estado, tipo])
+  @@map("area1_isp_vinculos")
+}
 model CrmPropiedadHubspot {
   id                   String    @id @default(cuid())
   objectTypeId         String    @map("object_type_id")

@@ -3,6 +3,8 @@ import { requireAdminAreaRead } from '@/lib/admin-area-auth'
 import { registrarArea } from '@/lib/permisos'
 import prisma from '@/lib/prisma'
 import CrmContactoWorkspace from '@/components/admin/CrmContactoWorkspace'
+import CrmIspFichaResumen from '@/components/admin/CrmIspFichaResumen'
+import { canAccessCrmRelated } from '@/lib/crm-empresas-auth'
 import { CRM_BUSINESS_UNIT_PROPERTY, crmBusinessUnitLabel, getCrmBusinessUnitOptions } from '@/lib/crm-unidades-negocio'
 import { getDefaultEmailSender } from '@/lib/email'
 import { getOutlookConnectionStatus } from '@/lib/outlook-user-connection'
@@ -138,7 +140,10 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
     ...contact.altasServicio.map((alta) => ({ id: alta.id, label: 'Alta de servicio', href: `/admin/altas-pendientes/${encodeURIComponent(alta.id)}` })),
   ]
 
+  const relatedUser = { id: Number(session.user.id), name: session.user.name || '', role: session.user.role }
+  const canReadIspClients = await canAccessCrmRelated(relatedUser, 'admin.clientes')
   return (
+    <>
     <CrmContactoWorkspace
       contact={{
         id: contact.id,
@@ -269,6 +274,8 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
       }}
       settings={{ initialSegment: contact.segmentoCrm, customerSegment: segment ? SEGMENT_LABELS[segment] || segment : null }}
     />
+    {canReadIspClients && <CrmIspFichaResumen crmContactoId={contact.id} clienteWebIds={contact.clienteWebId ? [contact.clienteWebId] : []} />}
+    </>
   )
 }
 
