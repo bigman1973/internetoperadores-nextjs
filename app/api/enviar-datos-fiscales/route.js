@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 import { getBrevoApiKey } from '@/lib/brevo-config';
+import { brevoFetch } from '@/lib/brevo-fetch';
 import { NextResponse } from 'next/server';
 
 export async function POST(request) {
@@ -65,7 +66,7 @@ export async function POST(request) {
       `
     };
 
-    const brevoResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
+    const brevoResponse = await brevoFetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
         'accept': 'application/json',

@@ -1,4 +1,5 @@
 import { getBrevoApiKey } from '@/lib/brevo-config'
+import { brevoFetch } from '@/lib/brevo-fetch'
 import { NextRequest, NextResponse } from 'next/server';
 import { guardarCaptacionWeb } from '@/lib/crm-captacion-web';
 
@@ -17,7 +18,7 @@ async function addToBrevo(email: string, nombre: string, telefono: string, tipo:
   if (telefono.trim()) attributes.TELEFONO = telefono.trim();
 
   try {
-    const createRes = await fetch('https://api.brevo.com/v3/contacts', {
+    const createRes = await brevoFetch('https://api.brevo.com/v3/contacts', {
       method: 'POST',
       headers: {
         accept: 'application/json',
@@ -32,7 +33,7 @@ async function addToBrevo(email: string, nombre: string, telefono: string, tipo:
     if (createRes.status === 400) {
       const errData = await createRes.json();
       if (errData.code === 'duplicate_parameter') {
-        const addRes = await fetch(`https://api.brevo.com/v3/contacts/lists/${listId}/contacts/add`, {
+        const addRes = await brevoFetch(`https://api.brevo.com/v3/contacts/lists/${listId}/contacts/add`, {
           method: 'POST',
           headers: { 'api-key': BREVO_API_KEY, 'Content-Type': 'application/json' },
           body: JSON.stringify({ emails: [email] }),

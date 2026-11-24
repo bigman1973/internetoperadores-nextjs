@@ -1,4 +1,5 @@
 import { getBrevoApiKey } from '@/lib/brevo-config'
+import { brevoFetch } from '@/lib/brevo-fetch'
 import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
@@ -71,7 +72,7 @@ async function enviarLoteBrevo(
   // Brevo transaccional permite enviar a múltiples destinatarios en BCC
   // Pero para personalización futura y mejor tracking, enviamos en lotes de 50 con BCC
   try {
-    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    const res = await brevoFetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
         'accept': 'application/json',

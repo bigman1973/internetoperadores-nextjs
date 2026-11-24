@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 import { getBrevoApiKey } from '@/lib/brevo-config';
+import { brevoFetch } from '@/lib/brevo-fetch';
 import { NextResponse } from 'next/server';
 import { guardarCaptacionWeb } from '@/lib/crm-captacion-web';
 
@@ -122,7 +123,7 @@ async function enviarEmailComercial(apiKey, data) {
   const { nombre, empresa, email, telefono, sectorNombre, numClientes, mensaje } = data;
   
   try {
-    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    const res = await brevoFetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
         'accept': 'application/json',
@@ -201,7 +202,7 @@ async function enviarEmailConfirmacion(apiKey, data) {
   const { nombre, empresa, email, sectorNombre } = data;
   
   try {
-    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    const res = await brevoFetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
         'accept': 'application/json',
@@ -300,7 +301,7 @@ async function crearContactoBrevo(apiKey, data) {
       updateEnabled: true
     };
 
-    const res = await fetch('https://api.brevo.com/v3/contacts', {
+    const res = await brevoFetch('https://api.brevo.com/v3/contacts', {
       method: 'POST',
       headers: {
         'accept': 'application/json',
@@ -314,7 +315,7 @@ async function crearContactoBrevo(apiKey, data) {
       const err = await res.json();
       if (err.code === 'duplicate_parameter') {
         // Ya existe, añadir a lista
-        await fetch(`https://api.brevo.com/v3/contacts/lists/${BREVO_LISTA_NEWSLETTER_PARTNERS}/contacts/add`, {
+        await brevoFetch(`https://api.brevo.com/v3/contacts/lists/${BREVO_LISTA_NEWSLETTER_PARTNERS}/contacts/add`, {
           method: 'POST',
           headers: { 'accept': 'application/json', 'api-key': apiKey, 'content-type': 'application/json' },
           body: JSON.stringify({ emails: [email] })

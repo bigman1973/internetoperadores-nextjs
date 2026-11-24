@@ -4,6 +4,8 @@
  * - En el resto (producción incluida) se usa BREVO_API_KEY.
  * Nunca se devuelve ni se registra el valor fuera de este módulo, salvo para la cabecera `api-key`.
  */
+import { brevoCorreoPrueba, brevoFetch, brevoModo, type BrevoModo } from '@/lib/brevo-fetch'
+
 export type BrevoKeySource = 'BREVO_API_KEY_STAGING' | 'BREVO_API_KEY'
 
 type Env = Record<string, string | undefined>
@@ -26,6 +28,10 @@ export type BrevoEstado = {
   variables: { BREVO_API_KEY_STAGING: boolean; BREVO_API_KEY: boolean }
   ok: boolean
   error: string | null
+  /** 'aislado' en staging/previews: solo lecturas; correos desviados a BREVO_STAGING_TEST_EMAIL; escrituras simuladas. */
+  modo: BrevoModo
+  correoPruebaConfigurado: boolean
+  estadoCuenta: string | null
   pruebas: { cuenta: BrevoLectura | null; listas: BrevoLectura | null }
   cuenta: { empresa: string | null; planes: string[] } | null
   listas: Array<{ id: number; nombre: string; suscriptores: number | null }>
@@ -44,10 +50,10 @@ async function leer(fetchImpl: typeof fetch, url: string, key: string): Promise<
 }
 
 /** Comprobación de SOLO LECTURA: GET /v3/account y GET /v3/contacts/lists, por separado. No envía nada ni modifica contactos. */
-export async function comprobarBrevo(fetchImpl: typeof fetch = fetch, env: Env = process.env): Promise<BrevoEstado> {
+export async function comprobarBrevo(fetchImpl: typeof fetch = brevoFetch as typeof fetch, env: Env = process.env): Promise<BrevoEstado> {
   const fuente = brevoApiKeySource(env)
   const variables = { BREVO_API_KEY_STAGING: Boolean((env.BREVO_API_KEY_STAGING || '').trim()), BREVO_API_KEY: Boolean((env.BREVO_API_KEY || '').trim()) }
-  const base: BrevoEstado = { fuente, variables, ok: false, error: null, pruebas: { cuenta: null, listas: null }, cuenta: null, listas: [], totalListas: null }
+  const base: BrevoEstado = { fuente, variables, ok: false, error: null, modo: brevoModo(env), correoPruebaConfigurado: Boolean(brevoCorreoPrueba(env)), estadoCuenta: null, pruebas: { cuenta: null, listas: null }, cuenta: null, listas: [], totalListas: null }
   if (!fuente) return { ...base, error: 'BREVO_API_KEY_NO_CONFIGURADA' }
   const key = getBrevoApiKey(env)
   const c = await leer(fetchImpl, 'https://api.brevo.com/v3/account', key)
@@ -56,6 +62,9 @@ export async function comprobarBrevo(fetchImpl: typeof fetch = fetch, env: Env =
   const listas = l.r.ok ? (Array.isArray(l.body?.lists) ? l.body.lists : []).map((x: { id: number; name: string; uniqueSubscribers?: number; totalSubscribers?: number }) => ({
     id: Number(x.id), nombre: String(x.name || ''), suscriptores: typeof x.uniqueSubscribers === 'number' ? x.uniqueSubscribers : typeof x.totalSubscribers === 'number' ? x.totalSubscribers : null,
   })) : []
-  const fallo = !c.r.ok && !l.r.ok ? (c.r.httpStatus === 401 || l.r.httpStatus === 401 ? 'BREVO_HTTP_401_CLAVE_NO_VALIDA_O_REVOCADA' : `BREVO_HTTP_${l.r.httpStatus ?? c.r.httpStatus}`) : !l.r.ok ? `BREVO_LISTAS_HTTP_${l.r.httpStatus}` : !c.r.ok ? `BREVO_CUENTA_HTTP_${c.r.httpStatus}_SIN_PERMISO_CUENTA` : null
-  return { ...base, ok: l.r.ok, error: fallo, pruebas: { cuenta: c.r, listas: l.r }, cuenta, listas, totalListas: l.r.ok && typeof l.body?.count === 'number' ? l.body.count : null }
+  // La lectura de la cuenta no es necesaria: una clave restringida sin permiso «Cuenta» da 403 y el diagnóstico sigue OK con las listas.
+  const cuentaSinPermiso = !c.r.ok && (c.r.httpStatus === 403 || c.r.httpStatus === 401) && l.r.ok
+  const estadoCuenta = c.r.ok ? 'ok' : cuentaSinPermiso ? 'sin permiso, no necesario' : `error HTTP ${c.r.httpStatus ?? 'red'}`
+  const fallo = l.r.ok ? null : (l.r.httpStatus === 401 ? 'BREVO_HTTP_401_CLAVE_NO_VALIDA_O_REVOCADA' : `BREVO_LISTAS_HTTP_${l.r.httpStatus ?? 'RED'}`)
+  return { ...base, ok: l.r.ok, error: fallo, estadoCuenta, pruebas: { cuenta: c.r, listas: l.r }, cuenta, listas, totalListas: l.r.ok && typeof l.body?.count === 'number' ? l.body.count : null }
 }

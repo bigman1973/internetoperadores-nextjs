@@ -1,4 +1,5 @@
 import { getBrevoApiKey } from '@/lib/brevo-config'
+import { brevoFetch } from '@/lib/brevo-fetch'
 const BREVO_API_KEY = getBrevoApiKey()
 const BASE_URL = process.env.NEXTAUTH_URL || 'https://www.internetoperadores.com'
 
@@ -19,7 +20,7 @@ interface OrderData {
 
 async function sendEmail({ to, toName, subject, htmlContent }: { to: string; toName: string; subject: string; htmlContent: string }) {
   try {
-    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    const res = await brevoFetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
         'api-key': BREVO_API_KEY,
