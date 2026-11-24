@@ -31,7 +31,8 @@ const SEGMENT_ICON = {
 } as const
 
 export default async function CrmPage() {
-  await requireAuth('admin')
+  const session = await requireAuth('admin')
+  const esSuperadmin = session.user.role === 'SUPER_ADMIN'
 
   await Promise.all([
     registrarArea('admin.crm', 'CRM', 'admin'),
@@ -41,6 +42,16 @@ export default async function CrmPage() {
     registrarArea('admin.crm.contactos', 'CRM > Contactos', 'admin.crm'),
     registrarArea('admin.crm.listas', 'CRM > Listas y segmentos', 'admin.crm'),
   ])
+
+  const visibleContactScope = {
+    objectTypeId: '0-1',
+    OR: [
+      { hubspotId: { startsWith: 'local:' } },
+      { empresasCrm: { some: { activo: true } } },
+      { listas: { some: { activo: true, lista: { activo: true } } } },
+      { negocios: { some: { negocio: { activo: true } } } },
+    ],
+  }
 
   const [clientesPorSegmento, leadsMigracion, leadsPorProducto, leadsPartner, totalClientes, clientesSinClasificar, listasCrm, listasActivas, membresiasListas, contactosCrm, contactosConvertidos] = await Promise.all([
     prisma.clienteWeb.groupBy({
@@ -64,8 +75,8 @@ export default async function CrmPage() {
     prisma.crmLista.count({ where: { activo: true } }),
     prisma.crmLista.count({ where: { activo: true, processingType: 'DYNAMIC' } }),
     prisma.crmLista.aggregate({ where: { activo: true }, _sum: { tamanoHubspot: true } }),
-    prisma.crmRegistroHubspot.count({ where: { objectTypeId: '0-1', listas: { some: { activo: true, lista: { activo: true } } } } }),
-    prisma.crmRegistroHubspot.count({ where: { objectTypeId: '0-1', clienteWebId: { not: null }, listas: { some: { activo: true, lista: { activo: true } } } } }),
+    prisma.crmRegistroHubspot.count({ where: visibleContactScope }),
+    prisma.crmRegistroHubspot.count({ where: { ...visibleContactScope, clienteWebId: { not: null } } }),
   ])
 
   const clientesCount = new Map<SegmentoCrmValue, number>(
@@ -169,6 +180,12 @@ export default async function CrmPage() {
         </article>
       </section>
 
+      {esSuperadmin && (
+        <section className="flex flex-col gap-3 rounded-xl border border-slate-300 bg-slate-50 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div><h2 className="text-lg font-bold text-slate-900">Importar clientes de ISP Gestión</h2><p className="mt-1 text-sm text-slate-600">Actualiza clientes, contratos y facturación desde el fichero de ISP y revisa los vínculos propuestos con el CRM. Solo superadministrador.</p></div>
+          <Link href="/admin/crm/isp" prefetch={false} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-slate-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-900">Abrir importación <ArrowRightIcon className="h-4 w-4" /></Link>
+        </section>
+      )}
       <section className="grid grid-cols-1 gap-5 xl:grid-cols-3">
         {segmentos.map(({ key, detalle, enlace, meta }) => {
           const config = SEGMENTO_CRM_CONFIG[key]

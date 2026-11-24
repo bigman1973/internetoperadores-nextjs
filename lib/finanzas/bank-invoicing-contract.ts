@@ -1,4 +1,5 @@
 import type { BankCoverage, BankInvoicingSummary, InvoiceSettlement, PaymentState } from './bank-invoicing-core'
+import type { BankInvoicingAnalytics } from './bank-invoicing-analytics'
 
 export const B7_PAGE_DEFAULT = 50
 export const B7_PAGE_MAX = 100
@@ -10,6 +11,8 @@ export interface B7GetQuery {
   q: string | null
   /** Calendar month of the canonical FacturaEmitida.fecha, e.g. 2026-10. */
   mes: string | null
+  /** Año natural de FacturaEmitida.fecha, p. ej. 2026. null = todos los años. */
+  anio: number | null
   estado: PaymentState | null
   limit: number
   offset: number
@@ -23,6 +26,8 @@ export interface B7ReadDto {
   summary: BankInvoicingSummary
   bankCoverage: BankCoverage
   items: InvoiceSettlement[]
+  /** Gráficas: calculadas en servidor sobre la misma población que la tabla. */
+  analitica?: BankInvoicingAnalytics
   calculationBasis: 'B4_ACTIVE_APLICADA_NO_REVERTIDA_JUSTIFICADO_DOCUMENTO__B6_EXPLICITA__RECIBO_REMESA_B7_V1'
 }
 
@@ -50,7 +55,7 @@ function validMonth(value: string): boolean {
 
 /** Strict, read-only GET contract: ?q=&mes=YYYY-MM&estado=&limit=1..100&offset=0..100000. */
 export function parseB7GetQuery(params: URLSearchParams): B7GetQuery {
-  const permitted = new Set(['q', 'mes', 'estado', 'limit', 'offset'])
+  const permitted = new Set(['q', 'mes', 'anio', 'estado', 'limit', 'offset'])
   const keys: string[] = []
   params.forEach((_value, key) => keys.push(key))
   for (const key of keys) {
@@ -61,6 +66,9 @@ export function parseB7GetQuery(params: URLSearchParams): B7GetQuery {
   if (q !== null && q.length > B7_QUERY_MAX) throw new B7QueryError('B7_QUERY_INVALIDA', `q no puede superar ${B7_QUERY_MAX} caracteres.`)
   const rawMonth = params.get('mes')
   if (rawMonth !== null && !validMonth(rawMonth)) throw new B7QueryError('B7_QUERY_INVALIDA', 'mes debe ser YYYY-MM.')
+  const rawYear = params.get('anio')
+  if (rawYear !== null && !/^(20\d{2})$/.test(rawYear)) throw new B7QueryError('B7_QUERY_INVALIDA', 'anio debe ser un año de cuatro cifras (20xx).')
+  if (rawYear !== null && rawMonth !== null && rawMonth.slice(0, 4) !== rawYear) throw new B7QueryError('B7_QUERY_INVALIDA', 'mes y anio no coinciden.')
   const rawState = params.get('estado')
   const validStates: readonly PaymentState[] = ['COBRADA_CALCULADA', 'PENDIENTE_COBRO', 'PENDIENTE_COBRO_REVISION']
   if (rawState !== null && !validStates.includes(rawState as PaymentState)) {
@@ -69,16 +77,18 @@ export function parseB7GetQuery(params: URLSearchParams): B7GetQuery {
   return {
     q: q || null,
     mes: rawMonth,
+    anio: rawYear === null ? (rawMonth === null ? null : Number(rawMonth.slice(0, 4))) : Number(rawYear),
     estado: rawState as PaymentState | null,
     limit: parseBoundedInteger(params.get('limit'), B7_PAGE_DEFAULT, 1, B7_PAGE_MAX, 'limit'),
     offset: parseBoundedInteger(params.get('offset'), 0, 0, B7_OFFSET_MAX, 'offset'),
   }
 }
 
-export function invoiceMatchesB7Query(invoice: InvoiceSettlement, query: Pick<B7GetQuery, 'q' | 'mes' | 'estado'>): boolean {
+export function invoiceMatchesB7Query(invoice: InvoiceSettlement, query: Pick<B7GetQuery, 'q' | 'mes' | 'estado'> & { anio?: number | null }): boolean {
   if (query.estado && invoice.paymentState !== query.estado) return false
   // Month is source FacturaEmitida.fecha (not bank date, ISP payment date, or cutoff).
   if (query.mes && (!invoice.fechaISO || invoice.fechaISO.slice(0, 7) !== query.mes)) return false
+  if (query.anio && (!invoice.fechaISO || Number(invoice.fechaISO.slice(0, 4)) !== query.anio)) return false
   if (!query.q) return true
   const needle = query.q.toLocaleLowerCase('es-ES')
   return [invoice.invoiceId, invoice.numFactura, invoice.cliente, invoice.facturaISPId === null ? null : String(invoice.facturaISPId)]

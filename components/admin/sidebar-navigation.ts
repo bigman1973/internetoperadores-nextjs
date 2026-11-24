@@ -1,4 +1,4 @@
-import { AREA4_GROUPED_MENU, AREA4_MENU_GROUPS, area4SectionByKey } from '@/lib/area4/section-registry'
+import { AREA4_DRAXTON_TECHNICAL_MENU, AREA4_GROUPED_MENU, AREA4_MENU_GROUPS, area4RegisteredSurfaceArea, area4SectionByKey } from '@/lib/area4/section-registry'
 
 export type FinanceEnvironment = 'staging' | 'production' | null
 export type SidebarPresentation = 'historico' | 'agrupado'
@@ -77,6 +77,7 @@ const navigation: SidebarNavigationEntry[] = [
       { name: 'Listas y segmentos', href: '/admin/crm/listas', icon: 'circleStack', section: 'crm.listas' },
       { name: 'Particulares', href: '/admin/clientes?segmento=PARTICULAR', icon: 'user', section: 'crm.particulares' },
       { name: 'Partners', href: '/admin/crm/partners', icon: 'userGroup', section: 'crm.partners' },
+      { name: 'ISP Gestión', href: '/admin/crm/isp', icon: 'link', section: 'crm' },
     ],
   },
   { name: 'Tarifas', href: '/admin/tarifas', icon: 'creditCard', section: 'tarifas' },
@@ -87,6 +88,7 @@ const navigation: SidebarNavigationEntry[] = [
       { name: 'GGCC - Draxton', href: '/admin/clientes/ggcc/draxton', icon: 'buildingOffice', section: 'clientes.ggcc.draxton' },
       { name: 'GGCC - Exagrid', href: '/admin/clientes/ggcc/exagrid', icon: 'buildingOffice', section: 'clientes.ggcc.exagrid' },
       { name: 'Proyectos Cliente', href: '/admin/proyectos', icon: 'folder', section: 'proyectos' },
+      ...AREA4_DRAXTON_TECHNICAL_MENU.map(groupedItem),
     ],
   },
   {
@@ -140,6 +142,7 @@ const navigation: SidebarNavigationEntry[] = [
       { name: 'GGCC Draxton', href: '/admin/finanzas/clientes/ggcc-draxton', icon: 'buildingOffice', section: 'finanzas' },
     ],
   },
+  { name: 'Rentabilidad · staging', href: '/admin/rentabilidad', icon: 'arrowTrendingUp', section: 'rentabilidad' },
   { name: 'Estadísticas', href: '/admin/estadisticas', icon: 'chartBar', section: 'estadisticas' },
   { name: 'Usuarios Admin', href: '/admin/usuarios', icon: 'userGroup', section: 'usuarios' },
   { name: 'Subida de Precios', href: '/admin/subida-precios', icon: 'arrowTrendingUp', section: 'subida-precios' },
@@ -173,6 +176,7 @@ const navigation: SidebarNavigationEntry[] = [
   },
   { name: 'Peticiones', href: '/admin/peticiones', icon: 'chatBubbleLeftEllipsis', section: 'peticiones' },
   { name: 'Portal Empleado', href: '/empleado', icon: 'user', section: 'portal-empleado' },
+  { name: 'Mis peticiones', href: '/peticiones', icon: 'chatBubbleLeftEllipsis', section: 'peticiones-propias' },
   { name: 'Historial', href: '/admin/historial', icon: 'documentText', section: 'historial' },
   { name: 'Configuración', href: '/admin/configuracion', icon: 'cog', section: 'configuracion' },
 ]
@@ -217,12 +221,19 @@ function withFinanceEnvironment(
   const financeLabel = financeEnvironment === 'staging' ? ' · staging' : ''
 
   const adaptItem = (item: SidebarNavigationItem): SidebarNavigationItem | null => {
+    if (item.href === '/admin/rentabilidad' && financeEnvironment !== 'staging') return null
     if (item.href === '/admin/finanzas/conciliar' && !conciliarEnabled) return null
     if (['/admin/finanzas/modo-facil', '/admin/finanzas/para-pedir', '/admin/finanzas/reparto-clientes'].includes(item.href) && financeEnvironment === null) return null
     // Telefonía/SOFÍA continúa aparcada en producción.
     if (item.href === '/admin/finanzas/analitica-cliente' && financeEnvironment !== 'staging') return null
+    // El histórico y el agrupado autorizan la misma área concreta; las variantes
+    // CRM por query y las normas dinámicas conservan su código explícito actual.
+    const explicitArea = item.section && area4SectionByKey(item.section)?.areaCode
+    const variant = item.href.includes('?') || item.section?.startsWith('certificaciones.')
+    const area = variant ? (explicitArea || item.section) : area4RegisteredSurfaceArea(item.href, 'page')
     return {
       ...item,
+      section: area || explicitArea || item.section,
       name: ['/admin/finanzas/modo-facil', '/admin/finanzas/para-pedir', '/admin/finanzas/reparto-clientes', '/admin/finanzas/analitica-cliente'].includes(item.href)
         ? `${item.name}${financeLabel}`
         : item.name,
@@ -257,15 +268,12 @@ export function getEasyOnlySidebarNavigation(financeEnvironment: FinanceEnvironm
   ]
 }
 
-function filterItem(item: SidebarNavigationItem, hasAccess: (section: string) => boolean): SidebarNavigationItem | null {
-  if (item.section && !hasAccess(item.section)) return null
-
-  return {
-    ...item,
-    subitems: item.subitems
-      ?.map(subitem => filterItem(subitem, hasAccess))
-      .filter((subitem): subitem is SidebarNavigationItem => subitem !== null),
-  }
+function filterItem(item: SidebarNavigationItem, hasAccess: (section: string) => boolean): SidebarNavigationItem[] {
+  const subitems = item.subitems?.flatMap(subitem => filterItem(subitem, hasAccess))
+  // Mostrar un hijo autorizado no convierte el padre en enlace autorizado.
+  // Reutilizamos el árbol existente promoviendo los hijos dentro de su grupo.
+  if (item.section && !hasAccess(item.section)) return subitems || []
+  return [{ ...item, subitems }]
 }
 
 /**
@@ -279,18 +287,11 @@ export function filterAuthorizedSidebarNavigation(
   presentation: SidebarPresentation = 'historico',
 ): SidebarNavigationEntry[] {
   return getSidebarNavigation(financeEnvironment, conciliarEnabled, presentation)
-    .map(entry => {
+    .flatMap((entry): SidebarNavigationEntry[] => {
       if (!isSidebarNavigationGroup(entry)) return filterItem(entry, hasAccess)
 
-      const children = entry.children
-        .map(child => filterItem(child, hasAccess))
-        .filter((child): child is SidebarNavigationItem => child !== null)
-      const groupAccess = hasAccess(entry.section || 'dashboard')
-
-      // Se conserva el contrato del sidebar anterior: un grupo con permiso propio
-      // permanece visible aunque todos sus hijos estén restringidos.
-      if (!groupAccess && children.length === 0) return null
-      return { ...entry, children }
+      const children = entry.children.flatMap(child => filterItem(child, hasAccess))
+      // Un contenedor sin enlaces no es un permiso, ni debe aparecer vacío.
+      return children.length > 0 ? [{ ...entry, children }] : []
     })
-    .filter((entry): entry is SidebarNavigationEntry => entry !== null)
 }

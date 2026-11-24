@@ -24,11 +24,13 @@ test('una respuesta 2xx incompleta no se transforma en éxito',()=>{
   assert.throws(()=>parseConciliarActionResponse({operationId,outcomes:[{id:rowId,ok:true}],refreshedAt:at}))
 })
 test('sólo las confirmaciones aplicadas del historial permiten deshacer',()=>{
-  const parsed=parseConciliarHistoryResponse({operations:[
-    {id:operationId,action:'CONFIRMAR',state:'APLICADA',reversible:true,result:{outcomes:[{id:rowId}]},createdAt:at},
-    {id:rowId,action:'PEDIR',state:'APLICADA',reversible:false,result:{outcomes:[]},createdAt:at},
-  ]})
-  assert.equal(parsed.length,1);assert.equal(parsed[0].reversible,true)
+  const response={view:'hoy',total:2,limit:50,offset:0,operations:[
+    {operationId,confirmedAt:at,revertedAt:null,state:'APLICADA',reversible:true,scope:'single',count:1,detailsAvailable:true,actorEffectiveDisplay:'Operador',actorRealDisplay:'Operador',actorRealStatus:'IGUAL_AL_EFECTIVO',legs:[{ordinal:1,confirmedAt:at,fecha:'2026-10-26',concepto:'Cobro confirmado',importeCentimos:12000,documento:null}]},
+    {operationId:rowId,confirmedAt:at,revertedAt:null,state:'APLICADA',reversible:false,scope:'single',count:1,detailsAvailable:true,actorEffectiveDisplay:null,actorRealDisplay:null,actorRealStatus:'NO_DISPONIBLE_HISTORICO',legs:[{ordinal:1,confirmedAt:at,fecha:'2026-10-26',concepto:'Petición sin reversión',importeCentimos:0,documento:null}]},
+  ]}
+  const parsed=parseConciliarHistoryResponse(response)
+  assert.equal(parsed.operations.length,2);assert.equal(parsed.operations[0].operationId,operationId);assert.equal(parsed.operations[0].reversible,true);assert.equal(parsed.operations[1].reversible,false)
+  assert.throws(()=>parseConciliarHistoryResponse({...response,view:undefined}))
 })
 test('archivo opaco interno sí; URLs externas y archivos genéricos no',()=>{
   assert.equal(safeDocumentHref('/api/admin/finanzas/conciliar/archivo/'+rowId),'/api/admin/finanzas/conciliar/archivo/'+rowId)

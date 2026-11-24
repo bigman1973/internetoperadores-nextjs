@@ -2,24 +2,20 @@ import { Prisma, type PrismaClient } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { projectionRow, type ProjectionSqlRow } from '@/lib/finanzas/conciliar-projection-read'
 import { ConciliarDbError } from '@/lib/finanzas/conciliar-errors'
-import { readEasyCollectionsRemittanceDetail } from '@/lib/finanzas/easy-collections-db'
-import type { ConciliarDocumentDetail, ConciliarDocumentDetailLine } from './conciliar-document-detail-contract'
+import type { ConciliarDocumentDetail, ConciliarDocumentDetailLine, ConciliarProposalBalanceStatus } from './conciliar-document-detail-contract'
+import { assertConciliarDocumentDetailActor, ConciliarDocumentDetailError } from './conciliar-document-detail-access'
+
+export { assertConciliarDocumentDetailActor, ConciliarDocumentDetailError } from './conciliar-document-detail-access'
 
 /** El navegador sólo puede transportar este identificador opaco de proyección. */
 export const CONCILIAR_DOCUMENT_DETAIL_ROW_ID = /^[A-Za-z0-9_-]{1,240}$/
 const SHA256 = /^[a-f0-9]{64}$/
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const MAX_DETAIL_LINES = 2_000
 
 type DetailDatabase = Pick<PrismaClient, '$queryRaw'>
 type Raw = Record<string, unknown>
 const database = () => prisma as unknown as DetailDatabase
-
-export class ConciliarDocumentDetailError extends Error {
-  constructor(public readonly status: number, public readonly code: string, message: string) {
-    super(message)
-    this.name = 'ConciliarDocumentDetailError'
-  }
-}
 
 function fail(status: number, code: string, message: string): never {
   throw new ConciliarDocumentDetailError(status, code, message)
@@ -68,7 +64,19 @@ function object(value: unknown): Raw | null {
   }
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Raw : null
 }
-
+function objects(value: unknown): Raw[] | null {
+  if (typeof value === 'string') {
+    try { return objects(JSON.parse(value)) } catch { return null }
+  }
+  if (!Array.isArray(value)) return null
+  const rows: Raw[] = []
+  for (const item of value) {
+    const row = object(item)
+    if (!row) return null
+    rows.push(row)
+  }
+  return rows
+}
 function addWarning(warnings: string[], value: string | null | undefined): void {
   const warning = text(value)
   if (warning && warnings.length < 100 && !warnings.includes(warning)) warnings.push(warning)
@@ -301,6 +309,10 @@ type RawConfirmingLiquidation = Readonly<{
   sourceSnapshot: unknown
   proveedor: unknown
 }>
+type RawConfirmingDetailBundle = RawConfirmingLiquidation & Readonly<{
+  documents: unknown
+  lines: unknown
+}>
 
 type RawConfirmingDocument = Readonly<{
   rol: unknown
@@ -448,13 +460,44 @@ async function readConfirmingDocumentDetail(
     fail(409, 'DETALLE_CONFIRMING_SIN_HUELLA', 'La fila confirming no conserva una huella documental vigente.')
   }
   const sourceHash = source.confirmingSourceHash
-  const liquidations = await client.$queryRaw<RawConfirmingLiquidation[]>(Prisma.sql`
+  /**
+   * Una única ampliación C11 tras la proyección: cada subconsulta correlacionada
+   * conserva su límite propio antes de agregarse, por lo que no multiplica
+   * documentos por líneas ni publica una composición truncada.
+   */
+  const liquidations = await client.$queryRaw<RawConfirmingDetailBundle[]>(Prisma.sql`
     SELECT l.id::text AS "liquidacionId",l.confirming_id AS "confirmingId",l.liquidacion_key AS "liquidacionKey",
       l.banco::text AS banco,l.estado_documental::text AS "estadoDocumental",
       l.fecha_liquidacion::date::text AS "fechaLiquidacion",l.cuenta_depositaria_id AS "cuentaDepositariaId",ca.iban AS "cuentaIban",
       l.nominal_centimos AS "nominalCentimos",l.intereses_centimos AS "interesesCentimos",l.comision_centimos AS "comisionCentimos",
       l.iva_comision_centimos AS "ivaComisionCentimos",l.deduccion_total_centimos AS "deduccionTotalCentimos",l.neto_bancario_centimos AS "netoBancarioCentimos",
-      l.fuente_hash AS "sourceHash",l.fuente_snapshot AS "sourceSnapshot",fr.proveedor
+      l.fuente_hash AS "sourceHash",l.fuente_snapshot AS "sourceSnapshot",fr.proveedor,
+      (
+        SELECT COALESCE(json_agg(row_to_json(document) ORDER BY document.rol),'[]'::json)
+        FROM (
+          SELECT d.rol::text AS rol,d.nombre_original AS "nombreOriginal",d.factura_recibida_id AS "facturaRecibidaId",
+            d.hash_binario AS "hashBinario",d.procedencia::text AS procedencia,d.archivo_controlado_id AS "archivoControladoId",
+            d.onedrive_drive_id AS "oneDriveDriveId",d.onedrive_item_id AS "oneDriveItemId"
+          FROM documentos_liquidacion_confirming d
+          WHERE d.liquidacion_id=l.id
+          ORDER BY d.rol ASC
+          LIMIT 4
+        ) document
+      ) AS documents,
+      (
+        SELECT COALESCE(json_agg(row_to_json(line) ORDER BY line."orderId"),'[]'::json)
+        FROM (
+          SELECT lc.id::text AS "orderId",lc.confirming_linea_id AS "confirmingLineaId",lc.factura_emitida_id AS "facturaEmitidaId",
+            lc.numero_factura AS "numeroFactura",fi.cliente,lc.fecha_emision::date::text AS "fechaEmision",
+            lc.fecha_vencimiento::date::text AS "fechaVencimiento",lc.nominal_centimos AS "nominalCentimos",
+            lc.intereses_explicitos_centimos AS "interesesExplicitosCentimos",lc.comision_explicita_centimos AS "comisionExplicitaCentimos"
+          FROM lineas_liquidacion_confirming lc
+          LEFT JOIN facturas_emitidas fi ON fi.id=lc.factura_emitida_id
+          WHERE lc.liquidacion_id=l.id
+          ORDER BY lc.id ASC
+          LIMIT ${MAX_DETAIL_LINES + 1}
+        ) line
+      ) AS lines
     FROM liquidaciones_confirming_documentales l
     LEFT JOIN cuentas_bancarias ca ON ca.id=l.cuenta_depositaria_id
     LEFT JOIN facturas_recibidas fr ON fr.id=l.confirming_id
@@ -477,28 +520,32 @@ async function readConfirmingDocumentDetail(
   const liquidationId = text(liquidation.liquidacionId, 64)
   if (!liquidationId) fail(409, 'DETALLE_C11_CORRUPTO', 'La liquidación documental no conserva una identidad verificable.')
 
-  const [documents, lines] = await Promise.all([
-    client.$queryRaw<RawConfirmingDocument[]>(Prisma.sql`
-      SELECT rol::text AS rol,nombre_original AS "nombreOriginal",factura_recibida_id AS "facturaRecibidaId",
-        hash_binario AS "hashBinario",procedencia::text AS procedencia,archivo_controlado_id AS "archivoControladoId",
-        onedrive_drive_id AS "oneDriveDriveId",onedrive_item_id AS "oneDriveItemId"
-      FROM documentos_liquidacion_confirming
-      WHERE liquidacion_id=CAST(${liquidationId} AS uuid)
-      ORDER BY rol ASC
-      LIMIT 4
-    `),
-    client.$queryRaw<RawConfirmingLine[]>(Prisma.sql`
-      SELECT lc.confirming_linea_id AS "confirmingLineaId",lc.factura_emitida_id AS "facturaEmitidaId",
-        lc.numero_factura AS "numeroFactura",fi.cliente,lc.fecha_emision::date::text AS "fechaEmision",
-        lc.fecha_vencimiento::date::text AS "fechaVencimiento",lc.nominal_centimos AS "nominalCentimos",
-        lc.intereses_explicitos_centimos AS "interesesExplicitosCentimos",lc.comision_explicita_centimos AS "comisionExplicitaCentimos"
-      FROM lineas_liquidacion_confirming lc
-      LEFT JOIN facturas_emitidas fi ON fi.id=lc.factura_emitida_id
-      WHERE lc.liquidacion_id=CAST(${liquidationId} AS uuid)
-      ORDER BY lc.id ASC
-      LIMIT ${MAX_DETAIL_LINES + 1}
-    `),
-  ])
+  const documentRows = objects(liquidation.documents)
+  const lineRows = objects(liquidation.lines)
+  if (!documentRows || !lineRows) {
+    fail(409, 'DETALLE_C11_INCOMPLETO', 'El detalle C11 no conserva una composición íntegra verificable.')
+  }
+  const documents: RawConfirmingDocument[] = documentRows.map(item => ({
+    rol: item.rol,
+    nombreOriginal: item.nombreOriginal,
+    facturaRecibidaId: item.facturaRecibidaId,
+    hashBinario: item.hashBinario,
+    procedencia: item.procedencia,
+    archivoControladoId: item.archivoControladoId,
+    oneDriveDriveId: item.oneDriveDriveId,
+    oneDriveItemId: item.oneDriveItemId,
+  }))
+  const lines: RawConfirmingLine[] = lineRows.map(item => ({
+    confirmingLineaId: item.confirmingLineaId,
+    facturaEmitidaId: item.facturaEmitidaId,
+    numeroFactura: item.numeroFactura,
+    cliente: item.cliente,
+    fechaEmision: item.fechaEmision,
+    fechaVencimiento: item.fechaVencimiento,
+    nominalCentimos: item.nominalCentimos,
+    interesesExplicitosCentimos: item.interesesExplicitosCentimos,
+    comisionExplicitaCentimos: item.comisionExplicitaCentimos,
+  }))
   if (documents.length > 3 || lines.length > MAX_DETAIL_LINES) {
     fail(409, 'DETALLE_C11_INCOMPLETO', 'El detalle C11 supera el límite íntegro de lectura y no se muestra parcialmente.')
   }
@@ -604,8 +651,9 @@ async function readSupplierInvoiceDocumentDetail(
   }
 }
 
-type RawReceipt = Readonly<{ receiptId: unknown }>
-type RawReceiptLine = Readonly<{
+type RawPersistedRemittanceLine = Readonly<{
+  receiptCount: unknown
+  receiptId: unknown
   numeroFactura: unknown
   cliente: unknown
   fechaFactura: unknown
@@ -620,32 +668,40 @@ async function readPersistedRemittanceLines(
   remesaId: number | undefined,
 ): Promise<PersistedRemittanceRead> {
   try {
-    const availability = await client.$queryRaw<Array<{ ready: unknown }>>(Prisma.sql`
-      SELECT to_regclass('public.recibos_cobro_remesa_b7') IS NOT NULL AS ready
-    `)
-    if (availability[0]?.ready !== true) return { lineas: null, aviso: 'No hay recibos de remesa persistidos disponibles para ampliar esta fila.' }
-    const receipts = await client.$queryRaw<RawReceipt[]>(Prisma.sql`
-      SELECT r.id::text AS "receiptId"
-      FROM recibos_cobro_remesa_b7 r
-      WHERE r.movimiento_id=${movementId}
-        ${remesaId === undefined ? Prisma.empty : Prisma.sql`AND r.remesa_id=${remesaId}`}
-      ORDER BY r.created_at DESC,r.id DESC
-      LIMIT 2
-    `)
-    if (!receipts.length) return { lineas: null, aviso: 'No existe un recibo de remesa persistido para este abono.' }
-    if (receipts.length !== 1) return { lineas: null, aviso: 'Hay más de un recibo persistido para este abono; requiere revisión humana.' }
-    const receiptId = text(receipts[0]?.receiptId, 64)
-    if (!receiptId || !/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(receiptId)) {
-      return { lineas: null, aviso: 'El recibo persistido no conserva una identidad verificable.' }
-    }
-    const rows = await client.$queryRaw<RawReceiptLine[]>(Prisma.sql`
-      SELECT fi.num_factura AS "numeroFactura",fi.cliente,fi.fecha::date::text AS "fechaFactura",l.importe_centimos AS "importeCentimos"
-      FROM lineas_recibo_cobro_remesa_b7 l
+    /**
+     * B7 es la única evidencia que se amplía en este detalle. La CTE evita la
+     * comprobación de disponibilidad, la búsqueda de recibo y la lectura de
+     * líneas en viajes seriales; no consulta propuestas, Graph ni OCR.
+     * Sólo se proyectan los campos textuales que exige el DTO público.
+     */
+    const rows = await client.$queryRaw<RawPersistedRemittanceLine[]>(Prisma.sql`
+      WITH candidatos AS (
+        SELECT r.id,r.created_at
+        FROM recibos_cobro_remesa_b7 r
+        WHERE r.movimiento_id=${movementId}
+          ${remesaId === undefined ? Prisma.empty : Prisma.sql`AND r.remesa_id=${remesaId}`}
+        ORDER BY r.created_at DESC,r.id DESC
+        LIMIT 2
+      ), conteo AS (
+        SELECT COUNT(*)::integer AS total FROM candidatos
+      ), elegido AS (
+        SELECT id FROM candidatos ORDER BY created_at DESC,id DESC LIMIT 1
+      )
+      SELECT conteo.total AS "receiptCount",elegido.id::text AS "receiptId",
+        fi.num_factura AS "numeroFactura",fi.cliente,fi.fecha::date::text AS "fechaFactura",l.importe_centimos AS "importeCentimos"
+      FROM conteo
+      LEFT JOIN elegido ON TRUE
+      LEFT JOIN lineas_recibo_cobro_remesa_b7 l ON l.recibo_id=elegido.id
       LEFT JOIN facturas_emitidas fi ON fi.id=l.factura_emitida_id
-      WHERE l.recibo_id=CAST(${receiptId} AS uuid)
-      ORDER BY l.ordinal ASC
+      ORDER BY l.ordinal ASC NULLS LAST
       LIMIT ${MAX_DETAIL_LINES + 1}
     `)
+    const receiptCount = Number(rows[0]?.receiptCount)
+    if (!Number.isSafeInteger(receiptCount) || receiptCount < 0) return { lineas: null, aviso: 'El recibo persistido no conserva un conteo verificable.' }
+    if (receiptCount === 0) return { lineas: null, aviso: 'No existe un recibo de remesa persistido para este abono.' }
+    if (receiptCount !== 1) return { lineas: null, aviso: 'Hay más de un recibo persistido para este abono; requiere revisión humana.' }
+    const receiptId = text(rows[0]?.receiptId, 64)
+    if (!receiptId || !/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(receiptId)) return { lineas: null, aviso: 'El recibo persistido no conserva una identidad verificable.' }
     if (rows.length > MAX_DETAIL_LINES) return { lineas: null, aviso: 'El recibo de remesa supera el límite íntegro de 2.000 líneas y no se muestra parcialmente.' }
     const lineas = completeLines(rows.map(item => ({
       numero: item.numeroFactura,
@@ -665,59 +721,15 @@ function isRemittanceProjection(row: ReturnType<typeof projectionRow>): boolean 
     && (row.source.remesaId !== undefined || ['REMESA_VENCIMIENTO', 'REMESA_UNION', 'REMESA_RESIDUO'].includes(row.grupo ?? ''))
 }
 
-function remittanceLinesFromPreview(rows: readonly Readonly<{
-  numeroFactura: string | null
-  cliente: string | null
-  fechaFactura: string | null
-  importeCentimos: number
-}>[]): readonly ConciliarDocumentDetailLine[] | null {
-  return completeLines(rows.map(item => ({
-    numero: item.numeroFactura,
-    cliente: item.cliente,
-    fechaEmision: item.fechaFactura,
-    fechaVencimiento: null,
-    nominalCentimos: item.importeCentimos,
-  })))
-}
-
 async function readRemittanceDocumentDetail(
   row: ReturnType<typeof projectionRow>,
-  actorId: number,
   client: DetailDatabase,
 ): Promise<ConciliarDocumentDetail> {
   const source = row.source
   const warnings: string[] = []
   addWarning(warnings, row.color === 'AMBAR' ? row.motivo : null)
   let lineas: readonly ConciliarDocumentDetailLine[] | null = null
-  const hasSelection = source.kind === 'COBRO_PROPUESTA' && !!source.propuestaId && !!source.movimientoId && !!source.proposalFingerprint
-  const sealed = hasSelection && source.remesaId !== undefined && !!source.proposalCompositionHash
-
-  if (hasSelection) {
-    try {
-      const preview = await readEasyCollectionsRemittanceDetail({
-        propuestaId: source.propuestaId!,
-        movimientoId: source.movimientoId!,
-        fingerprint: source.proposalFingerprint!,
-      }, actorId)
-      if (source.remesaId !== undefined && preview.remesaDetalle.remesaId !== source.remesaId) {
-        fail(409, 'COMPOSICION_CAMBIADA', 'La remesa vigente ya no coincide con la fila; actualiza la lista.')
-      }
-      if (source.proposalCompositionHash && preview.remesaDetalle.compositionHash !== source.proposalCompositionHash) {
-        fail(409, 'COMPOSICION_CAMBIADA', 'La composición de la remesa cambió; actualiza la lista.')
-      }
-      if (preview.remesaDetalle.importeBancoCentimos !== row.importeCentimos) {
-        fail(409, 'COMPOSICION_CAMBIADA', 'La composición de la remesa ya no cierra este abono; actualiza la lista.')
-      }
-      lineas = remittanceLinesFromPreview(preview.remesaDetalle.filas)
-      if (!lineas) addWarning(warnings, 'La propuesta vigente no conserva una composición íntegra verificable.')
-    } catch (error) {
-      if (error instanceof ConciliarDocumentDetailError) throw error
-      if (sealed) fail(409, 'COMPOSICION_CAMBIADA', 'La remesa sellada cambió o ya no está disponible; actualiza la lista.')
-      addWarning(warnings, 'La propuesta vigente de remesa no se puede ampliar; se intenta el recibo persistido.')
-    }
-  }
-
-  if (!lineas && source.kind === 'COBRO_PROPUESTA' && source.movimientoId) {
+  if (source.kind === 'COBRO_PROPUESTA' && source.movimientoId) {
     const persisted = await readPersistedRemittanceLines(client, source.movimientoId, source.remesaId)
     if (persisted.lineas) lineas = persisted.lineas
     else addWarning(warnings, persisted.aviso)
@@ -730,6 +742,312 @@ async function readRemittanceDocumentDetail(
     importeBancoCentimos: row.importeCentimos,
     lineas,
     avisos: warnings,
+  })
+}
+
+type RawCollectionProposalDetailLine = Readonly<{
+  ordinal: unknown
+  facturaEmitidaId: unknown
+  importePropuestoTexto: unknown
+  numeroFactura: unknown
+  cliente: unknown
+  fechaEmision: unknown
+  fechaVencimiento: unknown
+  nominalCentimos: unknown
+  activeWrapperCount: unknown
+  objetivoCentimos: unknown
+  activeLinkCount: unknown
+  validLinkCount: unknown
+  asignadoCentimos: unknown
+  remittanceReceiptCount: unknown
+}>
+
+export type CollectionProposalDocumentDetailInput = Readonly<{
+  rowId: string
+  fechaAbono: string | null
+  banco: string | null
+  cuenta: string | null
+  importeBancoCentimos: number
+  proposalCount: unknown
+  compositionShapeValid: unknown
+  compositionCount: unknown
+  lines: readonly RawCollectionProposalDetailLine[]
+}>
+
+function count(value: unknown): number | null {
+  const parsed = cents(value)
+  return parsed !== null && parsed >= 0 ? parsed : null
+}
+
+function exactProposalCents(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isSafeInteger(value)) return cents(value)
+  if (typeof value !== 'string' || !/^-?\d+$/.test(value)) return null
+  return cents(value)
+}
+
+/**
+ * DTO textual para propuesta ordinaria. Sólo recibe filas ya ampliadas desde la
+ * propuesta sellada y B4; un dato ausente no se convierte en cero ni en cobrado.
+ */
+export function buildCollectionProposalDocumentDetail(input: CollectionProposalDocumentDetailInput): ConciliarDocumentDetail {
+  if (count(input.proposalCount) !== 1) {
+    fail(409, 'PROPUESTA_CAMBIADA', 'La propuesta de cobro cambió; actualiza la lista antes de abrir el detalle.')
+  }
+  const compositionCount = count(input.compositionCount)
+  if (input.compositionShapeValid !== true || compositionCount === null || compositionCount < 1 || compositionCount > MAX_DETAIL_LINES || input.lines.length !== compositionCount) {
+    fail(409, 'DETALLE_PROPUESTA_INCOMPLETO', 'La propuesta no conserva una composición íntegra verificable; requiere revisión.')
+  }
+
+  const seenInvoiceIds = new Set<string>()
+  const warnings: string[] = []
+  const lines: ConciliarDocumentDetailLine[] = []
+  const proposalAmounts: number[] = []
+  const currentBalances: number[] = []
+  let allBalancesVerifiable = true
+
+  for (let expectedOrdinal = 1; expectedOrdinal <= compositionCount; expectedOrdinal += 1) {
+    const raw = input.lines[expectedOrdinal - 1]!
+    const ordinal = count(raw.ordinal)
+    const invoiceId = text(raw.facturaEmitidaId, 160)
+    const importePropuestoCentimos = exactProposalCents(raw.importePropuestoTexto)
+    const numero = text(raw.numeroFactura, 320)
+    const nominalCentimos = cents(raw.nominalCentimos)
+    if (ordinal !== expectedOrdinal || !invoiceId || seenInvoiceIds.has(invoiceId) || importePropuestoCentimos === null || importePropuestoCentimos <= 0 || !numero || nominalCentimos === null || nominalCentimos <= 0) {
+      fail(409, 'DETALLE_PROPUESTA_INCOMPLETO', 'La propuesta no conserva todas las facturas e importes verificables; requiere revisión.')
+    }
+    seenInvoiceIds.add(invoiceId)
+    proposalAmounts.push(importePropuestoCentimos)
+
+    const activeWrapperCount = count(raw.activeWrapperCount)
+    const activeLinkCount = count(raw.activeLinkCount)
+    const validLinkCount = count(raw.validLinkCount)
+    const objetivoCentimos = cents(raw.objetivoCentimos)
+    const asignadoCentimos = cents(raw.asignadoCentimos)
+    const remittanceReceiptCount = count(raw.remittanceReceiptCount)
+    const sourceAndB4AreCurrent = activeWrapperCount === 1
+      && objetivoCentimos === nominalCentimos
+      && activeLinkCount !== null
+      && validLinkCount === activeLinkCount
+      && asignadoCentimos !== null
+      && asignadoCentimos >= 0
+      && asignadoCentimos <= nominalCentimos
+      // Una remesa B7 puede atribuir el cobro por su recibo inmutable; este lector
+      // de propuesta ordinaria no la reconstruye parcialmente como una FI directa.
+      && remittanceReceiptCount === 0
+    const saldoPendienteActualCentimos = sourceAndB4AreCurrent ? nominalCentimos - asignadoCentimos! : null
+    const estadoSaldo: ConciliarProposalBalanceStatus = saldoPendienteActualCentimos === null
+      ? 'NO_COMPROBABLE'
+      : saldoPendienteActualCentimos === importePropuestoCentimos ? 'COINCIDE' : 'NO_COINCIDE'
+    if (saldoPendienteActualCentimos === null) {
+      allBalancesVerifiable = false
+      addWarning(warnings, `No se puede comprobar el saldo actual de la factura ${numero}.`)
+    } else if (estadoSaldo === 'NO_COINCIDE') {
+      addWarning(warnings, `La factura ${numero} no coincide; actualice antes de confirmar.`)
+      currentBalances.push(saldoPendienteActualCentimos)
+    } else {
+      currentBalances.push(saldoPendienteActualCentimos)
+    }
+    lines.push({
+      numero,
+      cliente: text(raw.cliente, 320),
+      fechaEmision: day(raw.fechaEmision),
+      fechaVencimiento: raw.fechaVencimiento === null || raw.fechaVencimiento === undefined ? null : day(raw.fechaVencimiento),
+      nominalCentimos,
+      importePropuestoCentimos,
+      saldoPendienteActualCentimos,
+      estadoSaldo,
+    })
+  }
+
+  const sumaPropuestaCentimos = sumCents(proposalAmounts)
+  const sumaSaldosPendientesActualesCentimos = allBalancesVerifiable ? sumCents(currentBalances) : null
+  if (sumaPropuestaCentimos === null) fail(409, 'DETALLE_PROPUESTA_INCOMPLETO', 'La suma de la propuesta no se puede comprobar de forma segura.')
+  const diferenciaSaldosPendientesBancoCentimos = sumaSaldosPendientesActualesCentimos === null
+    ? null
+    : sumCents([sumaSaldosPendientesActualesCentimos, -input.importeBancoCentimos])
+  const totalNominalCentimos = sumCents(lines.map(line => line.nominalCentimos))
+  const proposalMatchesBank = sumaPropuestaCentimos === input.importeBancoCentimos
+  const balancesMatchBank = sumaSaldosPendientesActualesCentimos === input.importeBancoCentimos
+  const allLinesMatch = lines.every(line => line.estadoSaldo === 'COINCIDE')
+  const cuadreExacto = proposalMatchesBank && balancesMatchBank && allLinesMatch
+  if (!proposalMatchesBank) addWarning(warnings, 'La suma incluida en la propuesta no coincide con el ingreso del banco.')
+  if (sumaSaldosPendientesActualesCentimos === null) addWarning(warnings, 'No se puede comprobar la suma de saldos pendientes actuales.')
+  else if (!balancesMatchBank) addWarning(warnings, 'La suma de saldos pendientes actuales no coincide con el ingreso del banco.')
+  if (!cuadreExacto) addWarning(warnings, 'Revisión requerida antes de confirmar.')
+
+  return {
+    rowId: input.rowId,
+    kind: 'COBRO_PROPUESTA',
+    titulo: 'Cobro propuesto',
+    bancoEmisor: input.banco,
+    numeroLiquidacion: null,
+    referenciaDocumento: null,
+    fechaLiquidacion: input.fechaAbono,
+    cuentaAbono: input.cuenta,
+    proveedor: null,
+    numeroFactura: null,
+    fechaFactura: null,
+    importeFacturaCentimos: null,
+    lineas: lines,
+    nominalCentimos: totalNominalCentimos,
+    interesesCentimos: null,
+    comisionCentimos: null,
+    ivaComisionCentimos: null,
+    netoDocumentoCentimos: sumaPropuestaCentimos,
+    importeBancoCentimos: input.importeBancoCentimos,
+    sumaPropuestaCentimos,
+    sumaSaldosPendientesActualesCentimos,
+    diferenciaSaldosPendientesBancoCentimos,
+    cuadreExacto,
+    avisos: warnings,
+    pdfHref: null,
+  }
+}
+
+type RawCollectionProposalDetailBundle = Readonly<{
+  proposalCount: unknown
+  compositionShapeValid: unknown
+  compositionCount: unknown
+  lines: unknown
+}>
+
+/**
+ * Una ampliación read-only de la propuesta vigente. La CTE reduce el detalle a
+ * una consulta: no hay una vuelta por factura ni se consultan fuentes ISP/PDF.
+ */
+async function readCollectionProposalDocumentDetail(
+  row: ReturnType<typeof projectionRow>,
+  client: DetailDatabase,
+): Promise<ConciliarDocumentDetail> {
+  const source = row.source
+  if (source.kind !== 'COBRO_PROPUESTA' || !source.propuestaId || !source.movimientoId || !source.proposalFingerprint
+    || !UUID.test(source.propuestaId) || !SHA256.test(source.proposalFingerprint)) {
+    fail(409, 'DETALLE_PROPUESTA_SIN_FUENTE', 'La fila no conserva una propuesta de cobro verificable.')
+  }
+  const bundles = await client.$queryRaw<RawCollectionProposalDetailBundle[]>(Prisma.sql`
+    WITH current_generation AS (
+      SELECT id FROM modo_facil_generaciones_cobro ORDER BY creada_at DESC,id DESC LIMIT 1
+    ), candidate AS (
+      SELECT p.id,p.composicion
+      FROM modo_facil_propuestas_cobro p
+      JOIN current_generation g ON g.id=p.generacion_id
+      WHERE p.id=CAST(${source.propuestaId} AS uuid)
+        AND p.movimiento_id=${source.movimientoId}
+        AND p.fingerprint=${source.proposalFingerprint}
+        AND p.metodo NOT IN ('REMESA_VENCIMIENTO','REMESA_UNION','REMESA_RESIDUO')
+      LIMIT 2
+    ), composition AS (
+      SELECT element.ordinal::integer AS ordinal,element.value
+      FROM candidate p
+      CROSS JOIN LATERAL jsonb_array_elements(
+        CASE WHEN jsonb_typeof(p.composicion)='array' THEN p.composicion ELSE '[]'::jsonb END
+      ) WITH ORDINALITY AS element(value,ordinal)
+    ), composition_invoices AS (
+      SELECT DISTINCT NULLIF(btrim(value->>'facturaEmitidaId'),'') AS invoice_id
+      FROM composition
+      WHERE NULLIF(btrim(value->>'facturaEmitidaId'),'') IS NOT NULL
+    ), invoice_wrappers AS (
+      SELECT d.factura_emitida_id AS invoice_id,COUNT(*)::integer AS "activeWrapperCount",
+        MAX(d.importe_objetivo_centimos) AS "objetivoCentimos"
+      FROM documentos_conciliables d
+      JOIN composition_invoices c ON c.invoice_id=d.factura_emitida_id
+      WHERE d.tipo='FACTURA_EMITIDA'::"TipoDocumentoConciliable" AND d.activo
+      GROUP BY d.factura_emitida_id
+    ), active_document_links AS (
+      SELECT d.factura_emitida_id AS invoice_id,v.movimiento_id,v.importe_centimos,v.activo,d.activo AS document_active,
+        o.estado::text AS operation_state,o.revertida_at,e.estado::text AS movement_state,
+        b4_importe_bancario_centimos(m.importe) AS physical_cents
+      FROM documentos_conciliables d
+      JOIN composition_invoices c ON c.invoice_id=d.factura_emitida_id
+      JOIN vinculos_movimiento_documento v ON v.documento_conciliable_id=d.id
+      LEFT JOIN operaciones_justificacion_b4 o ON o.id=v.operacion_creacion_id
+      LEFT JOIN estado_justificacion_movimientos e ON e.movimiento_id=v.movimiento_id
+      LEFT JOIN movimientos_bancarios m ON m.id=v.movimiento_id
+      WHERE d.tipo='FACTURA_EMITIDA'::"TipoDocumentoConciliable"
+        AND v.activo AND v.tipo_linea='DOCUMENTO'::"TipoLineaVinculo"
+    ), touched_movements AS (
+      SELECT DISTINCT movimiento_id FROM active_document_links
+    ), movement_closures AS (
+      SELECT x.movimiento_id,COALESCE(SUM(x.importe_centimos),0)::bigint AS active_sum,
+        BOOL_AND(COALESCE(ox.estado='APLICADA'::"EstadoOperacionB4" AND ox.revertida_at IS NULL,FALSE)) AS all_active_applied
+      FROM vinculos_movimiento_documento x
+      JOIN touched_movements t ON t.movimiento_id=x.movimiento_id
+      LEFT JOIN operaciones_justificacion_b4 ox ON ox.id=x.operacion_creacion_id
+      WHERE x.activo
+      GROUP BY x.movimiento_id
+    ), invoice_allocations AS (
+      SELECT link.invoice_id,
+        COUNT(*)::integer AS "activeLinkCount",
+        COUNT(*) FILTER (WHERE link.document_active
+          AND link.operation_state='APLICADA' AND link.revertida_at IS NULL
+          AND link.movement_state='JUSTIFICADO' AND link.importe_centimos<>0
+          AND link.physical_cents IS NOT NULL AND closure.active_sum=link.physical_cents
+          AND closure.all_active_applied) ::integer AS "validLinkCount",
+        COALESCE(SUM(link.importe_centimos) FILTER (WHERE link.document_active
+          AND link.operation_state='APLICADA' AND link.revertida_at IS NULL
+          AND link.movement_state='JUSTIFICADO' AND link.importe_centimos<>0
+          AND link.physical_cents IS NOT NULL AND closure.active_sum=link.physical_cents
+          AND closure.all_active_applied),0)::bigint AS "asignadoCentimos"
+      FROM active_document_links link
+      LEFT JOIN movement_closures closure ON closure.movimiento_id=link.movimiento_id
+      GROUP BY link.invoice_id
+    ), remittance_receipts AS (
+      SELECT line.factura_emitida_id AS invoice_id,COUNT(*)::integer AS receipt_count
+      FROM lineas_recibo_cobro_remesa_b7 line
+      JOIN composition_invoices c ON c.invoice_id=line.factura_emitida_id
+      GROUP BY line.factura_emitida_id
+    )
+    SELECT
+      (SELECT COUNT(*)::integer FROM candidate) AS "proposalCount",
+      COALESCE((SELECT BOOL_AND(jsonb_typeof(composicion)='array') FROM candidate),FALSE) AS "compositionShapeValid",
+      (SELECT COUNT(*)::integer FROM composition) AS "compositionCount",
+      COALESCE((SELECT json_agg(row_to_json(detail) ORDER BY detail.ordinal)
+        FROM (
+          SELECT composition.ordinal,
+            NULLIF(btrim(composition.value->>'facturaEmitidaId'),'') AS "facturaEmitidaId",
+            composition.value->>'importeCentimos' AS "importePropuestoTexto",
+            fi.num_factura AS "numeroFactura",fi.cliente,fi.fecha::date::text AS "fechaEmision",fi.fecha_vencimiento::date::text AS "fechaVencimiento",
+            b4_importe_bancario_centimos(fi.total) AS "nominalCentimos",
+            COALESCE(wrapper."activeWrapperCount",0) AS "activeWrapperCount",wrapper."objetivoCentimos",
+            COALESCE(allocation."activeLinkCount",0) AS "activeLinkCount",COALESCE(allocation."validLinkCount",0) AS "validLinkCount",
+            COALESCE(allocation."asignadoCentimos",0)::bigint AS "asignadoCentimos",COALESCE(receipt.receipt_count,0)::integer AS "remittanceReceiptCount"
+          FROM composition
+          LEFT JOIN facturas_emitidas fi ON fi.id=NULLIF(btrim(composition.value->>'facturaEmitidaId'),'')
+          LEFT JOIN invoice_wrappers wrapper ON wrapper.invoice_id=fi.id
+          LEFT JOIN invoice_allocations allocation ON allocation.invoice_id=fi.id
+          LEFT JOIN remittance_receipts receipt ON receipt.invoice_id=fi.id
+        ) detail),'[]'::json) AS lines
+    LIMIT 1
+  `)
+  if (bundles.length !== 1) fail(409, 'DETALLE_PROPUESTA_INCOMPLETO', 'No se pudo leer la composición completa de la propuesta; requiere revisión.')
+  const bundle = bundles[0]!
+  const rows = objects(bundle.lines)
+  if (!rows) fail(409, 'DETALLE_PROPUESTA_INCOMPLETO', 'La propuesta no conserva una composición íntegra verificable; requiere revisión.')
+  return buildCollectionProposalDocumentDetail({
+    rowId: row.id,
+    fechaAbono: row.fecha,
+    banco: row.banco,
+    cuenta: row.cuenta,
+    importeBancoCentimos: row.importeCentimos,
+    proposalCount: bundle.proposalCount,
+    compositionShapeValid: bundle.compositionShapeValid,
+    compositionCount: bundle.compositionCount,
+    lines: rows.map(line => ({
+      ordinal: line.ordinal,
+      facturaEmitidaId: line.facturaEmitidaId,
+      importePropuestoTexto: line.importePropuestoTexto,
+      numeroFactura: line.numeroFactura,
+      cliente: line.cliente,
+      fechaEmision: line.fechaEmision,
+      fechaVencimiento: line.fechaVencimiento,
+      nominalCentimos: line.nominalCentimos,
+      activeWrapperCount: line.activeWrapperCount,
+      objetivoCentimos: line.objetivoCentimos,
+      activeLinkCount: line.activeLinkCount,
+      validLinkCount: line.validLinkCount,
+      asignadoCentimos: line.asignadoCentimos,
+      remittanceReceiptCount: line.remittanceReceiptCount,
+    })),
   })
 }
 
@@ -777,7 +1095,13 @@ export async function readConciliarDocumentDetail(
   client: DetailDatabase = database(),
 ): Promise<ConciliarDocumentDetail> {
   if (!CONCILIAR_DOCUMENT_DETAIL_ROW_ID.test(rowId)) fail(400, 'FILA_INVALIDA', 'La fila solicitada no es válida.')
-  if (!Number.isSafeInteger(actorId) || actorId < 1) fail(403, 'SIN_PERMISO_ACTUAL', 'No se pudo validar el acceso financiero actual.')
+  assertConciliarDocumentDetailActor(actorId)
+  /**
+   * Proyección mínima del detalle: identidad opaca, importes/etiquetas visibles,
+   * documento privado, source sellada y su versión. No se seleccionan ni se
+   * reciben del navegador URLs externas, hashes o IDs documentales. Esta lectura
+   * inicial es la única que decide qué ampliación de BD corresponde a la fila.
+   */
   const rows = await client.$queryRaw<ProjectionSqlRow[]>(Prisma.sql`
     SELECT id,movimiento_id,fecha,concepto,banco,cuenta,importe_centimos,pendiente_centimos,color,grupo,motivo,
       documento,propuesta,seleccionable,diferencia_centimos,links_movimiento,detail,tab,source,source_fingerprint,updated_at
@@ -789,7 +1113,8 @@ export async function readConciliarDocumentDetail(
   const row = projectionRow(rows[0]!)
   if (row.source.kind === 'COBRO_CONFIRMING') return readConfirmingDocumentDetail(row, client)
   if (row.source.kind === 'PAGO_FACTURA_RECIBIDA') return readSupplierInvoiceDocumentDetail(row, client)
-  if (isRemittanceProjection(row)) return readRemittanceDocumentDetail(row, actorId, client)
+  if (isRemittanceProjection(row)) return readRemittanceDocumentDetail(row, client)
+  if (row.source.kind === 'COBRO_PROPUESTA') return readCollectionProposalDocumentDetail(row, client)
   return genericDocumentDetail(row)
 }
 

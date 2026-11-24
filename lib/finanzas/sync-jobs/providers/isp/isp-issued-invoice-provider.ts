@@ -13,7 +13,8 @@
 import { createHash } from 'node:crypto'
 import type { Prisma } from '@prisma/client'
 import type { SyncOutcome, SyncProvider, SyncSourceItem } from '../../types'
-
+import { describeIspDatabaseFailure, type SyncFailureDetail } from '../../isp-sync-errors'
+import { requireIspScope, type IspSyncScope } from '../../isp-sync-scope'
 export const ISP_FACTURACION_ENDPOINT = 'facturacion' as const
 export const ISP_FACTURACION_LIMIT = 5_000 as const
 export const ISP_SYNC_VERSION = 'ISP_FACTURA_P2_V1' as const
@@ -44,6 +45,10 @@ type SourceSnapshot = Readonly<{
 
 export type IspIssuedInvoiceProviderOptions = Readonly<{
   request: IspFacturacionRequest
+  /** Immutable server scope, never raw browser fields. */
+  scope?: IspSyncScope
+  /** Batch read only. It must retain malformed, changed or unresolved items. */
+  filterChanged?: (items: readonly SyncSourceItem[]) => Promise<SyncSourceItem[]>
   /**
    * Off by default.  Enabling this is an explicit parent decision to B7-audit and
    * link an older exact FI (`idExterno === ISP id`) that currently lacks its FK.
@@ -54,7 +59,7 @@ export type IspIssuedInvoiceProviderOptions = Readonly<{
 }>
 
 export class IspInvoiceSyncError extends Error {
-  constructor(public readonly code: string, message: string) {
+  constructor(public readonly code: string, message: string, public readonly diagnostic?: SyncFailureDetail) {
     super(message)
     this.name = 'IspInvoiceSyncError'
   }
@@ -116,6 +121,46 @@ function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
+function sanitizeInventoryCause(value: string): string {
+  return value
+    .replace(/\b(?:https?|ftp):\/\/[^\s<>"']+|\bwww\.[^\s<>"']+/gi, ' ')
+    .replace(/\b(?:authorization\b\s*[:=]?\s*(?:(?:bearer|basic)\s+)?|bearer\s+|token\b\s*[:=]?\s*)\S+/gi, ' ')
+    .replace(/\S*@\S*/g, ' ')
+    .replace(/[A-Za-z0-9]{24,}/g, ' ')
+    .replace(/[\u0000-\u001f\u007f<>]|https?:|bearer|token/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function inventoryFailure(error: unknown): IspInvoiceSyncError {
+  const e = isRecord(error) ? error : {}
+  const response = isRecord(e.response) ? e.response : null
+  const data = response && isRecord(response.data) ? response.data : {}
+  const status = typeof response?.status === 'number' && Number.isInteger(response.status)
+    && response.status >= 100 && response.status <= 599 ? response.status : null
+  // Read only the API cause, never axios config, headers, request, stack or message.
+  const cause = [data.details, data.error].filter((value): value is string => typeof value === 'string').join('. ')
+  let code = 'ISP_ERROR_INVENTARIO'
+  let message = 'No se pudo obtener el inventario de facturas de ISP: fallo inesperado de la petición.'
+  if (status !== null) {
+    if (status === 403 && /api avanzada|no est[aá] contratada|licen/i.test(cause)) {
+      code = 'ISP_API_LICENCIA_NO_CONTRATADA'
+      message = 'ISP respondió 403: la API avanzada no está contratada en esta instancia.'
+    } else {
+      code = `ISP_HTTP_${status}`
+      const fallback = status === 401 ? 'la petición no está autorizada.'
+        : status === 403 ? 'el acceso está prohibido.' : 'fallo al solicitar el inventario de facturas.'
+      message = `ISP respondió ${status}: ${sanitizeInventoryCause(cause) || fallback}`
+    }
+  } else if (!response && typeof e.code === 'string' && /^(ECONNABORTED|ETIMEDOUT|ENOTFOUND|ECONNRESET)$/.test(e.code)) {
+    code = 'ISP_RED_O_TIMEOUT'
+    message = 'ISP no respondió: fallo de red o tiempo de espera agotado al solicitar el inventario de facturas.'
+  }
+  message = message.slice(0, 500).trim()
+  const diagnostic: SyncFailureDetail = { code, name: 'Error', operation: 'ISP.inventory', sqlState: null, constraint: null, message }
+  return new IspInvoiceSyncError(code, message, diagnostic)
+}
+
 /**
  * Projection is intentionally allow-listed.  `situacion`, `total_pendiente`,
  * payment references, IBANs, bank fields and arbitrary future API fields cannot
@@ -147,6 +192,10 @@ function sha256(value: unknown): string {
 
 function sourceHash(source: SourceSnapshot): string {
   return sha256({ version: ISP_SYNC_VERSION, source })
+}
+
+export function ispItemSourceHash(item: SyncSourceItem): string {
+  return sourceHash(snapshotInvoiceSource(item.data))
 }
 
 function strictPositiveInt(value: unknown, label: string): number {
@@ -412,6 +461,18 @@ function onlySafeFacturaMetadataDiffers(factura: any, source: NormalizedIspFactu
     || factura.ejercicio !== source.fecha.getUTCFullYear()
 }
 
+/** Exact local comparison, including the mirror. Payment state is deliberately ignored. */
+export function ispPersistedSourceMatches(item: SyncSourceItem, factura: any, externalFI: any): boolean {
+  try {
+    if (!factura) return false
+    const source = normalizeIspInvoice(item)
+    if (!facturaFinancialsMatch(factura, source) || onlySafeFacturaMetadataDiffers(factura, source)) return false
+    const fi = factura.facturaEmitidaB4 ?? externalFI
+    return fiExactSourceIdentity(fi, source)
+      && (fi.facturaISPId === null || fi.facturaISPId === factura.id)
+  } catch { return false }
+}
+
 async function authorizedB7Actor(tx: DbTx, actorId: number | null): Promise<boolean> {
   if (actorId === null) return false
   const actor = await tx.usuarioAdmin.findUnique({
@@ -441,12 +502,17 @@ async function addB7IdentityAudit(
 
 async function maybeCreateNewFiWrapper(tx: DbTx, fi: any, source: NormalizedIspFactura, enabled: boolean): Promise<void> {
   if (!enabled) return
+  // A legitimate zero-value invoice is imported and audited, but has no bank
+  // amount to reconcile. Keep the non-zero B4 constraint unchanged.
+  if (source.totalCents === 0) return
   if (!tx.documentoConciliable) throw new IspInvoiceSyncError('B4_CATALOGO_NO_DISPONIBLE', 'El catálogo B4 no está disponible.')
   // This is a catalogue record only.  No MovimientoBancario, Vinculo B4 or remittance is read/written.
   if (dbCents(fi.total, 'FacturaEmitida.total') !== source.totalCents) {
     throw new IspInvoiceSyncError('B4_TOTAL_NO_EXACTO', 'No se crea wrapper B4: el total FI no es exactamente la fuente.')
   }
-  const existing = await tx.documentoConciliable.findFirst({ where: { facturaEmitidaId: fi.id } })
+  let existing: any
+  try { existing = await tx.documentoConciliable.findFirst({ where: { facturaEmitidaId: fi.id } }) }
+  catch (error) { const detail = describeIspDatabaseFailure(error, 'DocumentoConciliable.findFirst'); throw new IspInvoiceSyncError(detail.code, detail.message, detail) }
   if (!existing) {
     await tx.documentoConciliable.create({
       data: {
@@ -479,19 +545,31 @@ function safeTruncatedCheckpoint(previous: unknown): Readonly<{ version: typeof 
 export function createIspIssuedInvoiceProvider(options: IspIssuedInvoiceProviderOptions): SyncProvider {
   return {
     async inventory(checkpoint: unknown) {
-      const response = await options.request(ISP_FACTURACION_ENDPOINT, 'GET', null, { mostrar: ISP_FACTURACION_LIMIT })
+      let response: unknown
+      try {
+        response = await options.request(ISP_FACTURACION_ENDPOINT, 'GET', null, { mostrar: ISP_FACTURACION_LIMIT })
+      } catch (error) {
+        throw inventoryFailure(error)
+      }
       if (!Array.isArray(response)) {
         throw new IspInvoiceSyncError('RESPUESTA_FACTURACION_INVALIDA', 'facturacion debe responder un array; no se inventa paginación.')
       }
       // There is no verified pagination contract for `facturacion`.  A full page
       // could be truncated, so do not emit any work or advance a checkpoint.
-      if (response.length === ISP_FACTURACION_LIMIT) {
+      if (response.length >= ISP_FACTURACION_LIMIT) {
         return { items: [], checkpoint: safeTruncatedCheckpoint(checkpoint), complete: false }
       }
       const items: SyncSourceItem[] = []
       const keys = new Set<string>()
+      const scope = options.scope ? requireIspScope(options.scope) : null
+      let outsideScope = 0
       for (const raw of response) {
         const source = snapshotInvoiceSource(raw)
+        if (scope) {
+          let date: string | null = null
+          try { date = parseValidDate(source.fecha).toISOString().slice(0, 10) } catch { /* retain a durable error, never invent the date */ }
+          if (date && (date < scope.fromInclusive || date >= scope.toExclusive)) { outsideScope++; continue }
+        }
         let ispGestionId: number
         try {
           ispGestionId = strictPositiveInt(source.id, 'id')
@@ -511,7 +589,8 @@ export function createIspIssuedInvoiceProvider(options: IspIssuedInvoiceProvider
         keys.add(key)
         items.push({ key, tipo: 'ISP_FACTURA', data: source as Prisma.InputJsonValue })
       }
-      return { items, checkpoint: checkpointForComplete(items), complete: true }
+      const changed = options.filterChanged ? await options.filterChanged(items) : items
+      return { items: changed, checkpoint: { ...checkpointForComplete(items), ...(scope ? { scope, outsideScope, inScope: items.length, omittedUnchanged: items.length - changed.length } : {}) }, complete: true }
     },
 
     async prepare(item: SyncSourceItem): Promise<PreparedIspFactura> {
@@ -534,12 +613,13 @@ export function createIspIssuedInvoiceProvider(options: IspIssuedInvoiceProvider
       const prepared = asPrepared(preparedValue)
       // The service persists the original SyncSourceItem (its safe source snapshot)
       // and this terminal outcome in its same transaction.  Invalid financial source
-      // data is ERROR rather than a guessed zero/date/default invoice.
-      if (prepared.kind === 'ERROR') return 'ERROR'
-      const source = prepared.source
-      try {
-        const existingFactura = await tx.factura.findUnique({
-          where: { ispGestionId: source.ispGestionId },
+    // data is ERROR rather than a guessed zero/date/default invoice.
+    if (prepared.kind === 'ERROR') return 'ERROR'
+    const source = prepared.source
+    let operation = 'Factura.findUnique'
+    try {
+      const existingFactura = await tx.factura.findUnique({
+        where: { ispGestionId: source.ispGestionId },
           include: { facturaEmitidaB4: true },
         })
 
@@ -549,11 +629,15 @@ export function createIspIssuedInvoiceProvider(options: IspIssuedInvoiceProvider
           }
           // A normal create cannot race an already-known source ID: ispGestionId is unique.
           // The FI is created in the same transaction and starts strictly EMITIDA/0/null.
+          operation = 'Factura.create'
           const factura = await tx.factura.create({ data: facturaCreateData(source) })
+          operation = 'FacturaEmitida.create'
           const fi = await tx.facturaEmitida.create({ data: facturaEmitidaCreateData(source, factura.id) })
           // B7 event comes before the FI FK update trigger would ever apply to an update;
           // here the initial FK is allowed and the event still supplies immutable evidence.
+          operation = 'B7.create'
           await addB7IdentityAudit(tx, source, fi.id, factura.id, actorId!)
+          operation = 'DocumentoConciliable.create'
           await maybeCreateNewFiWrapper(tx, fi, source, options.createB4WrapperForNewInvoices === true)
           return 'NUEVA'
         }
@@ -568,6 +652,7 @@ export function createIspIssuedInvoiceProvider(options: IspIssuedInvoiceProvider
         const metadataChanged = onlySafeFacturaMetadataDiffers(existingFactura, source)
         const updateVerifiedMetadata = async (): Promise<void> => {
           if (!metadataChanged) return
+          operation = 'Factura.update'
           await tx.factura.update({
             where: { id: existingFactura.id },
             data: facturaVerifiedMetadataData(source),
@@ -586,6 +671,7 @@ export function createIspIssuedInvoiceProvider(options: IspIssuedInvoiceProvider
 
         // There is no FI linked by the explicit B4 FK.  Only one potential legacy FI
         // is considered: exact external id.  Never match by number/date/customer.
+        operation = 'FacturaEmitida.findUnique'
         const exactExternalFI = await tx.facturaEmitida.findUnique({
           where: { idExterno: String(source.ispGestionId) },
         })
@@ -611,7 +697,9 @@ export function createIspIssuedInvoiceProvider(options: IspIssuedInvoiceProvider
             return 'REVISAR'
           }
           // The schema's B7 trigger demands an event before changing facturaISPId.
+          operation = 'B7.create'
           await addB7IdentityAudit(tx, source, exactExternalFI.id, existingFactura.id, actorId!)
+          operation = 'FacturaEmitida.update'
           await tx.facturaEmitida.update({
             where: { id: exactExternalFI.id },
             data: { facturaISPId: existingFactura.id },
@@ -625,17 +713,23 @@ export function createIspIssuedInvoiceProvider(options: IspIssuedInvoiceProvider
         if (!await authorizedB7Actor(tx, actorId)) {
           return 'REVISAR'
         }
-        const fi = await tx.facturaEmitida.create({ data: facturaEmitidaCreateData(source, existingFactura.id) })
-        await addB7IdentityAudit(tx, source, fi.id, existingFactura.id, actorId!)
-        await maybeCreateNewFiWrapper(tx, fi, source, options.createB4WrapperForNewInvoices === true)
+        // B7 compares the new mirror with the current Factura metadata. Update
+        // only already-verified non-financial metadata before creating its audit.
         await updateVerifiedMetadata()
+        operation = 'FacturaEmitida.create'
+        const fi = await tx.facturaEmitida.create({ data: facturaEmitidaCreateData(source, existingFactura.id) })
+        operation = 'B7.create'
+        await addB7IdentityAudit(tx, source, fi.id, existingFactura.id, actorId!)
+        operation = 'DocumentoConciliable.create'
+        await maybeCreateNewFiWrapper(tx, fi, source, options.createB4WrapperForNewInvoices === true)
         // New mirror starts at EMITIDA/0/null and does not alter Factura.situacion/totalPendiente.
         return 'NUEVA'
       } catch (error) {
         if (error instanceof IspInvoiceSyncError) throw error
-        // The transaction orchestrator should roll back and record an ERROR.  P2
-        // cannot safely enqueue after an unknown DB failure outside that transaction.
-        throw new IspInvoiceSyncError('APPLY_ERROR', 'No se pudo aplicar ISP_FACTURA.')
+        // Preserve real Prisma/SQLSTATE/constraint identifiers, never raw SQL,
+        // responses, invoice data or credentials. The orchestrator rolls back.
+        const detail = describeIspDatabaseFailure(error, operation)
+        throw new IspInvoiceSyncError(detail.code, detail.message, detail)
       }
     },
     describeOutcome(input: { item: SyncSourceItem; prepared: unknown; outcome: SyncOutcome }) {

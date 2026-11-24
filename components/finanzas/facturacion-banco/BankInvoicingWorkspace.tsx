@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePermisoArea } from '@/hooks/usePermisoArea'
 import SyncJobPanel from '@/components/finanzas/sync-jobs/SyncJobPanel'
@@ -18,6 +19,11 @@ import {
 } from './typesparser'
 
 const API_URL = '/api/admin/facturacion-banco'
+// Recharts sólo se descarga al pintar las gráficas: no pesa en la carga inicial del panel.
+const BankInvoicingCharts = dynamic(() => import('./BankInvoicingCharts'), {
+  ssr: false,
+  loading: () => <div aria-busy="true" className="h-72 animate-pulse rounded-xl border border-slate-200 bg-slate-100" data-testid="b7-charts-loading" />,
+})
 
 const STATE_OPTIONS: Array<{ value: B7PaymentState; label: string }> = [
   { value: 'COBRADA_CALCULADA', label: 'Cobrada calculada' },
@@ -106,11 +112,12 @@ function coveragePresentation(coverage: B7BankCoverage): { className: string; ti
   }
 }
 
-function buildRequestUrl(query: { q: string; mes: string; estado: string; offset: number }): string {
+function buildRequestUrl(query: { q: string; mes: string; anio: string; estado: string; offset: number }): string {
   const params = new URLSearchParams({ limit: String(B7_PAGE_SIZE), offset: String(query.offset) })
   const q = query.q.trim()
   if (q) params.set('q', q)
   if (query.mes) params.set('mes', query.mes)
+  else if (query.anio) params.set('anio', query.anio)
   if (query.estado) params.set('estado', query.estado)
   return `${API_URL}?${params.toString()}`
 }
@@ -129,6 +136,7 @@ export default function BankInvoicingWorkspace() {
   const { canRead } = usePermisoArea(B7_AREA_PERMISO)
   const [search, setSearch] = useState('')
   const [month, setMonth] = useState('')
+  const [year, setYear] = useState('')
   const [state, setState] = useState('')
   const [offset, setOffset] = useState(0)
   const [reloadNonce, setReloadNonce] = useState(0)
@@ -140,8 +148,8 @@ export default function BankInvoicingWorkspace() {
   const activeRequest = useRef<AbortController | null>(null)
 
   const requestUrl = useMemo(
-    () => buildRequestUrl({ q: search, mes: month, estado: state, offset }),
-    [month, offset, search, state],
+    () => buildRequestUrl({ q: search, mes: month, anio: year, estado: state, offset }),
+    [month, offset, search, state, year],
   )
 
   const retry = useCallback(() => setReloadNonce((value) => value + 1), [])
@@ -192,6 +200,17 @@ export default function BankInvoicingWorkspace() {
   useEffect(() => () => activeRequest.current?.abort(), [])
 
   const coverage = data ? coveragePresentation(data.bankCoverage) : null
+  const knownYears = useRef<number[]>([])
+  if (data?.analitica && data.analitica.aniosDisponibles.length > 0) knownYears.current = data.analitica.aniosDisponibles
+  const yearOptions = knownYears.current
+  const selectMonthFromChart = useCallback((chartMonth: number) => {
+    const baseYear = data?.analitica?.anioGrafico
+    if (!baseYear) return
+    const value = `${baseYear}-${String(chartMonth).padStart(2, '0')}`
+    setYear(String(baseYear))
+    setMonth((current) => (current === value ? '' : value))
+    setOffset(0)
+  }, [data])
   const totalPagesStart = data && data.pagination.total > 0 ? data.pagination.offset + 1 : 0
   const totalPagesEnd = data ? Math.min(data.pagination.offset + data.items.length, data.pagination.total) : 0
 
@@ -234,12 +253,18 @@ export default function BankInvoicingWorkspace() {
       />
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm" aria-label="Filtros de facturación">
-        <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(220px,1fr)_190px_230px_auto] lg:items-end">
+        <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(200px,1fr)_130px_190px_230px_auto] lg:items-end">
           <label className="block min-w-0 text-sm font-semibold text-slate-800" htmlFor="b7-search">Buscar
             <input id="b7-search" data-testid="b7-search" value={search} onChange={(event) => { setSearch(event.target.value.slice(0, 120)); setOffset(0) }} maxLength={120} placeholder="Factura o cliente" className="mt-1 min-h-11 w-full min-w-0 rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100" />
           </label>
+          <label className="block text-sm font-semibold text-slate-800" htmlFor="b7-year">Año
+            <select id="b7-year" data-testid="b7-year" value={month ? month.slice(0, 4) : year} onChange={(event) => { setYear(event.target.value); setMonth(''); setOffset(0) }} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100">
+              <option value="">Todos los años</option>
+              {yearOptions.map((option) => <option key={option} value={String(option)}>{option}</option>)}
+            </select>
+          </label>
           <label className="block text-sm font-semibold text-slate-800" htmlFor="b7-month">Mes de emisión
-            <span className="mt-1 flex gap-2"><input id="b7-month" data-testid="b7-month" type="month" value={month} onChange={(event) => { setMonth(event.target.value); setOffset(0) }} className="min-h-11 min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100" /><button type="button" onClick={() => { setMonth(''); setOffset(0) }} disabled={!month} className="min-h-11 rounded-lg border border-slate-300 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">Todos</button></span>
+            <span className="mt-1 flex gap-2"><input id="b7-month" data-testid="b7-month" type="month" value={month} onChange={(event) => { setMonth(event.target.value); if (event.target.value) setYear(event.target.value.slice(0, 4)); setOffset(0) }} className="min-h-11 min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100" /><button type="button" onClick={() => { setMonth(''); setOffset(0) }} disabled={!month} className="min-h-11 rounded-lg border border-slate-300 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">Todos</button></span>
           </label>
           <label className="block text-sm font-semibold text-slate-800" htmlFor="b7-state">Estado documental
             <select id="b7-state" data-testid="b7-state" value={state} onChange={(event) => { setState(event.target.value); setOffset(0) }} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100">
@@ -269,15 +294,24 @@ export default function BankInvoicingWorkspace() {
 
         <section aria-label="Resumen de facturación documental" className="min-w-0">
           <p className="mb-3 px-1 text-xs text-slate-600">{queryLabel(data)}</p>
-          <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <MoneyCard title="Facturado" subtitle="FacturaEmitida · firmado" aggregate={data.summary.facturado} tone="slate" />
             <MoneyCard title="Cobro documental confirmado" subtitle="Evidencia B4/B6" aggregate={data.summary.cobroDocumentalConfirmado} tone="emerald" />
-            <MoneyCard title="Pendiente no confirmado" subtitle="Sin cobro bancario confirmado" aggregate={data.summary.pendienteNoConfirmado} tone="amber" />
+            {data.analitica ? <>
+              <SplitCard title="Pendiente real" subtitle="Factura anterior al último extracto cargado y sin cobro confirmado en el panel. Puede estar ya cobrada en el banco y pendiente de confirmar en Conciliar" value={data.analitica.desglosePendiente.real} tone="rose" testId="b7-pendiente-real" />
+              <SplitCard title="Sin extracto bancario cargado" subtitle={data.analitica.corte.fecha ? `Posterior al último extracto (${dateLabel(data.analitica.corte.fecha, '')}). No es deuda: falta el banco` : `Faltan extractos: ${data.analitica.corte.cuentasVerificadas} de ${data.analitica.corte.cuentasActivas} cuentas verificadas. No es deuda`} value={data.analitica.desglosePendiente.sinExtracto} tone="slate" testId="b7-sin-extracto" />
+            </> : <MoneyCard title="Pendiente no confirmado" subtitle="Sin cobro bancario confirmado" aggregate={data.summary.pendienteNoConfirmado} tone="amber" />}
             <DifferenceCard attributable={data.summary.diferenciasCaja.atribuible} unallocated={data.summary.diferenciasCaja.sinAtribuir} />
           </div>
+          {data.analitica && <p className="mt-3 px-1 text-xs text-slate-700" data-testid="b7-pendiente-cuadre">
+            Pendiente no confirmado por el banco ({money(data.summary.pendienteNoConfirmado.knownCents)}) = pendiente real {money(data.analitica.desglosePendiente.real.cents)} + sin extracto bancario {money(data.analitica.desglosePendiente.sinExtracto.cents)}
+            {data.analitica.desglosePendiente.revision.count > 0 ? ` + ${data.analitica.desglosePendiente.revision.count} factura(s) en revisión, cuyo pendiente no se puede calcular` : ''}.
+            {data.analitica.corte.estado !== 'KNOWN' ? ' Sin cobertura bancaria completa no se afirma ninguna deuda real a partir del extracto.' : ''}
+          </p>}
           <p className="mt-3 px-1 text-xs text-slate-600">Población resumida: {data.summary.invoicesTotal} factura(s) · cobradas calculadas: {data.summary.cobradasCalculadas} · pendientes: {data.summary.pendientesCobro} · revisión: {data.summary.revisiones}.</p>
         </section>
 
+        {data.analitica && <BankInvoicingCharts analytics={data.analitica} summary={data.summary} selectedMonth={month ? Number(month.slice(5, 7)) : null} onSelectMonth={selectMonthFromChart} hasStateOrSearchFilter={Boolean(search.trim() || state)} />}
         <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-labelledby="b7-table-title">
           <div className="flex min-w-0 flex-col gap-2 border-b border-slate-200 px-4 py-4 sm:flex-row sm:items-end sm:justify-between sm:px-5">
             <div className="min-w-0"><h2 id="b7-table-title" className="font-bold text-slate-950">Facturas emitidas</h2><p className="mt-1 text-xs text-slate-600">Cobro documental, pendiente y estado se reciben del cálculo B7 de servidor.</p></div>
@@ -301,6 +335,11 @@ function MoneyCard({ title, subtitle, aggregate, tone }: { title: string; subtit
   return <article className={`min-w-0 rounded-xl border p-4 shadow-sm ${colors}`}><p className="text-xs font-bold uppercase tracking-wide text-slate-600">{title}</p><p className="mt-1 text-xs text-slate-600">{subtitle}</p><p className={`mt-3 break-words font-mono text-xl font-bold ${valueClass}`}>{money(aggregate.cents)}</p>{aggregate.cents === null && <><p className="mt-2 text-xs font-semibold text-slate-800">Parte conocida: {money(aggregate.knownCents)}</p><p className="mt-1 text-xs text-slate-600">{aggregate.unknownInvoiceCount} factura(s) con datos no verificables.</p></>}</article>
 }
 
+function SplitCard({ title, subtitle, value, tone, testId }: { title: string; subtitle: string; value: { cents: number; count: number }; tone: 'rose' | 'slate'; testId: string }) {
+  const colors = tone === 'rose' ? 'border-rose-200 bg-rose-50/60' : 'border-slate-300 bg-slate-50'
+  const valueClass = tone === 'rose' ? 'text-rose-800' : 'text-slate-700'
+  return <article data-testid={testId} className={`min-w-0 rounded-xl border p-4 shadow-sm ${colors}`}><p className="text-xs font-bold uppercase tracking-wide text-slate-600">{title}</p><p className="mt-1 text-xs text-slate-600">{subtitle}</p><p className={`mt-3 break-words font-mono text-xl font-bold ${valueClass}`}>{formatEuroExact(value.cents)}</p><p className="mt-1 text-xs text-slate-600">{value.count} factura(s)</p></article>
+}
 function DifferenceCard({ attributable, unallocated }: { attributable: B7MoneyAggregate; unallocated: B7MoneyAggregate }) {
   return <article className="min-w-0 rounded-xl border border-violet-200 bg-violet-50/60 p-4 shadow-sm"><p className="text-xs font-bold uppercase tracking-wide text-violet-800">Diferencias de caja</p><p className="mt-1 text-xs text-slate-600">No alteran la deuda documental.</p><AggregateLine label="Atribuibles" aggregate={attributable} /><AggregateLine label="No atribuidas" aggregate={unallocated} /></article>
 }

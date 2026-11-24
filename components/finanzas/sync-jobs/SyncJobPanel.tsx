@@ -2,9 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  canReadAnnualIsp,
+  currentMadridYear,
   isActiveSyncJob,
+  ispAnnualConfirmation,
   parseSyncJobMutation,
   parseSyncJobsState,
+  syncJobCreateRequest,
+  syncJobIntentKey,
   type SyncJobDTO,
   type SyncJobsStateDTO,
   type SyncJobSource,
@@ -111,7 +116,10 @@ export default function SyncJobPanel({
   const [actionError, setActionError] = useState<string | null>(null)
   const [mutating, setMutating] = useState<'create' | 'cancel' | null>(null)
   const [reloadVersion, setReloadVersion] = useState(0)
-  const idempotencyKeyRef = useRef<string | null>(null)
+  const [annualYear, setAnnualYear] = useState(() => currentMadridYear())
+  const idempotencyKeysRef = useRef(new Map<string, string>())
+  const acceptedIntentsRef = useRef(new Map<string, string>())
+  const mutationInFlightRef = useRef(false)
   const mutationAbortRef = useRef<AbortController | null>(null)
   const terminalNotifiedRef = useRef<string | null>(null)
 
@@ -177,21 +185,39 @@ export default function SyncJobPanel({
   const active = displayedJob !== null && isActiveSyncJob(displayedJob.status)
   const serverCanWrite = state?.canWrite === true
   const actionAllowed = canRead && canWriteArea && serverCanWrite && state?.enabled === true && !readError && !loading
+  const annualVisible = canReadAnnualIsp(source, state)
+  const maxAnnualYear = currentMadridYear()
+  const annualYears = Array.from({ length: Math.max(0, maxAnnualYear - 2010 + 1) }, (_, index) => 2010 + index)
 
   useEffect(() => {
-    if (!displayedJob || isActiveSyncJob(displayedJob.status) || terminalNotifiedRef.current === displayedJob.id) return
+    if (!displayedJob || isActiveSyncJob(displayedJob.status)) return
+    // Only a confirmed POST associates a job with its key. An unrelated terminal
+    // GET must not clear a failed request, even when its scope happens to match.
+    const intent = acceptedIntentsRef.current.get(displayedJob.id)
+    if (intent !== undefined) {
+      idempotencyKeysRef.current.delete(intent)
+      acceptedIntentsRef.current.delete(displayedJob.id)
+    }
+    if (terminalNotifiedRef.current === displayedJob.id) return
     terminalNotifiedRef.current = displayedJob.id
-    // A failed POST keeps its key for retry. A later terminal result permits a new run.
-    idempotencyKeyRef.current = null
     onTerminalJob?.(displayedJob)
   }, [displayedJob, onTerminalJob])
 
-  const startJob = async () => {
-    if (!actionAllowed || active || mutating) return
+  const startJob = async (year?: number) => {
+    if (!actionAllowed || active || mutating || mutationInFlightRef.current) return
+    if (year !== undefined) {
+      if (!annualVisible || !Number.isInteger(year) || year < 2010 || year > maxAnnualYear) return
+      // Cancel means no POST and no idempotency token allocated for this intent.
+      if (!window.confirm(ispAnnualConfirmation(year))) return
+    }
     setActionError(null)
     setMutating('create')
-    const idempotencyKey = idempotencyKeyRef.current ?? createIdempotencyKey()
-    idempotencyKeyRef.current = idempotencyKey
+    mutationInFlightRef.current = true
+    const intent = syncJobIntentKey(source, year)
+    // Preserve failures separately; switching years or returning to normal cannot reuse another intent's key.
+    const idempotencyKey = idempotencyKeysRef.current.get(intent)
+      ?? (source === 'ISP' ? `${intent}:${createIdempotencyKey()}` : createIdempotencyKey())
+    idempotencyKeysRef.current.set(intent, idempotencyKey)
     const abort = new AbortController()
     mutationAbortRef.current?.abort()
     mutationAbortRef.current = abort
@@ -200,7 +226,7 @@ export default function SyncJobPanel({
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         signal: abort.signal,
-        body: JSON.stringify({ source, idempotencyKey, ...(scope === undefined ? {} : { scope }) }),
+        body: JSON.stringify(syncJobCreateRequest(source, idempotencyKey, { scope, year })),
       })
       const body = await jsonOrNull(response)
       if (!response.ok) throw new Error(apiError(response, body, 'No se pudo crear el trabajo'))
@@ -208,6 +234,7 @@ export default function SyncJobPanel({
       if (parsed.ok === false || parsed.value.job.source !== source) {
         throw new Error(parsed.ok === true ? 'El trabajo creado no corresponde a esta fuente.' : `Respuesta de creación inválida: ${parsed.error}`)
       }
+      acceptedIntentsRef.current.set(parsed.value.job.id, intent)
       setState((previous) => previous === null
         ? { enabled: true, canWrite: true, activeJob: parsed.value.job, lastJob: null }
         : { ...previous, activeJob: parsed.value.job })
@@ -217,14 +244,16 @@ export default function SyncJobPanel({
     } catch (error) {
       if (!abort.signal.aborted) setActionError(error instanceof Error ? error.message : 'No se pudo crear el trabajo.')
     } finally {
+      mutationInFlightRef.current = false
       if (!abort.signal.aborted) setMutating(null)
     }
   }
 
   const cancelJob = async () => {
-    if (!actionAllowed || !displayedJob || !active || displayedJob.status === 'CANCEL_REQUESTED' || mutating) return
+    if (!actionAllowed || !displayedJob || !active || displayedJob.status === 'CANCEL_REQUESTED' || mutating || mutationInFlightRef.current) return
     setActionError(null)
     setMutating('cancel')
+    mutationInFlightRef.current = true
     const abort = new AbortController()
     mutationAbortRef.current?.abort()
     mutationAbortRef.current = abort
@@ -249,6 +278,7 @@ export default function SyncJobPanel({
     } catch (error) {
       if (!abort.signal.aborted) setActionError(error instanceof Error ? error.message : 'No se pudo solicitar la cancelación.')
     } finally {
+      mutationInFlightRef.current = false
       if (!abort.signal.aborted) setMutating(null)
     }
   }
@@ -270,7 +300,9 @@ export default function SyncJobPanel({
     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0">
         <h2 id={`sync-job-${source}-title`} className="text-base font-bold text-slate-950">{title}</h2>
-        <p className="mt-1 text-sm leading-5 text-slate-700">{description}</p>
+        <p className="mt-1 text-sm leading-5 text-slate-700">{source === 'ISP'
+          ? 'La sincronización normal selecciona localmente los últimos 3 meses: el mes actual de Madrid y los dos anteriores. Lee las facturas ISP del período y muestra nuevas, actualizadas y sin cambios. Este alcance no acredita un filtrado remoto. La lectura no modifica los cobros financieros.'
+          : description}</p>
       </div>
       <button type="button" onClick={refresh} disabled={loading || mutating !== null} className="shrink-0 rounded-lg border border-slate-400 bg-white px-3 py-2 text-sm font-bold text-slate-900 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-orange-600 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">
         Actualizar estado
@@ -292,6 +324,12 @@ export default function SyncJobPanel({
           <span className="w-fit rounded-full bg-slate-900 px-2.5 py-1 text-xs font-bold text-white">{displayedJob.source}</span>
         </div>
 
+        {source === 'ISP' && displayedJob.scope && <p className="mt-2 text-sm text-slate-800">
+          Alcance: {displayedJob.scope.mode === 'YEAR' ? `Año completo ${displayedJob.scope.year}` : 'Últimos 3 meses'}
+          {' · '}{displayedJob.scope.fromInclusive} (incluido) a {displayedJob.scope.toExclusive} (excluido) · Europe/Madrid
+        </p>}
+        {source === 'ISP' && displayedJob.requestedById != null && <p className="mt-1 text-sm text-slate-800">Solicitado por usuario {displayedJob.requestedById}</p>}
+
         <div className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-5">
           <Metric label="Procesados" value={String(displayedJob.processed)} />
           <Metric label="Nuevas" value={String(displayedJob.nuevas)} />
@@ -306,6 +344,16 @@ export default function SyncJobPanel({
           : <div className="mt-3"><div className="flex justify-between gap-3 text-sm text-slate-800"><span>{displayedJob.processed} de {totalKnown} procesados</span><span>{progressPercent}%</span></div><div className="mt-1 h-3 overflow-hidden rounded-full bg-slate-200" role="progressbar" aria-label="Progreso de sincronización" aria-valuemin={0} aria-valuemax={totalKnown} aria-valuenow={displayedJob.processed}><div className="h-full rounded-full bg-orange-700 transition-[width]" style={{ width: `${progressPercent}%` }} /></div></div>}
 
         {displayedJob.lastError && <p className="mt-3 rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-900"><strong>Detalle seguro:</strong> {errorDescription(displayedJob.lastError)}</p>}
+        {source === 'ISP' && displayedJob.lastErrorDetail && <div className="mt-3 rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-900">
+          <p className="font-bold">Diagnóstico seguro</p>
+          <dl className="mt-1 space-y-1 break-words">
+            <div><dt className="inline font-semibold">Mensaje: </dt><dd className="inline">{displayedJob.lastErrorDetail.message}</dd></div>
+            <div><dt className="inline font-semibold">Operación: </dt><dd className="inline">{displayedJob.lastErrorDetail.operation}</dd></div>
+            <div><dt className="inline font-semibold">Código: </dt><dd className="inline">{displayedJob.lastErrorDetail.code}</dd></div>
+            {displayedJob.lastErrorDetail.sqlState && <div><dt className="inline font-semibold">SQLSTATE: </dt><dd className="inline">{displayedJob.lastErrorDetail.sqlState}</dd></div>}
+            {displayedJob.lastErrorDetail.constraint && <div><dt className="inline font-semibold">Restricción: </dt><dd className="inline">{displayedJob.lastErrorDetail.constraint}</dd></div>}
+          </dl>
+        </div>}
         {active && <p className="mt-3 text-xs leading-5 text-slate-700">Este navegador solo consulta el trabajo cada 5 segundos. El proceso durable sigue en el servidor aunque cierres o cambies de pantalla.</p>}
         {displayedJob.status === 'CANCEL_REQUESTED' && <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-950">La cancelación se ha solicitado. El worker terminará de forma segura el archivo actual y se detendrá en el siguiente punto seguro; no se revierte el trabajo ya confirmado.</p>}
         {!active && <p className="mt-3 text-xs text-slate-700">Finalizado: {formatDate(displayedJob.finishedAt)}</p>}
@@ -314,7 +362,14 @@ export default function SyncJobPanel({
 
     <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
       {active && <button type="button" onClick={() => void cancelJob()} disabled={!actionAllowed || displayedJob?.status === 'CANCEL_REQUESTED' || mutating !== null} className="rounded-lg border border-red-700 bg-white px-4 py-2.5 text-sm font-bold text-red-900 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-700 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">{mutating === 'cancel' ? 'Solicitando cancelación…' : displayedJob?.status === 'CANCEL_REQUESTED' ? 'Cancelación solicitada' : 'Cancelar tras el archivo actual'}</button>}
-      <button type="button" onClick={() => void startJob()} disabled={!actionAllowed || active || mutating !== null} title={!canWriteArea ? 'No tienes permiso de escritura para esta fuente.' : state?.canWrite === false ? 'El servidor no autoriza escritura para esta fuente.' : state?.enabled === false ? 'La sincronización está desactivada.' : undefined} className="rounded-lg bg-orange-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-orange-800 focus:outline-none focus:ring-2 focus:ring-orange-700 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">{mutating === 'create' ? 'Creando trabajo…' : active ? 'Trabajo en curso' : 'Iniciar sincronización'}</button>
+      {annualVisible && <div className="flex flex-wrap items-center gap-2">
+        <label htmlFor={`sync-job-${source}-year`} className="text-sm font-semibold">Año completo</label>
+        <select id={`sync-job-${source}-year`} value={annualYear} onChange={(event) => setAnnualYear(Number(event.target.value))} disabled={!actionAllowed || active || mutating !== null} className="rounded-lg border border-slate-400 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-600 disabled:cursor-not-allowed disabled:opacity-60">
+          {annualYears.map((year) => <option key={year} value={year}>{year}</option>)}
+        </select>
+        <button type="button" onClick={() => void startJob(annualYear)} disabled={!actionAllowed || active || mutating !== null} className="rounded-lg border border-orange-700 bg-white px-4 py-2.5 text-sm font-bold text-orange-900 hover:bg-orange-50 focus:outline-none focus:ring-2 focus:ring-orange-700 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">Leer año completo</button>
+      </div>}
+      <button type="button" onClick={() => void startJob()} disabled={!actionAllowed || active || mutating !== null} title={!canWriteArea ? 'No tienes permiso de escritura para esta fuente.' : state?.canWrite === false ? 'El servidor no autoriza escritura para esta fuente.' : state?.enabled === false ? 'La sincronización está desactivada.' : undefined} className="rounded-lg bg-orange-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-orange-800 focus:outline-none focus:ring-2 focus:ring-orange-700 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">{mutating === 'create' ? 'Creando trabajo…' : active ? 'Trabajo en curso' : source === 'ISP' ? 'Sincronizar últimos 3 meses' : 'Iniciar sincronización'}</button>
     </div>
   </section>
 }

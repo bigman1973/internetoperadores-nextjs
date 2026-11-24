@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFileSync } from 'node:fs'
 import { referenciasFacturaCitadas, referenciaFacturaCompatible, evaluarDocumentoExacto, parseConciliarGetInput } from '../lib/finanzas/conciliar-contract'
+import { createConciliarSearchMachineState, reduceConciliarSearchMachine } from '../components/finanzas/conciliar/conciliar-global-search'
 
 test('la etiqueta FACTURA no crea una segunda referencia léxica', () => {
   assert.deepEqual(referenciasFacturaCitadas('PAGO FACTURA 260007'), ['260007'])
@@ -39,7 +40,19 @@ test('Documento sólo muestra referencia; Nota y detalles siguen accesibles sin 
   assert.match(ui,/Con propuesta/)
   assert.match(ui,/Para revisar/)
   assert.match(ui,/Sin propuesta/)
-  assert.match(ui,/initialRequestKey/)
-  assert.match(ui,/if \(showHistory\) void loadHistory\(\)/)
+  assert.match(ui,/useConciliarGlobalSearch\(\{ initialTab, initialQuery, initialOffset: 0, initialData: initialParsed, read: readGlobal, cache: searchCache \}\)/)
+  const seededSearch = createConciliarSearchMachineState('COBROS', 'factura 260007', 0, true)
+  assert.equal(seededSearch.phase, 'idle')
+  assert.equal(seededSearch.view.query, 'factura 260007')
+  const noSeedSearch = createConciliarSearchMachineState('COBROS', 'factura 260007', 0, false)
+  assert.equal(noSeedSearch.phase, 'loading')
+  const nextGeneration = reduceConciliarSearchMachine(seededSearch, { type: 'TAB', tab: 'PAGOS' })
+  assert.equal(reduceConciliarSearchMachine(nextGeneration, { type: 'RESOLVED', generation: seededSearch.generation }).phase, 'loading')
+  assert.match(ui,/const ConciliarConfirmationHistory = dynamic\(loadConciliarConfirmationHistory\);/)
+  assert.match(ui,/<ConciliarConfirmationHistory activeActuationSessionId=\{activeActuation\?\.sessionId \?\? null\} busy=\{undoBlocked\} refreshKey=\{confirmationHistoryRevision\}/)
+  assert.match(ui,/const undoBlocked = identityBlocked \|\| sending \|\| retry !== null \|\| remesaPreviewLoading \|\| area3ReviewLoading;/,
+    'deshacer no depende del GET de la cola, pero conserva identidad, envío y revisión humana')
+  assert.match(ui,/onUndo=\{\(operationId, targetRowIds\) => \{ if \(!undoBlocked && targetRowIds\.length\) \{ operationTargetsRef\.current\.set\(operationId, \[\.\.\.targetRowIds\]\)/,
+    'el historial sólo habilita undo con los destinos durables conocidos')
   assert.match(ui,/showInterestInvoices && <ConfirmingInterestInvoices/)
 })

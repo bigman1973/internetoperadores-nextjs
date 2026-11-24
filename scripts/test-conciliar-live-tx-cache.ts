@@ -52,12 +52,15 @@ function contextFor(overrides: Partial<TrustedImpersonationContext> = {}): Trust
 }
 
 async function withCacheEnvironment<T>(callback: () => Promise<T>): Promise<T> {
-  const names = ['FINANCE_STAGING_SANDBOX', 'VERCEL_ENV', 'DATABASE_URL', 'IMPERSONATION_ALLOWED_ACTOR_IDS', 'IMPERSONATION_PRODUCTION_ENABLED'] as const
+  const names = ['FINANCE_STAGING_SANDBOX', 'VERCEL_ENV', 'DATABASE_URL', 'IMPERSONATION_ALLOWED_ACTOR_IDS', 'IMPERSONATION_PRODUCTION_ENABLED', 'IO_PRODUCTION_READ_ONLY'] as const
   const before = new Map(names.map(name => [name, process.env[name]]))
   process.env.FINANCE_STAGING_SANDBOX = '1'
   process.env.VERCEL_ENV = 'preview'
   process.env.DATABASE_URL = 'postgresql://io_staging_finanzas:fixture@127.0.0.1:1/io_staging_finanzas'
   process.env.IMPERSONATION_ALLOWED_ACTOR_IDS = '101,102'
+  // Sólo fakeTx: el gate read-only debe seguir desactivando la caché real,
+  // pero esta fixture prueba explícitamente la reutilización dentro del scope.
+  process.env.IO_PRODUCTION_READ_ONLY = '0'
   try {
     return await callback()
   } finally {
@@ -110,6 +113,7 @@ async function main(): Promise<void> {
   let now = 1_790_000_000_000
   Date.now = () => now
   try {
+    const inheritedReadOnly = process.env.IO_PRODUCTION_READ_ONLY
     await withCacheEnvironment(async () => {
       const unmarked = fakeTx([[future(now)], [future(now)]])
       assert.equal(hasConciliarSerializableAuthorizationForActor(unmarked as never, 101), false, 'La capacidad no existe fuera del callback exacto.')
@@ -225,7 +229,19 @@ async function main(): Promise<void> {
         assert.equal(await verifyLiveImpersonationContext(contextFor(), retryTwo as never), true)
       })
       assert.deepEqual([retryOne.queries.length, retryTwo.queries.length], [1, 1], 'Un reintento serializable no hereda la decisión ni el scope del intento anterior.')
+      process.env.IO_PRODUCTION_READ_ONLY = '1'
+      try {
+        const readOnly = fakeTx([[future(now)], [future(now)]])
+        await runWithVerifiedConciliarScope(readOnly as never, 202, async () => {
+          assert.equal(await verifyLiveImpersonationContext(contextFor(), readOnly as never), true)
+          assert.equal(await verifyLiveImpersonationContext(contextFor(), readOnly as never), true)
+        })
+        assert.equal(readOnly.queries.length, 2, 'Read-only desactiva reutilización incluso con scope y actor efectivos exactos.')
+      } finally {
+        process.env.IO_PRODUCTION_READ_ONLY = '0'
+      }
     })
+    assert.equal(process.env.IO_PRODUCTION_READ_ONLY, inheritedReadOnly, 'La fixture restaura exactamente el flag read-only heredado del gate.')
 
     await withProductionLikeEnvironment(async () => {
       const production = fakeTx([[future(now)], [future(now)]])

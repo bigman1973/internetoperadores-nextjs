@@ -3,6 +3,8 @@ import type { Prisma } from '@prisma/client'
 import type { Clock, FinanceSyncRepository } from './repository'
 import { safeError, systemClock } from './repository'
 import type { SyncProviderFactory } from './types'
+import { syncFailureDetail } from './isp-sync-errors'
+import { ispItemSourceHash } from './providers/isp/isp-issued-invoice-provider'
 
 export type Logger = Pick<Console, 'info' | 'warn' | 'error'>
 
@@ -11,6 +13,8 @@ export type WorkerOptions = {
   budgetMs: number
   /** Maximum items prepared in this invocation, independently of time. */
   itemLimit: number
+  /** ISP metadata only; OneDrive retains itemLimit. The same time/fencing budget applies. */
+  ispItemLimit?: number
   inventoryPageLimit?: number
   /** Bounded attempts per item. */
   maxItemAttempts?: number
@@ -53,7 +57,7 @@ export class FinanceSyncWorker<Tx> {
     providerFactory: SyncProviderFactory
     clock?: Clock
     logger?: Logger
-    authorizeInTx?: (input: { actorId: number | null; source: 'ONEDRIVE' | 'ISP'; operation: 'apply' }, tx: Tx) => Promise<void>
+    authorizeInTx?: (input: { actorId: number | null; source: 'ONEDRIVE' | 'ISP'; operation: 'apply'; scope?: Prisma.InputJsonValue; trigger?: string }, tx: Tx) => Promise<void>
   }) {}
 
   async run(options: WorkerOptions): Promise<WorkerResult> {
@@ -80,8 +84,9 @@ export class FinanceSyncWorker<Tx> {
         return result
       }
 
-      const provider = this.deps.providerFactory(claim.job.source)
+      const provider = this.deps.providerFactory(claim.job.source, claim.job)
       let job = claim.job
+      const itemLimit = job.source === 'ISP' ? Math.min(500, options.ispItemLimit ?? options.itemLimit) : options.itemLimit
       const inventoryPageLimit=Math.max(1,Math.min(options.inventoryPageLimit ?? 1,32));
       while (job.phase === 'INVENTORY' && result.inventoryCalls<inventoryPageLimit && clock.now()<deadline) {
         // Provider network must be outside tx. The barrier is persisted atomically
@@ -105,7 +110,7 @@ export class FinanceSyncWorker<Tx> {
       if(job.phase==='INVENTORY') return result
 
       let madeProgress = true
-      while (madeProgress && result.preparedItems < options.itemLimit && clock.now() < deadline) {
+      while (madeProgress && result.preparedItems < itemLimit && clock.now() < deadline) {
         madeProgress = false
         const itemLeaseUntil = leaseUntil
         const itemClaim = await this.deps.repository.claimNextItem({
@@ -134,8 +139,9 @@ export class FinanceSyncWorker<Tx> {
 
         const applied = await this.deps.repository.applyClaimedItem({
           jobId: job.id, itemId: itemClaim.item.id, token, now: clock.now(), deadline, actorId: job.actorId,
+          appliedSourceHash: job.source === 'ISP' ? ispItemSourceHash(itemClaim.item.item) : null,
           authorizeInTx: this.deps.authorizeInTx
-            ? (tx) => this.deps.authorizeInTx!({ actorId: job.actorId, source: job.source, operation: 'apply' }, tx)
+            ? (tx) => this.deps.authorizeInTx!({ actorId: job.actorId, source: job.source, operation: 'apply', scope: job.scope, trigger: job.trigger }, tx)
             : undefined,
           // Both apply and its optional descriptor are invoked by the repository
           // while its single transaction is open. Descriptor errors are
@@ -168,7 +174,7 @@ export class FinanceSyncWorker<Tx> {
       result.exhaustedBudget ||= clock.now() >= deadline
       return result
     } catch(error) {
-      await this.deps.repository.recordWorkerFailure?.({jobId:claim.job.id,token,safeError:safeError(error),maxRecoveries})
+      await this.deps.repository.recordWorkerFailure?.({jobId:claim.job.id,token,safeError:safeError(error),maxRecoveries,detail:syncFailureDetail(error)})
       throw error
     } finally {
       await this.deps.repository.releaseJob({ jobId: claim.job.id, token, now: clock.now() })

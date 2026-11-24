@@ -62,7 +62,11 @@ export function grantAllowsArea4Capability(
   capability: Area4Capability,
 ): boolean {
   const inherited = new Set(inheritedAreaCodes(codigoArea))
-  return grants.some(grant => inherited.has(grant.codigo) && Boolean(grant[capability]))
+  const matches = grants.filter(grant => inherited.has(grant.codigo))
+    .sort((a, b) => b.codigo.split('.').length - a.codigo.split('.').length)
+  // El ajuste más específico prevalece: revocar una hija no queda anulado
+  // por un permiso amplio de su padre.
+  return matches.length > 0 && Boolean(matches[0][capability])
 }
 
 /**
@@ -88,7 +92,10 @@ export function evaluateArea4Capability(input: Readonly<{
 
   // Decisión de Víctor: Gerente opera todo el negocio, pero nunca usuarios,
   // perfiles/permisos, auditoría ni Actuar como.
-  if (principal.rol === 'GERENTE') return true
+  if (principal.rol === 'GERENTE') {
+    const inherited = new Set(inheritedAreaCodes(codigoArea))
+    if (!grants.some(grant => inherited.has(grant.codigo))) return true
+  }
 
   return grantAllowsArea4Capability(grants, codigoArea, capability)
 }

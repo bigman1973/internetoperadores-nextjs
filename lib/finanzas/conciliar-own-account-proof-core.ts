@@ -75,8 +75,9 @@ export function manualOwnAccountProof(
 
 /**
  * Builds the persisted source for a manual transfer confirmation bridge. The
- * caller must still re-read both movement legs, manual declarations and the
- * independent strict historical proof before any B4 write.
+ * caller must still re-read both movement legs and the current manual human
+ * declarations before any B4 write. It is not evidence for the independent
+ * automatic strict route.
  */
 export function humanOwnTransferPairSource(input: Readonly<{
   movimientoId: unknown

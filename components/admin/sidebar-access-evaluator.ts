@@ -1,3 +1,6 @@
+import { evaluateArea4Capability, grantAllowsArea4Capability, isArea4OwnerOnlyArea } from '@/lib/area4/policy'
+import { area4SectionByKey } from '@/lib/area4/section-registry'
+
 export type AdminSidebarPermission = Readonly<{
   codigo: string
   lectura: boolean
@@ -14,83 +17,45 @@ export type AdminSidebarPreviewUser = Readonly<{
   roles: string[]
 }>
 
-// Permisos por sección según rol (SOLO se usan si el usuario NO tiene permisos granulares)
+// Compatibilidad legacy sin grants: SUPER_ADMIN nunca es un rol delegable.
 export const PERMISOS_POR_ROL: Record<string, readonly string[]> = {
-  SUPER_ADMIN: ['*'],
+  SUPER_ADMIN: [],
   GERENTE: [
     'dashboard', 'crm', 'tarifas', 'clientes', 'leads', 'comunicados',
     'altas-pendientes', 'contratos', 'facturacion', 'finanzas',
     'estadisticas', 'subida-precios', 'personal',
-    'proyectos', 'historial', 'configuracion', 'certificaciones', 'certificaciones.iso_27001', 'certificaciones.tisax', 'certificaciones.cuestionarios',
-    'asistente', 'asistente.chat', 'asistente.conocimiento', 'asistente.conversaciones', 'asistente.leads', 'asistente.aprendizaje', 'asistente.analitica', 'asistente.propuestas', 'asistente.configuracion',
-    'aapp', 'peticiones', 'imputaciones', 'proyectos_internos',
+    'proyectos', 'historial', 'configuracion', 'certificaciones',
+    'asistente', 'aapp', 'peticiones', 'imputaciones', 'proyectos_internos',
   ],
-  MARKETING: [
-    'dashboard', 'crm', 'leads', 'comunicados', 'estadisticas',
-  ],
-  VENTAS: [
-    'dashboard', 'crm', 'tarifas', 'clientes', 'leads', 'altas-pendientes', 'contratos',
-  ],
-  CONTABILIDAD: [
-    'dashboard', 'facturacion', 'finanzas', 'subida-precios', 'estadisticas',
-  ],
-  RRHH: [
-    'dashboard', 'personal',
-  ],
+  MARKETING: ['dashboard', 'crm', 'leads', 'comunicados', 'estadisticas'],
+  VENTAS: ['dashboard', 'crm', 'tarifas', 'clientes', 'leads', 'altas-pendientes', 'contratos'],
+  CONTABILIDAD: ['dashboard', 'facturacion', 'finanzas', 'estadisticas'],
+  RRHH: ['dashboard', 'personal'],
   VISOR: [],
 }
 
-// Secciones que requieren acceso exclusivo del propietario canónico (Víctor).
 export const SECCIONES_SUPER_ADMIN_ONLY = [
-  'usuarios', 'auditoria', 'actuar-como',
-  'admin.usuarios', 'admin.auditoria', 'admin.actuar_como',
+  'usuarios', 'permisos', 'auditoria', 'actuar-como',
+  'admin.usuarios', 'admin.permisos', 'admin.auditoria', 'admin.actuar_como',
 ]
 
-// Mapeo de secciones del sidebar a códigos de área granular
 const SECTION_TO_AREA: Record<string, string> = {
   dashboard: 'admin',
-  crm: 'admin.crm',
-  'crm.contactos': 'admin.crm.contactos',
-  'crm.listas': 'admin.crm.listas',
-  'crm.particulares': 'admin.crm.particulares',
-  'crm.empresas': 'admin.crm.empresas',
-  'crm.partners': 'admin.crm.partners',
-  tarifas: 'admin.tarifas',
-  clientes: 'admin.clientes',
-  'clientes.todos': 'admin.clientes.todos',
-  'clientes.migracion_adamo': 'admin.clientes.migracion_adamo',
-  'clientes.ggcc.draxton': 'admin.clientes.ggcc.draxton',
-  leads: 'admin.leads',
-  comunicados: 'admin.comunicados',
-  'altas-pendientes': 'admin.altas_pendientes',
-  contratos: 'admin.contratos',
-  facturacion: 'admin.facturacion',
-  finanzas: 'admin.finanzas',
-  'finanzas.analitica_costes': 'admin.finanzas.analitica_costes',
+  'clientes.todos': 'admin.clientes',
   'finanzas-tickets': 'admin.finanzas.tickets',
-  estadisticas: 'admin.estadisticas',
-  usuarios: 'admin.usuarios',
-  auditoria: 'admin.auditoria',
-  'subida-precios': 'admin.subida_precios',
   personal: 'admin.empleados',
   proyectos: 'admin.proyectos',
-  certificaciones: 'admin.certificaciones',
-  'certificaciones.iso_27001': 'admin.certificaciones.iso_27001',
-  'certificaciones.tisax': 'admin.certificaciones.tisax',
-  'certificaciones.cuestionarios': 'admin.certificaciones.cuestionarios',
-  historial: 'admin.historial',
-  configuracion: 'admin.configuracion',
-  peticiones: 'admin.peticiones',
-  'portal-empleado': 'admin',
-  asistente: 'admin.asistente',
-  'asistente.chat': 'admin.asistente.chat',
-  'asistente.conocimiento': 'admin.asistente.conocimiento',
-  'asistente.conversaciones': 'admin.asistente.conversaciones',
-  'asistente.leads': 'admin.asistente.leads',
-  'asistente.aprendizaje': 'admin.asistente.aprendizaje',
-  'asistente.analitica': 'admin.asistente.analitica',
-  'asistente.propuestas': 'admin.asistente.propuestas',
-  'asistente.configuracion': 'admin.asistente.configuracion',
+  usuarios: 'admin.usuarios',
+  permisos: 'admin.permisos',
+  proyectos_internos: 'admin.proyectos_internos',
+}
+
+function sectionArea(section: string): string {
+  return SECTION_TO_AREA[section]
+    || area4SectionByKey(section)?.areaCode
+    || (section === 'admin' || section.startsWith('admin.') || section.startsWith('empleado.')
+      ? section
+      : `admin.${section.replace(/-/g, '_')}`)
 }
 
 export type AdminSidebarAccessInput = Readonly<{
@@ -107,108 +72,67 @@ export type AdminSidebarAccessInput = Readonly<{
   tienePermisosGranulares: boolean
 }>
 
-/**
- * Verificar acceso a una sección del sidebar.
- * REGLA PRINCIPAL: Si el usuario tiene permisos granulares asignados,
- * SOLO se usan esos. Si no tiene ninguno, se usa el sistema de roles legacy.
- *
- * Esta función es la única implementación de la política de `hasAccess`.
- */
+/** Representa la política viva; jamás concede autoridad por la identidad del actor inicial. */
 export function hasAccess(input: AdminSidebarAccessInput): boolean {
-  let section = input.section
-  const {
-    effectiveRole,
-    isSuperAdmin,
-    isArea4Owner,
-    isViewingAs,
-    isViewingAsUser,
-    viewAsRole,
-    userRoles,
-    viewingUser,
-    permisosGranulares,
-    tienePermisosGranulares,
-  } = input
+  const codigoArea = sectionArea(input.section)
+  const preview = input.isViewingAs || input.isViewingAsUser || input.viewingUser !== null || input.viewAsRole !== null
+  const role = input.isViewingAsUser
+    ? input.viewingUser?.rol
+    : (input.viewAsRole || input.effectiveRole)
+  if (!role) return false
+  // Simular solo un rol no identifica a otro usuario: sus grants no pueden
+  // provenir de la ACL del propietario que inició la previsualización.
+  const rolePreview = preview && !input.isViewingAsUser
+  const grants = rolePreview ? [] : input.permisosGranulares
 
-  // Solo el propietario canónico tiene acceso total, y nunca mientras ve a otra persona.
-  if (isArea4Owner && !isViewingAs) return true
-  if (SECCIONES_SUPER_ADMIN_ONLY.includes(section)) return false
+  const owner = input.isArea4Owner && role === 'SUPER_ADMIN' && !preview
+  // El módulo nuevo de staging conserva su restricción: propietario real, sin Actuar como.
+  if (codigoArea === 'admin.rentabilidad' || codigoArea.startsWith('admin.rentabilidad.')) return owner
+  if (owner) return true
+  if (isArea4OwnerOnlyArea(codigoArea)) return false
+  // Tanto un SUPER_ADMIN no canónico como la previsualización de ese rol fallan cerrados.
+  if (role === 'SUPER_ADMIN') return false
 
-  // Una cuenta histórica SUPER_ADMIN que no sea Víctor queda cerrada por defecto.
-  if (isSuperAdmin && !isViewingAs) return false
+  // Subida conserva la guardia actual de staging: rol principal Gerente o
+  // propietario, nunca un grant operativo ni una simulación del actor real.
+  if ((codigoArea === 'admin.subida_precios' || codigoArea.startsWith('admin.subida_precios.')) && (preview || role !== 'GERENTE')) return false
 
-  // Portal empleado siempre accesible
-  if (section === 'portal-empleado') return true
+  // La política compartida aplica también la revocación explícita a Gerente.
+  if (role === 'GERENTE') return evaluateArea4Capability({
+    principal: { id: 0, activo: true, rol: role },
+    grants,
+    codigoArea,
+    capability: 'lectura',
+    ownerId: null,
+  })
 
-  if (section === 'finanzas.analitica_costes' && !tienePermisosGranulares) section = 'finanzas'
+  // Si existen grants (también los denegados), no se recurre a roles secundarios legacy.
+  if ((!rolePreview && input.tienePermisosGranulares) || grants.length > 0) {
+    return checkGranularAccess(input.section, grants)
+  }
 
-  // Si está simulando un usuario específico
-  if (isViewingAsUser && viewingUser) {
-    // Usar SOLO permisos granulares para el usuario simulado
-    if (tienePermisosGranulares) {
-      return checkGranularAccess(section, permisosGranulares)
-    }
-    // Si no tiene granulares, usar su rol
-    const userRolesEff = viewingUser.roles?.length > 0 ? viewingUser.roles : [viewingUser.rol]
-    return userRolesEff.some(rol => {
-      if (rol === 'GERENTE') return !SECCIONES_SUPER_ADMIN_ONLY.includes(section)
-      const permisos = PERMISOS_POR_ROL[rol]
-      if (!permisos) return false
-      if (permisos.includes('*')) return !SECCIONES_SUPER_ADMIN_ONLY.includes(section)
-      return permisos.includes(section)
+  // Un portal legacy puede seguir disponible sin abrir el root administrativo.
+  if (codigoArea === 'empleado.portal') return true
+  if (codigoArea === 'empleado.peticiones') return true
+
+  // Un rol simulado no hereda los roles del actor; un usuario simulado solo usa los suyos.
+  const roles = input.isViewingAsUser
+    ? [role, ...(input.viewingUser?.roles || [])]
+    : preview ? [role] : [role, ...input.userRoles]
+  return roles.some(legacyRole => {
+    // SUPER_ADMIN nunca es delegable. Gerente secundario conserva únicamente
+    // su lista legacy de negocio, no el bypass del rol principal en policy.ts.
+    if (legacyRole === 'SUPER_ADMIN') return false
+    return (PERMISOS_POR_ROL[legacyRole] || []).some(section => {
+      const grantedArea = sectionArea(section)
+      return codigoArea === grantedArea || (grantedArea !== 'admin' && codigoArea.startsWith(`${grantedArea}.`))
     })
-  }
-
-  // Si está simulando un rol (no un usuario)
-  if (isViewingAs && viewAsRole) {
-    if (effectiveRole === 'GERENTE') return !SECCIONES_SUPER_ADMIN_ONLY.includes(section)
-    const permisos = PERMISOS_POR_ROL[effectiveRole]
-    if (!permisos) return false
-    if (permisos.includes('*')) return !SECCIONES_SUPER_ADMIN_ONLY.includes(section)
-    return permisos.includes(section)
-  }
-
-  // Usuario real (no simulación)
-  // Si tiene permisos granulares, SOLO usar esos
-  if (tienePermisosGranulares) {
-    return checkGranularAccess(section, permisosGranulares)
-  }
-
-  // Sin permisos granulares → sistema legacy de roles
-  if (userRoles.length === 0) return false
-
-  if (effectiveRole === 'GERENTE') return !SECCIONES_SUPER_ADMIN_ONLY.includes(section)
-  if (SECCIONES_SUPER_ADMIN_ONLY.includes(section)) return false
-
-  return userRoles.some(rol => {
-    const permisos = PERMISOS_POR_ROL[rol]
-    if (!permisos) return false
-    if (permisos.includes('*')) return !SECCIONES_SUPER_ADMIN_ONLY.includes(section)
-    return permisos.includes(section)
   })
 }
 
-/**
- * Verifica si un usuario con permisos granulares tiene acceso a una sección del sidebar.
- * La sección se mapea a un código de área, y se verifica si alguno de los permisos
- * del usuario cubre esa área (directamente o por herencia hacia abajo).
- */
-export function checkGranularAccess(
-  section: string,
-  permisos: readonly AdminSidebarPermission[],
-): boolean {
-  const codigoArea = SECTION_TO_AREA[section]
-    || (section.startsWith('admin.') || section.startsWith('empleado.') ? section : `admin.${section.replace(/-/g, '_')}`)
-
-  return permisos.some(p => {
-    if (!p.lectura) return false
-    // El permiso cubre el área exacta
-    if (p.codigo === codigoArea) return true
-    // El permiso es un padre del área (herencia hacia abajo)
-    if (codigoArea.startsWith(p.codigo + '.')) return true
-    // El permiso es un hijo del área (si tiene acceso a un sub-apartado, debe ver el menú padre)
-    if (p.codigo.startsWith(codigoArea + '.')) return true
-    return false
-  })
+/** Un permiso hijo no autoriza el root padre: los contenedores los resuelve el menú sin enlaces. */
+export function checkGranularAccess(section: string, permisos: readonly AdminSidebarPermission[]): boolean {
+  return grantAllowsArea4Capability(permisos, sectionArea(section), 'lectura')
 }
 
 /** Firma estable, sólo para saber si la foto recibida por el cliente cambió. */

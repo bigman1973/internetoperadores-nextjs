@@ -36,7 +36,8 @@ export default function PartnersPage() {
           sector: formData.sector,
           numClientes: formData.numClientes,
           mensaje: formData.mensaje,
-          newsletter: formData.newsletter
+          newsletter: formData.newsletter,
+          acepta: formData.acepta
         })
       });
       if (!response.ok) throw new Error('Error al enviar');

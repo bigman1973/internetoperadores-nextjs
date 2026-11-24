@@ -7,6 +7,7 @@ import {
 } from '@/lib/impersonation-context'
 import { impersonationActorListed, impersonationEnabled, impersonationRequestAllowed } from '@/lib/impersonation-policy'
 import { conciliarRuntimeConfigured } from '@/lib/finanzas/conciliar-runtime'
+import { REVIEWED_CONCILIAR_RECOVERY_LOCK_SQL } from '@/lib/finanzas/conciliar-recovery-lock-sql'
 
 // La copia de Finanzas nunca debe reconectar a producción por un override ausente.
 if (process.env.FINANCE_STAGING_SANDBOX === '1') {
@@ -419,6 +420,10 @@ function classifySqlStatement(template: string | null): RawSqlStatementKind {
   const canonical = canonicalTokens(tokens)
   if (canonical === 'set transaction read only') return 'transaction_read_only'
   if (REVIEWED_ADVISORY_LOCK.test(canonical) || REVIEWED_CONCILIAR_BATCH_LOCK.test(canonical)) return 'advisory_lock'
+  // Two recovery CTE bundles are reviewed as complete token streams. Their
+  // materialized advisory barrier remains the root and every mutable relation
+  // is explicitly locked beneath it; no general CTE/advisory grammar is added.
+  if (REVIEWED_CONCILIAR_RECOVERY_LOCK_SQL.has(canonical)) return 'advisory_lock'
   const first = tokens[0]
   if (first.kind === 'ident' && BUSINESS_DML.has(first.value)) return 'mutating'
   const startsAsQuery = (first.kind === 'ident' && (first.value === 'select' || first.value === 'with'))
@@ -454,6 +459,12 @@ function classifySqlStatement(template: string | null): RawSqlStatementKind {
       if (!TYPE_MODIFIER_TYPES.has(token.value) || !parenthesisedListIs(body, offset + 1, item => item.kind === 'number' && /^[0-9]+$/.test(item.value))) return 'unknown'
       continue
     }
+    // PostgreSQL's reviewed CTE form is `name AS MATERIALIZED (SELECT ...)`.
+    // It is neither a function call nor an alias-column list; the SELECT body
+    // is still recursively constrained by this same token walk. Deliberately
+    // do not admit `AS NOT MATERIALIZED`, arbitrary modifiers, or DML CTEs.
+    if (previous?.kind === 'ident' && previous.value === 'as' && token.value === 'materialized') continue
+    if (token.value === 'materialized') return 'unknown'
     // After AS only an alias column list or a CAST target type can follow.
     if (previous?.kind === 'ident' && previous.value === 'as') {
       const exact = TYPE_MODIFIER_TYPES.has(token.value)

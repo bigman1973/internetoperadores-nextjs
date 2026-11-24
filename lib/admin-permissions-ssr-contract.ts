@@ -25,9 +25,9 @@ export function serializeAdminPermissionSsrSeed(
   }))
 }
 
-/** Mantiene el criterio histórico de entrada al panel: al menos una lectura. */
+/** Sólo una lectura administrativa habilita el panel; Portal propio no cuenta. */
 export function countReadableAdminPermissionSeeds(permissions: readonly AdminPermissionSsrSeed[]): number {
-  return permissions.reduce((count, permission) => count + (permission.lectura ? 1 : 0), 0)
+  return permissions.reduce((count, permission) => count + (permission.lectura && permission.codigo.startsWith('admin.') ? 1 : 0), 0)
 }
 
 /**

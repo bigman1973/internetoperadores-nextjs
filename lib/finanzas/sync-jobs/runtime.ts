@@ -1,6 +1,7 @@
 import type { FinanceSyncRepository } from './repository'
 import type { SyncProviderFactory, SyncSource } from './types'
 import { EmptyStagingProvider, type StagingProviderOptions } from './staging-provider'
+import { readOnlyStagingIspProvider } from './staging-isp-readonly'
 import { FinanceSyncService, type FinanceSyncServiceDependencies } from './service'
 import type { Logger } from './worker'
 
@@ -42,20 +43,27 @@ export function createProviderFactory(input: {
   env: FinanceSyncEnvironment
   productionFactory?: SyncProviderFactory
   staging?: StagingProviderOptions
+  /** Same ISP construction as production, injected by the assembly. Used only in staging, read-only and behind an explicit flag. */
+  stagingIspFactory?: SyncProviderFactory
   /** Result of the application’s DB-isolation guard, not an env assertion. */
   stagingIsolationVerified?: boolean
 }): SyncProviderFactory {
   const mode = runtimeMode(input.env)
   if (mode === 'production') {
     if (!input.productionFactory) throw new Error('FINANCE_PROVIDER_FACTORY_MISSING')
-    return (source) => {
+    return (source, context) => {
       assertSourceEnabled(input.env, source)
-      return input.productionFactory!(source)
+      return input.productionFactory!(source, context)
     }
   }
   if (mode === 'staging') {
     if (input.stagingIsolationVerified !== true) throw new Error('STAGING_ISOLATION_REQUIRED')
-    return () => new EmptyStagingProvider(input.staging)
+    return (source, context) => {
+      if (source === 'ISP' && input.stagingIspFactory && input.env.FINANCE_STAGING_ISP_READONLY === '1') {
+        return readOnlyStagingIspProvider(input.stagingIspFactory(source, context))
+      }
+      return new EmptyStagingProvider(input.staging)
+    }
   }
   return () => { throw new Error('FINANCE_BACKGROUND_SYNC_DISABLED') }
 }

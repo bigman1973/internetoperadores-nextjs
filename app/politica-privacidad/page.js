@@ -46,6 +46,9 @@ export default function PoliticaPrivacidad() {
               <li><strong>Datos de navegación:</strong> Dirección IP, tipo de navegador, páginas visitadas</li>
               <li><strong>Cookies:</strong> Información técnica y de preferencias (ver Política de Cookies)</li>
             </ul>
+            <p className="text-gray-700 mb-4">
+              Usamos Metricool (Metricool Software, S.L.) para medir de forma anónima y agregada las visitas, sin cookies ni identificadores. Actúa como encargado del tratamiento.
+            </p>
           </section>
 
           <section className="mb-8">
@@ -168,4 +171,3 @@ export default function PoliticaPrivacidad() {
     </div>
   );
 }
-

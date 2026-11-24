@@ -29,17 +29,29 @@ export function parseArguments(argv) {
   }
   return args;
 }
-function run(argv, output, name, environment = {}) {
+function run(argv, output, name) {
   const log = join(output, `${name}.log`);
-  const result = spawnSync(argv[0], argv.slice(1), {
-    cwd: ROOT,
-    encoding: 'utf8',
-    timeout: 180000,
-    maxBuffer: 16 * 1024 * 1024,
-    env: { ...process.env, ...environment },
-  });
+  const result = spawnSync(argv[0], argv.slice(1), { cwd: ROOT, encoding: 'utf8', timeout: 180000, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, FINANCE_STAGING_SANDBOX: '1', FINANCE_GRAPH_DELTA_ENABLED: '0' } });
   writeFileSync(log, (result.stdout ?? '') + (result.stderr ?? ''), { mode: 0o600 });
   return { ok: result.status === 0 && !result.error, log, stdout: result.stdout ?? '' };
+}
+function productionRestoreGate(config, output) {
+  const entry = config?.productionRestore;
+  if (!entry?.inputFile || !entry?.originalGoldenFile || !entry?.clientFile || !entry?.restoreReceipt || !entry?.cloneReceipt || !entry?.candidateRebuildReceipt || !entry?.g3HistoricalSelectorFile) return { pass: false, reason: 'NEW_PROD_RESTORE_INPUTS_REQUIRED' };
+  const result = run([
+    join(ROOT, 'node_modules/.bin/tsx'), 'scripts/test-conciliar-production-restore-regression.ts',
+    '--profile', 'PROD_NEW_RESTORE', '--input-file', entry.inputFile, '--original-golden-file', entry.originalGoldenFile, '--client-file', entry.clientFile,
+    '--restore-receipt', entry.restoreReceipt, '--clone-receipt', entry.cloneReceipt, '--candidate-rebuild-receipt', entry.candidateRebuildReceipt,
+    '--g3-historical-selector-file', entry.g3HistoricalSelectorFile,
+  ], output, 'production-restore-golden');
+  let evidence; try { evidence = JSON.parse(result.stdout); } catch { return { pass: false, reason: 'NEW_PROD_RESTORE_RESULT_INVALID' }; }
+  return { pass: Boolean(result.ok && evidence?.ok && evidence?.profile === 'PROD_NEW_RESTORE' && evidence?.writeOperations === false && evidence?.g7Rebuilt === false), evidence };
+}
+function stageProfilePathFromManifest(manifestFile) {
+  const manifest = privateFile(manifestFile);
+  const path = manifest?.derivative?.path;
+  if (manifest?.schema !== 'CONCILIAR_RELEASE_REGRESSION_STAGING_PROFILE_MANIFEST_V2' || manifest?.profile !== 'STAGE' || typeof path !== 'string' || !path) throw Error('STAGE_PROFILE_MANIFEST_PATH_REQUIRED');
+  return path;
 }
 export function main(argv = process.argv.slice(2)) {
   const args = parseArguments(argv), registry = validateRegistry(JSON.parse(readFileSync(join(ROOT, 'config/areas.json'), 'utf8')));
@@ -48,36 +60,36 @@ export function main(argv = process.argv.slice(2)) {
   const migrations = run([process.execPath, 'scripts/areas/check-migrations.mjs'], output, 'migration-convention');
   const enabled = registry.batteries.filter(x => x.enabled), results = [];
   const sha = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).stdout?.trim();
+  const prodGate = args.localOnly ? { pass: false, reason: 'LOCAL_ONLY_NOT_RELEASE_EVIDENCE' } : productionRestoreGate(config, output);
   for (const battery of enabled) {
     const pure = battery.pureSuites.map((path, i) => ({ suite: path, ...run([join(ROOT, 'node_modules/.bin/tsx'), path], output, `${battery.id}-pure-${i}`) }));
     const result = { id: battery.id, purePassing: pure.filter(x => x.ok).length, pureTotal: pure.length, pureFailures: pure.filter(x => !x.ok).map(x => x.suite), apiPass: false, reasons: [] };
     if (result.pureFailures.length) result.reasons.push('PURE_BATTERY_FAILED');
+    const entry = config?.batteries?.[battery.id];
+    const hasLiveInputs = Boolean(entry?.snapshotFile && entry?.manifestFile && entry?.envFile && entry?.g3HistoricalSelectorFile);
+    if (!args.localOnly && !hasLiveInputs) result.reasons.push('LIVE_API_INPUTS_REQUIRED');
     if (args.localOnly) result.reasons.push('LOCAL_ONLY_NOT_RELEASE_EVIDENCE');
+    else if (!prodGate.pass) result.reasons.push('NEW_PROD_RESTORE_GOLDEN_REQUIRED');
     else {
-      const entry = config?.batteries?.[battery.id];
-      if (!entry?.snapshotFile || !entry?.caseFile || !entry?.envFile) result.reasons.push('LIVE_API_INPUTS_REQUIRED');
-      else {
-        const api = run(
-          [join(ROOT, 'node_modules/.bin/tsx'), battery.apiRunner, '--snapshot-file', entry.snapshotFile, '--input-file', entry.caseFile, '--env-file', entry.envFile],
-          output,
-          `${battery.id}-live-api`,
-          { FINANCE_STAGING_SANDBOX: '1', FINANCE_GRAPH_DELTA_ENABLED: '0' },
-        );
-        let evidence; try { evidence = JSON.parse(api.stdout); } catch { result.reasons.push('LIVE_API_RESULT_INVALID'); }
-        result.apiPass = Boolean(api.ok && evidence?.ok && evidence.apiGate?.pass && evidence.total === battery.minimumCases && evidence.passing === battery.minimumCases && evidence.supplemental?.length === battery.minimumSupplementalCases && evidence.supplemental.every(x => x.pass));
-        if (!result.apiPass) result.reasons.push('LIVE_API_BATTERY_FAILED');
-        if (evidence) result.api = evidence;
+      if (hasLiveInputs) {
+        let caseFile;
+        try { caseFile = stageProfilePathFromManifest(entry.manifestFile); }
+        catch { result.reasons.push('STAGE_PROFILE_MANIFEST_PATH_REQUIRED'); }
+        if (caseFile) {
+          const api = run([join(ROOT, 'node_modules/.bin/tsx'), battery.apiRunner, '--profile', 'STAGE', '--snapshot-file', entry.snapshotFile, '--input-file', caseFile, '--manifest-file', entry.manifestFile, '--env-file', entry.envFile, '--g3-historical-selector-file', entry.g3HistoricalSelectorFile], output, `${battery.id}-live-api`);
+          let evidence; try { evidence = JSON.parse(api.stdout); } catch { result.reasons.push('LIVE_API_RESULT_INVALID'); }
+          result.apiPass = Boolean(api.ok && evidence?.ok && evidence.apiGate?.pass && evidence.total === battery.minimumCases && evidence.passing === battery.minimumCases && evidence.supplemental?.length === battery.minimumSupplementalCases && evidence.supplemental.every(x => x.pass));
+          if (!result.apiPass) result.reasons.push('LIVE_API_BATTERY_FAILED');
+          if (evidence) result.api = evidence;
+        }
       }
     }
-    // El modo local verifica íntegramente el contrato versionado y las suites
-    // puras sin acceder a datos privados. Puede dejar el check CI en verde,
-    // pero su informe sigue marcado como no publicable y el guard real lo
-    // rechazará como evidencia de publicación.
+    // El CI local conserva su contrato publicado, pero jamás es evidencia de release.
     result.ok = !result.pureFailures.length && (args.localOnly || result.apiPass);
     delete result.stdout; results.push(result);
   }
-  const allChecksPassed = migrations.ok && results.every(x => x.ok);
-  const report = { schema: 'io.areas.battery-report.v1', commit: sha, capturedAt: new Date().toISOString(), ok: allChecksPassed, publishAllowed: !args.localOnly && allChecksPassed, migrationGate: migrations.ok, localOnly: args.localOnly, registryHash: createHash('sha256').update(readFileSync(join(ROOT, 'config/areas.json'))).digest('hex'), results };
+  const allChecksPassed = migrations.ok && (args.localOnly || prodGate.pass) && results.every(x => x.ok);
+  const report = { schema: 'io.areas.battery-report.v1', commit: sha, capturedAt: new Date().toISOString(), ok: allChecksPassed, publishAllowed: !args.localOnly && allChecksPassed, migrationGate: migrations.ok, productionRestoreGate: prodGate, localOnly: args.localOnly, registryHash: createHash('sha256').update(readFileSync(join(ROOT, 'config/areas.json'))).digest('hex'), results };
   writeFileSync(join(output, 'report.json'), JSON.stringify(report, null, 2) + '\n', { mode: 0o600 });
   console.log(JSON.stringify({ ...report, reportFile: join(output, 'report.json') }));
   return report.ok ? 0 : 1;

@@ -191,7 +191,7 @@ export async function POST(request: Request) {
           const areaId = item.areaId as string
           if (!byId.has(areaId)) throw new Error('AREAS_INVALIDAS')
           return { usuarioId, areaId, ...normalizarPermiso(item) }
-        }).filter(item => item.lectura || item.escritura || item.confirmar || item.exportar)
+        })
         await tx.permisoUsuario.deleteMany({ where: { usuarioId } })
         if (creates.length) await tx.permisoUsuario.createMany({ data: creates })
         await tx.usuarioAdmin.update({ where: { id: usuarioId }, data: { permisosArea4Vivos: true } })
@@ -215,11 +215,11 @@ export async function POST(request: Request) {
     await prisma.$transaction(async tx => {
       const anterior = await tx.permisoUsuario.findUnique({ where: { usuarioId_areaId: { usuarioId, areaId } }, include: { area: { select: { codigo: true } } } })
       if (!anterior) return
-      await tx.permisoUsuario.delete({ where: { usuarioId_areaId: { usuarioId, areaId } } })
+      await tx.permisoUsuario.update({ where: { usuarioId_areaId: { usuarioId, areaId } }, data: { lectura: false, escritura: false, confirmar: false, exportar: false } })
       await tx.usuarioAdmin.update({ where: { id: usuarioId }, data: { permisosArea4Vivos: true } })
       await appendArea4Audit(tx, {
         actorId, objetivoUsuarioId: usuarioId, operacion: 'PERMISO_CAMBIO', areaCodigo: anterior.area.codigo,
-        antes: permisosAuditables([anterior])[0], despues: null, origen: origin,
+        antes: permisosAuditables([anterior])[0], despues: { areaCodigo: anterior.area.codigo, lectura: false, escritura: false, confirmar: false, exportar: false }, origen: origin,
       })
     })
     return NextResponse.json({ ok: true })
@@ -275,18 +275,18 @@ export async function POST(request: Request) {
     try {
       const result = await prisma.$transaction(async tx => {
         const [usuario, perfil, antes] = await Promise.all([
-          tx.usuarioAdmin.findUnique({ where: { id: usuarioId }, select: { id: true } }),
+          tx.usuarioAdmin.findUnique({ where: { id: usuarioId }, select: { id: true, rol: true } }),
           tx.perfilPermisos.findFirst({ where: { id: perfilId, activo: true } }),
           tx.permisoUsuario.findMany({ where: { usuarioId }, include: { area: { select: { codigo: true } } } }),
         ])
         if (!usuario || !perfil) throw new Error('NOT_FOUND')
+        if (usuario.rol === 'SUPER_ADMIN' || (usuario.rol === 'GERENTE' && perfil.id !== 'area4-gerente-operativo')) throw new Error('ROL_INCOMPATIBLE')
         const requested = perfil.permisos as unknown as Array<{ areaCodigo: string; lectura?: boolean; escritura?: boolean; confirmar?: boolean; exportar?: boolean }>
         const codigos = requested.map(item => item.areaCodigo)
         const areas = await tx.permisoArea.findMany({ where: { codigo: { in: codigos }, activo: true }, select: { id: true, codigo: true } })
         if (areas.length !== new Set(codigos).size) throw new Error('AREAS_INVALIDAS')
         const areaByCode = new Map(areas.map(area => [area.codigo, area.id]))
         const creates = requested.map(item => ({ usuarioId, areaId: areaByCode.get(item.areaCodigo)!, ...normalizarPermiso(item) }))
-          .filter(item => item.lectura || item.escritura || item.confirmar || item.exportar)
         await tx.permisoUsuario.deleteMany({ where: { usuarioId } })
         if (creates.length) await tx.permisoUsuario.createMany({ data: creates })
         await tx.usuarioAdmin.update({ where: { id: usuarioId }, data: { perfilAsignado: perfil.nombre, permisosArea4Vivos: true } })
@@ -300,7 +300,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, ...result })
     } catch (error) {
       const message = error instanceof Error ? error.message : ''
-      return NextResponse.json({ error: message === 'NOT_FOUND' ? 'Usuario o perfil no encontrado' : message === 'AREAS_INVALIDAS' ? 'El perfil contiene áreas no registradas' : 'No se pudo aplicar el perfil' }, { status: 400 })
+      return NextResponse.json({ error: message === 'ROL_INCOMPATIBLE' ? 'Confirma primero el cambio de rol; este perfil no limita un rol privilegiado.' : message === 'NOT_FOUND' ? 'Usuario o perfil no encontrado' : message === 'AREAS_INVALIDAS' ? 'El perfil contiene áreas no registradas' : 'No se pudo aplicar el perfil' }, { status: 400 })
     }
   }
 

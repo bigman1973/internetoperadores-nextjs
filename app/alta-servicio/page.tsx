@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, Suspense, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useCart } from '@/components/CartProvider'
 
@@ -92,6 +92,7 @@ function AltaServicioContent() {
 
   const [paso, setPaso] = useState(fromCart || tarifaIdParam ? 1 : 0) // 0 = selector tarifas
   const [loading, setLoading] = useState(false)
+  const envioRef = useRef<{ payload: string; key: string } | null>(null)
   const [error, setError] = useState('')
   const [tarifasDisponibles, setTarifasDisponibles] = useState<TarifaPublica[]>([])
   const [tarifasSeleccionadas, setTarifasSeleccionadas] = useState<TarifaPublica[]>([])
@@ -270,20 +271,25 @@ function AltaServicioContent() {
       const observaciones = [obsCantidad, obsAdicionales, formData.observaciones].filter(Boolean).join('\n') || undefined
 
       const newsletterCheckbox = document.getElementById('newsletter-optin') as HTMLInputElement
+      const payload = JSON.stringify({
+        ...formData,
+        tarifaId: tarifaPrincipal.id,
+        iban: formData.iban.replace(/\s/g, ''),
+        direccionInstalacion: formData.instalacionDiferente ? formData.direccionInstalacion : null,
+        localidadInstalacion: formData.instalacionDiferente ? formData.localidadInstalacion : null,
+        provinciaInstalacion: formData.instalacionDiferente ? formData.provinciaInstalacion : null,
+        cpInstalacion: formData.instalacionDiferente ? formData.cpInstalacion : null,
+        observaciones,
+        newsletter: newsletterCheckbox?.checked === true,
+        privacidad: checkbox.checked,
+      })
+      if (!envioRef.current || envioRef.current.payload !== payload) {
+        envioRef.current = { payload, key: crypto.randomUUID() }
+      }
       const res = await fetch('/api/altas/crear', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...formData,
-          tarifaId: tarifaPrincipal.id,
-          iban: formData.iban.replace(/\s/g, ''),
-          direccionInstalacion: formData.instalacionDiferente ? formData.direccionInstalacion : null,
-          localidadInstalacion: formData.instalacionDiferente ? formData.localidadInstalacion : null,
-          provinciaInstalacion: formData.instalacionDiferente ? formData.provinciaInstalacion : null,
-          cpInstalacion: formData.instalacionDiferente ? formData.cpInstalacion : null,
-          observaciones,
-          newsletter: newsletterCheckbox?.checked || false,
-        }),
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': envioRef.current.key },
+        body: payload,
       })
 
       const data = await res.json()

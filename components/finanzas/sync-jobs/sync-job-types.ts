@@ -22,6 +22,23 @@ export type SyncJobStatus = (typeof SYNC_JOB_STATUSES)[number]
 export const SYNC_JOB_PHASES = ['INVENTORY', 'PROCESSING', 'FINALIZING'] as const
 export type SyncJobPhase = (typeof SYNC_JOB_PHASES)[number]
 
+/** Server-owned snapshot. The browser never sends these bounds back to create a job. */
+export type IspSyncScope = {
+  version: 1
+  fromInclusive: string
+  toExclusive: string
+  zone: 'Europe/Madrid'
+} & ({ mode: 'RECENT_3_MONTHS' } | { mode: 'YEAR'; year: number })
+
+export interface SyncJobErrorDetail {
+  code: string
+  name: string
+  operation: string
+  sqlState: string | null
+  constraint: string | null
+  message: string
+}
+
 export interface SyncJobDTO {
   id: string
   source: SyncJobSource
@@ -39,11 +56,17 @@ export interface SyncJobDTO {
   finishedAt: string | null
   /** Server-sanitized diagnostic. Rendered only as text, never as HTML. */
   lastError: string | null
+  /** Optional extensions keep old responses and existing callers compatible. */
+  scope?: IspSyncScope | null
+  requestedById?: number | null
+  lastErrorDetail?: SyncJobErrorDetail | null
 }
 
 export interface SyncJobsStateDTO {
   enabled: boolean
   canWrite: boolean
+  /** Server authorization only; missing means annual reads are forbidden. */
+  canAnnual?: boolean
   activeJob: SyncJobDTO | null
   lastJob: SyncJobDTO | null
 }
@@ -116,6 +139,50 @@ function nullableSafeError(value: unknown, path: string): string | null {
   return result
 }
 
+function parseIspScope(value: unknown, path: string): IspSyncScope | null {
+  if (value === undefined || value === null) return null
+  const row = record(value, path)
+  // Legacy ISP jobs used {} before the server persisted a scope snapshot.
+  if (Object.keys(row).length === 0) return null
+  const mode = oneOf(row.mode, ['RECENT_3_MONTHS', 'YEAR'] as const, `${path}.mode`)
+  if (row.version !== 1 || row.zone !== 'Europe/Madrid') throw new Error(`${path} no tiene versión o zona permitida.`)
+  const fromInclusive = nonEmptyText(row.fromInclusive, `${path}.fromInclusive`, 10)
+  const toExclusive = nonEmptyText(row.toExclusive, `${path}.toExclusive`, 10)
+  const monthStart = /^\d{4}-(?:0[1-9]|1[0-2])-01$/
+  if (!monthStart.test(fromInclusive) || !monthStart.test(toExclusive) || fromInclusive >= toExclusive) {
+    throw new Error(`${path} debe contener límites mensuales válidos y ordenados.`)
+  }
+  const bounds = { version: 1 as const, fromInclusive, toExclusive, zone: 'Europe/Madrid' as const }
+  if (mode === 'YEAR') {
+    const year = nonNegativeCounter(row.year, `${path}.year`)
+    if (year < 1900 || year > 9998 || fromInclusive !== `${year}-01-01` || toExclusive !== `${year + 1}-01-01`) {
+      throw new Error(`${path} no corresponde al año indicado.`)
+    }
+    return { ...bounds, mode, year }
+  }
+  const monthIndex = (date: string) => Number(date.slice(0, 4)) * 12 + Number(date.slice(5, 7)) - 1
+  if (row.year !== undefined || monthIndex(toExclusive) - monthIndex(fromInclusive) !== 3) {
+    throw new Error(`${path} no corresponde a tres meses.`)
+  }
+  return { ...bounds, mode }
+}
+
+function parseErrorDetail(value: unknown, path: string): SyncJobErrorDetail | null {
+  if (value === undefined || value === null) return null
+  const row = record(value, path)
+  const text = (key: string) => {
+    const result = nullableSafeError(row[key], `${path}.${key}`)
+    if (result === null) throw new Error(`${path}.${key} debe ser texto.`)
+    return result
+  }
+  // Copy only the documented sanitized fields, never raw errors/SQL/payloads.
+  return {
+    code: text('code'), name: text('name'), operation: text('operation'), message: text('message'),
+    sqlState: nullableSafeError(row.sqlState, `${path}.sqlState`),
+    constraint: nullableSafeError(row.constraint, `${path}.constraint`),
+  }
+}
+
 function parseJob(value: unknown, path: string): SyncJobDTO {
   const row = record(value, path)
   const total = nullableCounter(row.total, `${path}.total`)
@@ -134,9 +201,14 @@ function parseJob(value: unknown, path: string): SyncJobDTO {
     throw new Error(`${path}.finishedAt no puede ser anterior a startedAt.`)
   }
 
+  const source = oneOf(row.source, SYNC_JOB_SOURCES, `${path}.source`)
+  const requestedById = row.requestedById === undefined || row.requestedById === null
+    ? null : nonNegativeCounter(row.requestedById, `${path}.requestedById`)
+  if (requestedById === 0) throw new Error(`${path}.requestedById debe ser un identificador positivo.`)
+
   return {
     id: nonEmptyText(row.id, `${path}.id`, MAX_ID_LENGTH),
-    source: oneOf(row.source, SYNC_JOB_SOURCES, `${path}.source`),
+    source,
     status: oneOf(row.status, SYNC_JOB_STATUSES, `${path}.status`),
     phase: oneOf(row.phase, SYNC_JOB_PHASES, `${path}.phase`),
     total,
@@ -149,6 +221,10 @@ function parseJob(value: unknown, path: string): SyncJobDTO {
     startedAt,
     finishedAt,
     lastError: nullableSafeError(row.lastError, `${path}.lastError`),
+    // OneDrive scope remains unrelated to the ISP extension and is not interpreted.
+    scope: source === 'ISP' ? parseIspScope(row.scope, `${path}.scope`) : null,
+    requestedById,
+    lastErrorDetail: parseErrorDetail(row.lastErrorDetail, `${path}.lastErrorDetail`),
   }
 }
 
@@ -162,9 +238,10 @@ export function parseSyncJobsState(value: unknown): SyncJobsStateParseResult {
     const row = record(value, 'respuesta')
     if (typeof row.enabled !== 'boolean') throw new Error('enabled debe ser booleano.')
     if (typeof row.canWrite !== 'boolean') throw new Error('canWrite debe ser booleano.')
+    if (row.canAnnual !== undefined && typeof row.canAnnual !== 'boolean') throw new Error('canAnnual debe ser booleano.')
     const activeJob = nullableJob(row.activeJob, 'activeJob')
     const lastJob = nullableJob(row.lastJob, 'lastJob')
-    return { ok: true, value: { enabled: row.enabled, canWrite: row.canWrite, activeJob, lastJob } }
+    return { ok: true, value: { enabled: row.enabled, canWrite: row.canWrite, canAnnual: row.canAnnual === true, activeJob, lastJob } }
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : 'Estado de sincronización inválido.' }
   }
@@ -186,4 +263,44 @@ export function isActiveSyncJob(status: SyncJobStatus): boolean {
 
 export function isTerminalSyncJob(status: SyncJobStatus): boolean {
   return !isActiveSyncJob(status)
+}
+
+/** Civil year selection must not depend on the browser's local timezone. */
+export function currentMadridYear(now: Date = new Date()): number {
+  return Number(new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Madrid', calendar: 'gregory', numberingSystem: 'latn', year: 'numeric',
+  }).format(now))
+}
+
+export function canReadAnnualIsp(source: SyncJobSource, state: SyncJobsStateDTO | null): boolean {
+  return source === 'ISP' && state?.canAnnual === true
+}
+
+/** Prefix the random token with the intent to prevent cross-year/mode collisions. */
+export function syncJobIntentKey(source: SyncJobSource, year?: number): string {
+  if (year !== undefined) {
+    if (source !== 'ISP') throw new Error('La lectura anual solo está disponible para ISP.')
+    return `${source}:YEAR:${year}`
+  }
+  return source === 'ISP' ? 'ISP:RECENT_3_MONTHS' : 'ONEDRIVE:DEFAULT'
+}
+
+export function ispAnnualConfirmation(year: number): string {
+  return `¿Leer el año completo ${year}? Se leerán las facturas ISP de todo el año ${year}. Esta lectura no modifica los cobros financieros.`
+}
+
+/** Closed ISP intent: no actor, scope, bounds or unconfirmed annual request. */
+export function syncJobCreateRequest(
+  source: SyncJobSource,
+  idempotencyKey: string,
+  options: { scope?: Record<string, unknown>; year?: number } = {},
+  now: Date = new Date(),
+) {
+  if (options.year !== undefined) {
+    if (source !== 'ISP' || !Number.isInteger(options.year) || options.year < 2010 || options.year > currentMadridYear(now)) {
+      throw new Error('Selecciona un año válido entre 2010 y el año actual de Madrid.')
+    }
+    return { source, idempotencyKey, mode: 'YEAR' as const, year: options.year, confirmed: true as const }
+  }
+  return { source, idempotencyKey, ...(source === 'ONEDRIVE' && options.scope !== undefined ? { scope: options.scope } : {}) }
 }

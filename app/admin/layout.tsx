@@ -116,7 +116,7 @@ export default async function AdminLayout({
   const isPrivilegedRealRole = isOwner || userRole === 'GERENTE'
   // Esta foto pertenece sólo a este render y al actor efectivo que requireAuth
   // acaba de comprobar. No es autoridad para APIs ni se conserva entre requests.
-  const permissionSeed = !isPrivilegedRealRole
+  const permissionSeed = !isOwner
     ? readAdminPermissionsSsrWithFallback(prisma, actorId)
     : Promise.resolve(null)
   // Las lecturas posteriores a la autenticación son independientes y no mutan
@@ -130,7 +130,7 @@ export default async function AdminLayout({
     canAccessAdminPanel({ ...session.user, role: userRole, roles: userRoles }, async usuarioId => {
       const permissions = await permissionSeed
       if (permissions !== null && usuarioId === actorId) return countReadableAdminPermissionSeeds(permissions)
-      return prisma.permisoUsuario.count({ where: { usuarioId, lectura: true } })
+      return prisma.permisoUsuario.count({ where: { usuarioId, lectura: true, area: { activo: true, codigo: { startsWith: 'admin.' } } } })
     }),
     readArea4MenuConfiguration(prisma),
   ])

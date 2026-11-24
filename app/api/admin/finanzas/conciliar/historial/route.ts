@@ -18,16 +18,19 @@ function positiveInteger(value: string | null, field: string, min: number, max: 
   if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) fail('PAGINACION_INVALIDA')
   return parsed
 }
-function input(request: NextRequest): { limit: number; offset: number } {
+function input(request: NextRequest): { limit: number; offset: number; view: 'hoy' | 'historial' } {
   if (request.nextUrl.search.length > MAX_QUERY_BYTES) fail('PAGINACION_INVALIDA')
   const seen = new Set<string>()
   for (const [key] of request.nextUrl.searchParams) {
-    if (!['limit', 'offset'].includes(key) || seen.has(key)) fail('PAGINACION_INVALIDA')
+    if (!['limit', 'offset', 'vista'].includes(key) || seen.has(key)) fail('PAGINACION_INVALIDA')
     seen.add(key)
   }
+  const view = request.nextUrl.searchParams.get('vista') ?? 'historial'
+  if (view !== 'hoy' && view !== 'historial') fail('PAGINACION_INVALIDA')
   return {
     limit: positiveInteger(request.nextUrl.searchParams.get('limit'), 'limit', 1, 100),
     offset: positiveInteger(request.nextUrl.searchParams.get('offset'), 'offset', 0, 100_000),
+    view,
   }
 }
 function errorResponse(error: unknown) {
@@ -47,7 +50,7 @@ export async function GET(request: NextRequest) {
     const access = await requireB4FinanceAccess('lectura', await getServerSession(authOptions))
     if ('response' in access) return access.response
     const page = input(request)
-    return privateJson(await readConciliarHistory(access.actor.id, page.limit, page.offset))
+    return privateJson(await readConciliarHistory(access.actor.id, page.limit, page.offset, page.view))
   } catch (error) { return errorResponse(error) }
 }
 

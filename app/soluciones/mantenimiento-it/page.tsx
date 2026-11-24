@@ -3,7 +3,7 @@ import Link from 'next/link';
 import EmpresaNav from '../../../components/EmpresaNav';
 import EmpresaFooter from '../../../components/EmpresaFooter';
 import ProductosSolucionDynamic from '../../../components/public/ProductosSolucionDynamic';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 
 const servicios = [
   {
@@ -84,6 +84,7 @@ export default function MantenimientoITPage() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const envioRef = useRef<{ payload: string; key: string } | null>(null);
   const [error, setError] = useState('');
 
   const handleServicioChange = (servicio: string) => {
@@ -109,37 +110,42 @@ export default function MantenimientoITPage() {
     setIsSubmitting(true);
     setError('');
     try {
+      const payload = JSON.stringify({
+        nombre: formData.nombre,
+        email: formData.email,
+        empresa: formData.empresa,
+        telefono: formData.telefono,
+        tipoNegocio: formData.tipoNegocio,
+        numEquipos: formData.numEquipos,
+        coberturaHoraria: formData.coberturaHoraria,
+        comentarios: formData.comentarios,
+        // Campos condicionales
+        ...(formData.tipoNegocio === 'FARMACIA' || formData.tipoNegocio === 'HORECA' ? {
+          softwareEspecifico: formData.softwareEspecifico,
+          produccion24h: formData.produccion24h,
+        } : {}),
+        ...(formData.tipoNegocio === 'PYME' ? {
+          numServidores: formData.numServidores,
+          serviciosInteres: formData.serviciosInteres,
+          backupCiberseguridad: formData.backupCiberseguridad,
+        } : {}),
+        ...(formData.tipoNegocio === 'MEDIANA_GRANDE' ? {
+          numServidores: formData.numServidores,
+          numSedes: formData.numSedes,
+          equipoITInterno: formData.equipoITInterno,
+          sistemasCriticos: formData.sistemasCriticos,
+          presupuestoOrientativo: formData.presupuestoOrientativo,
+          serviciosInteres: formData.serviciosInteres,
+        } : {}),
+        newsletter: formData.newsletter,
+      });
+      if (!envioRef.current || envioRef.current.payload !== payload) {
+        envioRef.current = { payload, key: crypto.randomUUID() };
+      }
       const response = await fetch('/api/contrata/mantenimiento-it', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          nombre: formData.nombre,
-          email: formData.email,
-          empresa: formData.empresa,
-          telefono: formData.telefono,
-          tipoNegocio: formData.tipoNegocio,
-          numEquipos: formData.numEquipos,
-          coberturaHoraria: formData.coberturaHoraria,
-          comentarios: formData.comentarios,
-          // Campos condicionales
-          ...(formData.tipoNegocio === 'FARMACIA' || formData.tipoNegocio === 'HORECA' ? {
-            softwareEspecifico: formData.softwareEspecifico,
-            produccion24h: formData.produccion24h,
-          } : {}),
-          ...(formData.tipoNegocio === 'PYME' ? {
-            numServidores: formData.numServidores,
-            serviciosInteres: formData.serviciosInteres,
-            backupCiberseguridad: formData.backupCiberseguridad,
-          } : {}),
-          ...(formData.tipoNegocio === 'MEDIANA_GRANDE' ? {
-            numServidores: formData.numServidores,
-            numSedes: formData.numSedes,
-            equipoITInterno: formData.equipoITInterno,
-            sistemasCriticos: formData.sistemasCriticos,
-            presupuestoOrientativo: formData.presupuestoOrientativo,
-            serviciosInteres: formData.serviciosInteres,
-          } : {}),
-        }),
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': envioRef.current.key },
+        body: payload,
       });
       if (response.ok) {
         setIsSubmitted(true);
@@ -709,8 +715,8 @@ export default function MantenimientoITPage() {
                         {/* Newsletter + Submit */}
                         <div className="mb-6">
                           <label className="flex items-start gap-2 cursor-pointer">
-                            <input type="checkbox" required checked={formData.newsletter} onChange={e => setFormData({...formData, newsletter: e.target.checked})} className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500 mt-0.5" />
-                            <span className="text-xs text-gray-600">Acepto recibir la propuesta de servicios IT y suscribirme al newsletter de Internet Operadores con novedades y consejos para empresas. Puedo darme de baja en cualquier momento.</span>
+                            <input type="checkbox" checked={formData.newsletter} onChange={e => setFormData({...formData, newsletter: e.target.checked})} className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500 mt-0.5" />
+                            <span className="text-xs text-gray-600">Quiero suscribirme al newsletter de Internet Operadores con novedades y consejos para empresas. Puedo darme de baja en cualquier momento.</span>
                           </label>
                         </div>
 

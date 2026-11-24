@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client'
+import type { SyncFailureDetail } from './isp-sync-errors'
 
 /** Public contract shared with the independently delivered /p2-onedrive and /p2-isp adapters. */
 export type SyncSource = 'ONEDRIVE' | 'ISP'
@@ -49,7 +50,7 @@ export interface SyncProvider {
   }): { safeError?: string | null } | null | undefined
 }
 
-export type SyncProviderFactory = (source: SyncSource) => SyncProvider
+export type SyncProviderFactory = (source: SyncSource, context?: Pick<SyncJobRecord, 'scope' | 'createdAt' | 'trigger' | 'actorId'>) => SyncProvider
 
 export type SyncJobStatus =
   | 'QUEUED'
@@ -93,6 +94,7 @@ export type SyncJobRecord = SyncCounters & {
   leaseToken: string | null
   leaseUntil: Date | null
   lastError: string | null
+  lastErrorDetail?: SyncFailureDetail | null
   createdAt: Date
   startedAt: Date | null
   finishedAt: Date | null
@@ -113,6 +115,7 @@ export type SyncItemRecord = {
   /** Set in the same transaction as domain changes and the terminal state. */
   confirmedAt: Date | null
   lastError: string | null
+  lastErrorDetail?: SyncFailureDetail | null
   createdAt: Date
   processedAt: Date | null
 }
@@ -134,4 +137,5 @@ export type JobSummary = Pick<
   | 'startedAt'
   | 'finishedAt'
   | 'lastError'
->
+  | 'lastErrorDetail'
+> & { scope?: Prisma.InputJsonValue; requestedById?: number | null }

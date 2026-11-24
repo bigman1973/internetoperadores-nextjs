@@ -13,7 +13,9 @@ export async function requireAdminAreaRead(codigoArea: string, legacyRoles: stri
   const userId = Number(session.user.id)
   if (!Number.isInteger(userId)) redirect('/admin')
 
-  const permission = await verificarPermisoServer(userId, codigoArea, session.user.role)
+  const principal = await prisma.usuarioAdmin.findUnique({ where: { id: userId }, select: { id: true, activo: true, rol: true, roles: true } })
+  if (!principal?.activo) redirect('/login')
+  const permission = await verificarPermisoServer(userId, codigoArea)
   if (permission.lectura) return session
 
   const granularPermissions = await prisma.permisoUsuario.count({
@@ -24,7 +26,15 @@ export async function requireAdminAreaRead(codigoArea: string, legacyRoles: stri
   })
   if (granularPermissions > 0) redirect('/admin')
 
-  const roles = new Set([session.user.role, ...(session.user.roles || [])].filter(Boolean))
+  // Once adopted, zero grants cannot resurrect a legacy role fallback.
+  try {
+    const marker = await prisma.usuarioAdmin.findUnique({ where: { id: userId }, select: { permisosArea4Vivos: true } })
+    if (marker?.permisosArea4Vivos) redirect('/admin')
+  } catch (error) {
+    if (!(error && typeof error === 'object' && 'code' in error && error.code === 'P2022'
+      && 'meta' in error && String((error.meta as { column?: string })?.column || '').includes('permisos_area4_vivos'))) throw error
+  }
+  const roles = new Set([principal.rol, ...(principal.roles || [])].filter(Boolean))
   if (legacyRoles.some((role) => roles.has(role))) return session
 
   redirect('/admin')

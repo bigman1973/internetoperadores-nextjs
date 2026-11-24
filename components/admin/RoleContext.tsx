@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
+import { grantAllowsArea4Capability, isArea4OwnerOnlyArea, type Area4Capability } from '@/lib/area4/policy'
 import {
   decideAdminPermissionSeedLoad,
   type AdminPermissionSsrSeed,
@@ -46,7 +47,7 @@ interface RoleContextType {
   setViewAsRole: (role: RolId | null) => void
   setViewAsUser: (user: UsuarioSimulado | null) => void
   hasAccess: (section: string) => boolean
-  hasAreaAccess: (codigoArea: string, tipo?: 'lectura' | 'escritura') => boolean
+  hasAreaAccess: (codigoArea: string, tipo?: Area4Capability) => boolean
   effectiveRole: RolId
   permisosGranulares: PermisoGranular[]
   effectiveUserId: number | null
@@ -65,9 +66,9 @@ const RoleContext = createContext<RoleContextType>({
   isArea4Owner: false,
   setViewAsRole: () => {},
   setViewAsUser: () => {},
-  hasAccess: () => true,
-  hasAreaAccess: () => true,
-  effectiveRole: 'SUPER_ADMIN',
+  hasAccess: () => false,
+  hasAreaAccess: () => false,
+  effectiveRole: 'VISOR',
   permisosGranulares: [],
   effectiveUserId: null,
   tienePermisosGranulares: false,
@@ -151,11 +152,14 @@ export function RoleProvider({
     let current = true
     setPermisosGranulares([])
     setPermisosLoaded(false)
-    fetch(`/api/admin/permisos?action=usuario&usuarioId=${uid}`, { signal: controller.signal })
-      .then(res => res.json())
+    fetch(`/api/admin/permisos?action=usuario&usuarioId=${uid}`, { signal: controller.signal, cache: 'no-store' })
+      .then(res => {
+        if (!res.ok) throw new Error('No se pudo verificar tu acceso')
+        return res.json()
+      })
       .then(data => {
         if (!current) return
-        if (data.permisos) {
+        if (Array.isArray(data.permisos)) {
           setPermisosGranulares(data.permisos.map((p: any) => ({
             areaId: p.areaId,
             codigo: p.area.codigo,
@@ -164,13 +168,15 @@ export function RoleProvider({
             confirmar: p.confirmar === true,
             exportar: p.exportar === true,
           })))
+        } else {
+          throw new Error('La respuesta no incluye permisos verificables')
         }
         setPermisosLoaded(true)
       })
       .catch(err => {
         if (!current || controller.signal.aborted) return
         console.error('Error cargando permisos granulares:', err)
-        setPermisosLoaded(true)
+        setPermisosLoaded(false)
       })
     return () => {
       current = false
@@ -206,34 +212,15 @@ export function RoleProvider({
   }), [effectiveRole, isSuperAdmin, isArea4Owner, isViewingAs, isViewingAsUser, viewAsRole, userRoles, viewingUser, permisosGranulares, tienePermisosGranulares])
 
   // Verificación granular por código de área
-  const hasAreaAccess = useCallback((codigoArea: string, tipo: 'lectura' | 'escritura' = 'lectura') => {
+  const hasAreaAccess = useCallback((codigoArea: string, tipo: Area4Capability = 'lectura') => {
     if (isArea4Owner && !isViewingAs) return true
-    if (['admin.usuarios', 'admin.auditoria', 'admin.actuar_como'].includes(codigoArea)) return false
-    if (effectiveRole === 'GERENTE' && !isViewingAsUser) return true
-
-    // Construir cadena de herencia hacia arriba (padres del área solicitada)
-    const partes = codigoArea.split('.')
-    const codigosHerencia: string[] = []
-    for (let i = 1; i <= partes.length; i++) {
-      codigosHerencia.push(partes.slice(0, i).join('.'))
-    }
-
-    for (const p of permisosGranulares) {
-      // El permiso cubre el área exacta o es un padre (herencia hacia abajo)
-      if (codigosHerencia.includes(p.codigo)) {
-        if (tipo === 'lectura' && p.lectura) return true
-        if (tipo === 'escritura' && p.escritura) return true
-      }
-      // El permiso es un hijo del área solicitada (acceso al contenedor padre)
-      // Ej: tiene admin.clientes.ggcc.draxton.proyectos → puede acceder a admin.clientes.ggcc.draxton
-      if (p.codigo.startsWith(codigoArea + '.')) {
-        if (tipo === 'lectura' && p.lectura) return true
-        if (tipo === 'escritura' && p.escritura) return true
-      }
-    }
-
-    return false
-  }, [isArea4Owner, isViewingAs, isViewingAsUser, effectiveRole, permisosGranulares])
+    if (isArea4OwnerOnlyArea(codigoArea)) return false
+    if (!permisosLoaded) return false
+    const matches = permisosGranulares.filter(p => codigoArea === p.codigo || codigoArea.startsWith(`${p.codigo}.`))
+    if (effectiveRole === 'GERENTE' && matches.length === 0) return true
+    // Un hijo sólo abre su enlace; nunca concede datos ni edición del padre.
+    return grantAllowsArea4Capability(permisosGranulares, codigoArea, tipo)
+  }, [isArea4Owner, isViewingAs, effectiveRole, permisosLoaded, permisosGranulares])
 
   return (
     <RoleContext.Provider value={{

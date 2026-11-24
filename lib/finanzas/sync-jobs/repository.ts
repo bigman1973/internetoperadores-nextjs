@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client'
+import type { SyncFailureDetail } from './isp-sync-errors'
 import type {
   JobSummary,
   SyncItemRecord,
@@ -17,6 +18,7 @@ export type ManualCreateInput = {
   idempotencyKey: string
   requestHash: string
   scope: Prisma.InputJsonValue
+  requestIntent?: Prisma.InputJsonValue
 }
 
 export type ManualCreateResult =
@@ -41,7 +43,7 @@ export type AtomicApplyResult =
  * rather than the provider, owns all fences and state transitions.
  */
 export interface FinanceSyncRepository<Tx = Prisma.TransactionClient> {
-  recordWorkerFailure?(input:{jobId:string;token:string;safeError:string;maxRecoveries:number}):Promise<void>
+  recordWorkerFailure?(input:{jobId:string;token:string;safeError:string;maxRecoveries:number;detail?:SyncFailureDetail|null}):Promise<void>
   createManual(input: ManualCreateInput, authorizeInTx?: (tx: Tx) => Promise<void>): Promise<ManualCreateResult>
   enqueueDaily(dateUtc: string, source: SyncSource): Promise<DailyEnqueueResult>
   getJob(id: string): Promise<SyncJobRecord | null>
@@ -90,9 +92,10 @@ export interface FinanceSyncRepository<Tx = Prisma.TransactionClient> {
     deadline: Date
     actorId: number | null
     authorizeInTx?: (tx: Tx) => Promise<void>
-    /** Optional static annotation; callback annotations take precedence. */
-    safeError?: string | null
-    apply: (tx: Tx, item: SyncSourceItem, actorId: number | null) => Promise<ApplyCallbackResult>
+  /** Optional static annotation; callback annotations take precedence. */
+  safeError?: string | null
+  appliedSourceHash?: string | null
+  apply: (tx: Tx, item: SyncSourceItem, actorId: number | null) => Promise<ApplyCallbackResult>
   }): Promise<AtomicApplyResult>
   finalizeIfDone(input: { jobId: string; token: string; now: Date }): Promise<SyncJobRecord | null>
   finalizeCancellation(input: { jobId: string; token: string; now: Date }): Promise<SyncJobRecord | null>
@@ -137,6 +140,6 @@ export function dailyIdempotencyKey(dateUtc: string, source: SyncSource) {
   return `daily:${dateUtc}:${source}`
 }
 export function summary(job: SyncJobRecord): JobSummary {
-  const { id, source, status, phase, total, processed, nuevas, actualizadas, errores, unchanged, cancelled, createdAt, startedAt, finishedAt, lastError } = job
-  return { id, source, status, phase, total, processed, nuevas, actualizadas, errores, unchanged, cancelled, createdAt, startedAt, finishedAt, lastError }
+  const { id, source, status, phase, total, processed, nuevas, actualizadas, errores, unchanged, cancelled, createdAt, startedAt, finishedAt, lastError, lastErrorDetail } = job
+  return { id, source, status, phase, total, processed, nuevas, actualizadas, errores, unchanged, cancelled, createdAt, startedAt, finishedAt, lastError, lastErrorDetail: lastErrorDetail ?? null, ...(source === 'ISP' ? {scope: job.scope, requestedById: job.actorId} : {}) }
 }

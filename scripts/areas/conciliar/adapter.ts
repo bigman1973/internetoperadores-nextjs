@@ -6,11 +6,13 @@
  * already inside BEGIN READ ONLY. All identifiers below are opaque local tokens;
  * the runner emits only case IDs and static codes.
  */
-import { readBankInvoicingPopulation } from '../../../lib/finanzas/bank-invoicing-db'
+import { readBankInvoicingPopulation } from '../../../lib/finanzas/conciliar-bank-invoicing-db'
 import { extractRefsOwnIssued, normalizarReferenciaFactura, referenciasEmitidasComposicionCompatible, referenciasFacturaCitadas } from '../../../lib/finanzas/conciliar-issued-reference-core'
 import { readManualOwnAccountProofTx } from '../../../lib/finanzas/conciliar-own-account-proof-db'
 import { projectionRow } from '../../../lib/finanzas/conciliar-projection-read'
+import { readCurrentArea3RemittanceMapPreflightsTx } from '../../../lib/finanzas/area3-remittance-map-db'
 import { selectorSearchableText, type CanonicalRemittanceSelectorLink } from './selector-evidence'
+import { readG3HistoricalProviderEvidence, type G3HistoricalProviderSelector } from './g3-historical-reader'
 import type { ApiProjectionComparableRow, ApiProjectionCoverage } from './api-core'
 import type { Prisma } from '@prisma/client'
 import {
@@ -460,7 +462,12 @@ export type ReleaseRegressionAdapterResult = Readonly<{
   apiProjectionCoverage: ApiProjectionCoverage
 }>
 
-export async function readReleaseRegressionAdapter(client: ReadonlyPgClient): Promise<ReleaseRegressionAdapterResult> {
+/** Private opaque selector for the separately approved historical G3 source. */
+export type ReleaseRegressionAdapterOptions = Readonly<{
+  historicalG3Selector?: G3HistoricalProviderSelector
+}>
+
+export async function readReleaseRegressionAdapter(client: ReadonlyPgClient, options: ReleaseRegressionAdapterOptions = {}): Promise<ReleaseRegressionAdapterResult> {
   // node-postgres permits only one in-flight query per client. Read every
   // bounded source serially inside the already-open read-only transaction.
   const projectionRaw = await paged<ProjectionSqlRow>(client, PROJECTION_COUNT_SQL, PROJECTION_PAGE_SQL)
@@ -473,6 +480,12 @@ export async function readReleaseRegressionAdapter(client: ReadonlyPgClient): Pr
   const c11Lines = await paged<C11LineSqlRow>(client, C11_LINE_COUNT_SQL, C11_LINE_PAGE_SQL)
   const c11Documents = await paged<C11DocumentSqlRow>(client, C11_DOCUMENT_COUNT_SQL, C11_DOCUMENT_PAGE_SQL)
   const remittanceSelectorLinks = await paged<CanonicalRemittanceSelectorLink & { movementKey: string }>(client, REMITTANCE_SELECTOR_COUNT_SQL, REMITTANCE_SELECTOR_PAGE_SQL)
+  // This source intentionally remains separate from the persisted projection.
+  // It can certify only approved G3 historical supplier evidence and is unable
+  // to create a visible row, change G2/G4, reserve a document or enqueue action.
+  const historicalG3Evidence = options.historicalG3Selector === undefined ? undefined : await readG3HistoricalProviderEvidence({
+    query: async <T extends Record<string, unknown>>(sql: string, values?: readonly unknown[]) => query<T>(client, sql, values),
+  }, options.historicalG3Selector)
   const linkedByMovement = new Map<string, CanonicalRemittanceSelectorLink[]>()
   for (const link of remittanceSelectorLinks) linkedByMovement.set(link.movementKey, [...(linkedByMovement.get(link.movementKey) ?? []), link])
   // This is the existing canonical active-financial-settlement reader. It does
@@ -493,6 +506,16 @@ export async function readReleaseRegressionAdapter(client: ReadonlyPgClient): Pr
       return (await client.query(statement.text, statement.values)).rows as T
     },
   }, movementRaw.map(row => String(row.accountKey ?? '')))
+  // C4 consumes the actual current-generation FI→ISP→remesa preflight used by
+  // the server. This remains inside the caller's pinned READ ONLY transaction;
+  // it does not reimplement the source query, synthesize a B7 map, or derive a
+  // missing count from the proposal amount/composition.
+  const currentRemittanceMap = await readCurrentArea3RemittanceMapPreflightsTx({
+    async $queryRaw<T>(statement: Prisma.Sql): Promise<T> {
+      safeSelect(statement.text)
+      return (await client.query(statement.text, statement.values)).rows as T
+    },
+  } as Prisma.TransactionClient)
 
   const projections = projectionRaw.map(toCandidateProjection)
   if (projectionStateRows.length !== 1) fail('REGRESSION_SCHEMA_INVALID')
@@ -585,6 +608,7 @@ export async function readReleaseRegressionAdapter(client: ReadonlyPgClient): Pr
 
   const cpProjection = (row: CandidateProjection): RegressionProjectionRow => {
     const proposal = row.source.propuestaId ? proposalByKey.get(row.source.propuestaId) : undefined
+    const remittanceMapPreflight = row.source.propuestaId ? currentRemittanceMap.preflights.get(row.source.propuestaId) : undefined
     const composition = proposal ? parseComposition(proposal.composition) : []
     const documentReferences = composition.flatMap(item => item.reference ? [item.reference] : [])
     const partialReferences = composition.flatMap(item => {
@@ -605,6 +629,7 @@ export async function readReleaseRegressionAdapter(client: ReadonlyPgClient): Pr
       differenceCents: row.differenceCents, isParaPedir,
       confirmingEvidence: c11 ? { persisted: c11.persisted, nominalCents: integer(matchedC11?.row.nominalCents), deductionsCents: [integer(matchedC11?.row.interestCents) ?? Number.NaN, integer(matchedC11?.row.commissionCents) ?? Number.NaN, integer(matchedC11?.row.vatCommissionCents) ?? Number.NaN], netCents: integer(matchedC11?.row.netCents) } : null,
       remittanceComposition: proposal ? { lineCount: composition.length, sumCents: composition.reduce((sum, item) => sum + (Number.isSafeInteger(item.amountCents) ? item.amountCents : 0), 0), exact: row.color === 'VERDE' && composition.every(item => Number.isSafeInteger(item.amountCents) && item.amountCents > 0) } : null,
+      remittanceMapPreflight: remittanceMapPreflight ?? null,
     }
   }
   const cpAllTabProjectionRows = projections.filter(row => row.movementKey !== null).map(cpProjection)
@@ -701,6 +726,7 @@ export async function readReleaseRegressionAdapter(client: ReadonlyPgClient): Pr
   const totalVisibleRows = projections.length
   const globalDataset: GlobalRegressionDataset = {
     rows: globalRows, collectionReservations, collectionSourcePopulation,
+    ...(historicalG3Evidence === undefined ? {} : { historicalG3Evidence }),
     totals: { allPagesRead: totalsComplete, totalVisibleRows, rowsRead: projectionRaw.length, pageSize: PAGE_SIZE, pagesRead: totalVisibleRows ? Math.ceil(totalVisibleRows / PAGE_SIZE) : 0, tabColorTotals, groupTotals },
   }
   return {

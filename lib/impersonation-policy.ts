@@ -295,7 +295,9 @@ const MANUAL_BODY_ACTIONS: Readonly<Record<string, readonly string[]>> = {
   '/api/admin/finanzas/modo-facil/terceros': ['confirmar', 'revertir'],
   '/api/admin/finanzas/modo-facil/terceros/bloque': ['aceptar_seleccionados', 'deshacer_lote'],
   '/api/admin/finanzas/modo-facil/cobros': ['confirmar_bloque', 'deshacer_bloque'],
-  '/api/admin/finanzas/conciliar': ['confirmar', 'deshacer', 'pedir'],
+  // La pareja propia conserva un comando distinto y un motor que bloquea y
+  // revalida ambas patas; no abre ninguna otra ruta ni acción delegada.
+  '/api/admin/finanzas/conciliar': ['confirmar', 'confirmar_traspasos_propios_manual', 'deshacer', 'pedir'],
   '/api/admin/finanzas/conciliar/intereses': ['vincular_factura_interes', 'desvincular_factura_interes'],
 }
 

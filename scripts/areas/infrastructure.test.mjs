@@ -26,7 +26,7 @@ function validInput(now = new Date('2026-10-30T12:15:00.000Z')) {
   return {
     registry: inputRegistry, registryHash, branch: 'staging', commit: 'c'.repeat(40), now,
     order: { issuer: 'Claude', action: 'publish', messageReference: 'msg-123', commit: 'c'.repeat(40), window: '13:00', date: '2026-10-30', issuedAt: '2026-10-30T12:00:00.000Z', expiresAt: '2026-10-30T12:30:00.000Z' },
-    battery: { schema: 'io.areas.battery-report.v1', ok: true, publishAllowed: true, localOnly: false, commit: 'c'.repeat(40), capturedAt: '2026-10-30T12:05:00.000Z', registryHash, results: [{ id: 'live', ok: true, apiPass: true, api: { apiGate: { pass: true }, total: 30, passing: 30, supplemental: Array.from({ length: 6 }, () => ({ pass: true })) } }] },
+    battery: { schema: 'io.areas.battery-report.v1', ok: true, publishAllowed: true, localOnly: false, commit: 'c'.repeat(40), capturedAt: '2026-10-30T12:05:00.000Z', registryHash, productionRestoreGate: { pass: true, evidence: { profile: 'PROD_NEW_RESTORE', writeOperations: false, g7Rebuilt: false } }, results: [{ id: 'live', ok: true, apiPass: true, api: { apiGate: { pass: true }, total: 30, passing: 30, supplemental: Array.from({ length: 6 }, () => ({ pass: true })) } }] },
     backup: { ok: true, target: 'production', restoreVerified: true, dumpSha256: HASH, projectionBackupSha256: HASH, registryHash, capturedAt: '2026-10-30T11:20:00.000Z', restoredAt: '2026-10-30T11:30:00.000Z' },
     rollback: { ok: true, previousDeploymentId: 'deployment-previous', procedureSha256: HASH, tested: true },
   };
@@ -82,6 +82,7 @@ test('exige 30/30, seis suplementarios, hash del registro y restauración de pro
   const staleHash = validInput(); staleHash.battery.registryHash = 'b'.repeat(64); mustReject(staleHash, 'ALL_LIVE_AREA_BATTERIES_REQUIRED');
   const untestedRestore = validInput(); untestedRestore.backup.restoreVerified = false; mustReject(untestedRestore, 'VERIFIED_FRESH_PRODUCTION_BACKUP_REQUIRED');
   const noRollback = validInput(); noRollback.rollback.tested = false; mustReject(noRollback, 'ROLLBACK_PLAN_REQUIRED');
+  const noNewProductionGolden = validInput(); noNewProductionGolden.battery.productionRestoreGate.pass = false; mustReject(noNewProductionGolden, 'ALL_LIVE_AREA_BATTERIES_REQUIRED');
 });
 
 test('la validación pura no lee config global cuando recibe registro y hash', () => {
@@ -104,7 +105,12 @@ test('lock flock global serializa dos jobs sobre git-common-dir y wrapper mantie
   const script = 'set -e; exec 9>"$1"; flock 9; printf "%s-start\\n" "$2" >> "$3"; sleep "$4"; printf "%s-end\\n" "$2" >> "$3"';
   // Son dos procesos separados y ambos abren exactamente el lock usado por el wrapper.
   const one = spawn('bash', ['-c', script, '--', lockFile, 'one', log, '0.25']);
-  await new Promise((resolveDelay) => setTimeout(resolveDelay, 40));
+  // No se presupone que el scheduler haya llegado al flock tras 40 ms: se
+  // espera la adquisición observable del primer proceso antes de encolar el
+  // segundo, manteniendo la prueba de exclusión mutua y su orden.
+  const deadline = Date.now() + 1_000;
+  while ((!existsSync(log) || !readFileSync(log, 'utf8').includes('one-start')) && Date.now() < deadline) await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
+  assert.equal(existsSync(log) && readFileSync(log, 'utf8').includes('one-start'), true, 'el primer proceso debe adquirir el lock antes del segundo');
   const two = spawn('bash', ['-c', script, '--', lockFile, 'two', log, '0.01']);
   await Promise.all([once(one, 'exit'), once(two, 'exit')]);
   assert.equal(one.exitCode, 0); assert.equal(two.exitCode, 0);

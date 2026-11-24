@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { canAdoptConciliarMutationProjection } from '../components/finanzas/conciliar/conciliar-mutation-ui';
 
 const root = process.cwd();
 const page = readFileSync(resolve(root, 'app/admin/finanzas/conciliar/page.tsx'), 'utf8');
@@ -11,13 +12,24 @@ assert.doesNotMatch(page, /limit: '50'/, 'la semilla SSR no debe cargar 50 filas
 
 assert.match(workspace, /const PAGE_SIZE = 20;/, 'toda lectura visible debe usar páginas server-side de 20 filas');
 assert.match(workspace, /const requestInput = useMemo\([\s\S]*?limit: PAGE_SIZE, offset[\s\S]*?\);/, 'los GET de la cola deben transportar límite y offset exactos');
-assert.match(workspace, /initialRequestKey[\s\S]*?limit: PAGE_SIZE, offset: 0/, 'la hidratación debe reconocer la misma semilla SSR de 20 filas');
-assert.match(workspace, /\?\$\{buildQuery\(requestInput\)\.toString\(\)\}/, 'la página siguiente debe pedirse al endpoint privado, no filtrarse en local');
-assert.match(workspace, /setOffset\(data\.offset \+ data\.rows\.length\)/, 'Ver más debe comenzar exactamente después de las filas devueltas por el servidor');
+assert.match(workspace, /useConciliarGlobalSearch\(\{ initialTab, initialQuery, initialOffset: 0, initialData: initialParsed, read: readGlobal, cache: searchCache \}\)/, 'la hidratación debe entregar al buscador global la misma semilla SSR de 20 filas en offset cero');
+assert.doesNotMatch(workspace, /initialRequestKey/, 'la semilla SSR no debe volver a depender de la clave local retirada');
+assert.match(workspace, /const response = await fetch\(`\$\{API\}\?\$\{params\.toString\(\)\}`, \{ cache: 'no-store', signal \}\);/, 'la página siguiente debe delegar en el lector del endpoint privado no-store, no filtrarse en local');
+assert.match(workspace, /search\.changeOffset\(data\.offset \+ data\.rows\.length\)/, 'Ver más debe comenzar exactamente después de las filas devueltas por el servidor');
 assert.match(workspace, />Ver más</, 'la cola debe ofrecer Ver más cuando queden resultados');
 assert.match(workspace, /data\.offset \+ data\.rows\.length >= data\.total/, 'Ver más debe detenerse en el total server-side');
 assert.doesNotMatch(workspace, /rows\.slice\(0,\s*20\)/, 'no se pueden cargar filas extra para esconderlas localmente');
 assert.match(workspace, /responseViewFor\(requestInput\)/, 'las acciones deben conservar la vista exacta que estaba renderizada');
-assert.match(workspace, /commandViewKey !== activeViewKey\.current/, 'la respuesta inmediata de una acción no puede sustituir una vista paginada distinta');
+assert.match(workspace, /requestView, currentView: projectionContextRef\.current\.view, requestGeneration, currentGeneration: projectionContextRef\.current\.generation/,
+  'la adopción comprueba la vista y generación actuales, no sólo las capturadas al enviar');
+assert.match(workspace, /invalidateProjectionMemory\(true\);\s*if \(!adoptProjection\(result\)\) void load\(true, true\);/,
+  'una foto ajena se descarta y fuerza GET autorizado de la vista activa');
+const exactPage = JSON.stringify({ tab: 'COBROS', query: '', limit: 20, offset: 20 });
+const authority = { synchronized: true, requestIdentity: 'usuario:3:valid', currentIdentity: 'usuario:3:valid', requestView: exactPage, currentView: exactPage, requestGeneration: 1, currentGeneration: 1, requestSequence: 2, currentSequence: 2, pendingCount: 1 };
+assert.equal(canAdoptConciliarMutationProjection(authority), true, 'la foto sincronizada de la página exacta es reutilizable');
+for (const page of [{ tab: 'COBROS', query: '', limit: 20, offset: 0 }, { tab: 'COBROS', query: '', limit: 50, offset: 20 }]) {
+  assert.equal(canAdoptConciliarMutationProjection({ ...authority, currentView: JSON.stringify(page) }), false,
+    'otro offset o límite nunca sustituye la página visible');
+}
 
 console.log('OK: Conciliar siembra 20 filas SSR y Ver más solicita páginas server-side consistentes.');

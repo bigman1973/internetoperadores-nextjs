@@ -1,3 +1,4 @@
+import { withoutConciliarPrecheckStamp } from './conciliar-precheck-visual'
 import { Prisma } from '@prisma/client'
 import { readStrictOwnTransfers, ConciliarDbError } from './conciliar-db'
 import { derivedUuidV4 } from './easy-auto-core'
@@ -83,7 +84,7 @@ function integer(value: unknown, minimum: number, maximum: number): number | nul
  * into a transfer merely because it happens to contain two movement IDs.
  */
 export function parseConciliarTransferSource(value: unknown): ConciliarTransferSource | null {
-  const source = ownRecord(value)
+  const source = ownRecord(withoutConciliarPrecheckStamp(value))
   if (!source || !hasExactOwnKeys(source, ['kind', 'movimientoId', 'movimientoParId', 'transferFingerprint', 'versionB4'])) return null
   const primaryMovementId = movementId(source.movimientoId)
   const pairedMovementId = movementId(source.movimientoParId)
@@ -142,14 +143,14 @@ async function lockMovements(tx: Tx, movementIds: readonly string[]): Promise<vo
   }
 }
 
-async function lockedMovements(tx: Tx, movementIds: readonly string[]): Promise<ReadonlyMap<string, LockedMovement>> {
+async function lockedMovements(tx: Tx, movementIds: readonly string[], lock = true): Promise<ReadonlyMap<string, LockedMovement>> {
   const rows = await tx.$queryRaw<Array<unknown>>(Prisma.sql`
     SELECT m.id,COALESCE(e.version,1) AS version,b4_importe_bancario_centimos(m.importe) AS amount
     FROM movimientos_bancarios m
     LEFT JOIN estado_justificacion_movimientos e ON e.movimiento_id=m.id
     WHERE m.id IN (${Prisma.join(movementIds.map(id => Prisma.sql`${id}`))})
     ORDER BY m.id ASC
-    FOR UPDATE OF m
+    ${lock ? Prisma.sql`FOR UPDATE OF m` : Prisma.empty}
   `)
   if (rows.length !== movementIds.length) fail('Uno de los movimientos de la transferencia ya no existe. Actualiza la lista.')
   const result = new Map<string, LockedMovement>()
@@ -187,6 +188,19 @@ function isOwnTransferConfirmationSnapshot(value: unknown, expectedMovementId: s
     && draft.lineas.length === 0
 }
 
+/** Reciprocal proof, live pending states, opposite exact cents and source
+ * version: shared by visual PRECHECK and locked final confirmation. */
+export async function preflightConciliarStrictTransferTx(base:Prisma.TransactionClient,rowSource:unknown,expectedAmount:number,lock=false) {
+  const tx=base as Tx, source=parseConciliarTransferSource(rowSource)
+  if(!source) fail('La pareja propia ya no conserva sus dos movimientos. Actualiza la lista.')
+  const movements=await lockedMovements(tx,[source.movimientoId,source.movimientoParId],lock)
+  const proofs=await readStrictOwnTransfers(tx)
+  if(!strictPairedTransferProof(source,proofs)) fail('La pareja propia cambió, ya está confirmada o tiene otra posible pareja. Actualiza la lista.')
+  const primary=movements.get(source.movimientoId),paired=movements.get(source.movimientoParId)
+  if(!primary || !paired || !exactTransferAmountsMatch(primary.amount,paired.amount,expectedAmount) || primary.version!==source.versionB4) fail('Los movimientos de la pareja cambiaron. Actualiza la lista.')
+  return [primary,paired] as const
+}
+
 /**
  * Confirms both legs while using the caller's transaction. It neither creates a
  * transaction nor selects a batch: the only B4 writes are the two locked legs.
@@ -207,17 +221,7 @@ export async function confirmConciliarTransferTx(
 
   const movementIds = [source.movimientoId, source.movimientoParId]
   await lockMovements(tx, movementIds)
-  const liveMovements = await lockedMovements(tx, movementIds)
-  const proofMap = await readStrictOwnTransfers(tx)
-  if (!strictPairedTransferProof(source, proofMap as ReadonlyMap<string, unknown>)) {
-    fail('No se puede comprobar que los dos movimientos sigan siendo el mismo traspaso. Actualiza la lista.')
-  }
-
-  const primary = liveMovements.get(source.movimientoId)
-  const paired = liveMovements.get(source.movimientoParId)
-  if (!primary || !paired || !exactTransferAmountsMatch(primary.amount, paired.amount, expectedAmount) || primary.version !== source.versionB4) {
-    fail('La transferencia cambió desde que abriste la lista. Actualiza y vuelve a intentarlo.')
-  }
+  const [primary,paired] = await preflightConciliarStrictTransferTx(tx,source,expectedAmount,true)
 
   const primaryResult: any = await confirmarB4Tx(tx, actorId, {
     action: 'confirmar',
