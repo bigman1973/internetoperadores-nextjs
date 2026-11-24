@@ -79,9 +79,17 @@ export default function BankInvoicingCharts({ analytics, summary, selectedMonth,
     cobrado: euros(m.cobrado), real: euros(m.pendienteReal), sinExtracto: euros(m.sinExtracto), revision: euros(m.revision),
   })), [analytics.mensual])
 
-  const series = useMemo(() => analytics.porSerie.slice(0, 12).map((s) => ({ nombre: s.serie, facturado: euros(s.facturado), facturas: s.facturas })), [analytics.porSerie])
+  const series = useMemo(() => {
+    // Series estándar (solo letras: DRAX, INST, CLL…) por separado; el resto (nº de factura usado como serie, AF/…) se agrupa en «Otras series».
+    const std = analytics.porSerie.filter((s) => /^[A-Za-z]{2,6}$/.test(s.serie))
+    const other = analytics.porSerie.filter((s) => !/^[A-Za-z]{2,6}$/.test(s.serie))
+    const rows = std.slice(0, 10).map((s) => ({ nombre: s.serie, facturado: euros(s.facturado), facturas: s.facturas }))
+    const rest = [...std.slice(10), ...other]
+    if (rest.length) rows.push({ nombre: `Otras series (${rest.length})`, facturado: euros(rest.reduce((a, s) => a + s.facturado, 0)), facturas: rest.reduce((a, s) => a + s.facturas, 0) })
+    return rows
+  }, [analytics.porSerie])
   const clients = useMemo(() => {
-    const rows = analytics.topClientes.map((c) => ({ nombre: c.cliente.length > 30 ? `${c.cliente.slice(0, 29)}…` : c.cliente, completo: c.cliente, facturado: euros(c.facturado), facturas: c.facturas, sociedades: c.sociedades }))
+    const rows = analytics.topClientes.map((c) => ({ nombre: c.cliente.length > 24 ? `${c.cliente.slice(0, 23)}…` : c.cliente, completo: c.cliente, facturado: euros(c.facturado), facturas: c.facturas, sociedades: c.sociedades }))
     if (analytics.restoClientes) rows.push({ nombre: analytics.restoClientes.cliente, completo: analytics.restoClientes.cliente, facturado: euros(analytics.restoClientes.facturado), facturas: analytics.restoClientes.facturas, sociedades: analytics.restoClientes.sociedades })
     return rows
   }, [analytics.topClientes, analytics.restoClientes])
@@ -151,7 +159,7 @@ export default function BankInvoicingCharts({ analytics, summary, selectedMonth,
             <BarChart data={series} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
               <XAxis type="number" tickFormatter={(v: number) => compact(Math.round(v * 100))} tick={{ fontSize: 12 }} />
-              <YAxis type="category" dataKey="nombre" tick={{ fontSize: 12 }} width={96} />
+              <YAxis type="category" dataKey="nombre" tick={{ fontSize: 12 }} width={120} interval={0} />
               <Tooltip content={<MoneyTooltip />} />
               <Bar dataKey="facturado" name="Facturado" fill={COLORS.actual} radius={[0, 3, 3, 0]} />
             </BarChart>
@@ -168,7 +176,7 @@ export default function BankInvoicingCharts({ analytics, summary, selectedMonth,
             <BarChart data={clients} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
               <XAxis type="number" tickFormatter={(v: number) => compact(Math.round(v * 100))} tick={{ fontSize: 12 }} />
-              <YAxis type="category" dataKey="nombre" tick={{ fontSize: 11 }} width={168} />
+              <YAxis type="category" dataKey="nombre" tick={{ fontSize: 11 }} width={168} interval={0} />
               <Tooltip content={<MoneyTooltip />} />
               <Bar dataKey="facturado" name="Facturado" fill={COLORS.actual} radius={[0, 3, 3, 0]}>
                 {clients.map((c, i) => <Cell key={c.completo} fill={i === clients.length - 1 && analytics.restoClientes ? COLORS.previo : COLORS.actual} />)}
