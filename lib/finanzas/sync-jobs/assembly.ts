@@ -160,7 +160,13 @@ export function createProductionIspProvider(env: Env = process.env, client: Pris
     env.FINANCE_BACKGROUND_SYNC_ENABLED !== '1' ||
     env.FINANCE_ISP_SYNC_ENABLED !== '1'
   ) throw new Error('FINANCE_ISP_SYNC_DISABLED')
-
+  return buildIspIssuedInvoiceProvider(client, context, { createB4Wrapper: true })
+}
+/**
+ * Single construction of the ISP provider, shared by production and by the staging read-only mode, so
+ * both use the same endpoint, scope, delta filter and request adapter (and therefore the same errors).
+ */
+export function buildIspIssuedInvoiceProvider(client: PrismaClient, context: Parameters<SyncProviderFactory>[1] | undefined, options: { createB4Wrapper: boolean }): SyncProvider {
   return createIspIssuedInvoiceProvider({
     scope: context ? normalizeIspJobScope(context) : buildIspScope(new Date()),
     filterChanged: (items) => filterIspChangedItems(client, items),
@@ -169,7 +175,7 @@ export function createProductionIspProvider(env: Env = process.env, client: Pris
     // not its legacy batch/remittance synchronizer.
     request: async (endpoint, method, data, params) => ispApiRequest(endpoint, method, data, params),
     allowExistingIdentityLink: false,
-    createB4WrapperForNewInvoices: true,
+    createB4WrapperForNewInvoices: options.createB4Wrapper,
   })
 }
 
@@ -270,6 +276,8 @@ export function createP2Service(options: P2ServiceRuntimeOptions = {}): FinanceS
     env,
     productionFactory: productionProviders(client, env, options.trustedProviders ?? {}),
     stagingIsolationVerified: options.stagingIsolationVerified,
+    // Staging ISP: same provider as production, read-only (apply never writes) and only with FINANCE_STAGING_ISP_READONLY=1.
+    stagingIspFactory: (_source, context) => buildIspIssuedInvoiceProvider(client, context, { createB4Wrapper: false }),
     // Intentionally empty in staging. Metadata fixtures are only supplied by the
     // explicit test constructor below, never from an HTTP payload or environment.
     staging: {},
