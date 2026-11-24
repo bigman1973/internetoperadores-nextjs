@@ -1,4 +1,5 @@
 import { getBrevoApiKey } from '@/lib/brevo-config'
+import { brevoFetch } from '@/lib/brevo-fetch'
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 
@@ -69,7 +70,7 @@ export async function POST(request: Request) {
     }
 
     try {
-      await fetch('https://api.brevo.com/v3/smtp/email', {
+      await brevoFetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
         headers: {
           'accept': 'application/json',

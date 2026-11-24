@@ -1,4 +1,5 @@
 import { getBrevoApiKey } from '@/lib/brevo-config';
+import { brevoFetch } from '@/lib/brevo-fetch';
 import { NextResponse } from 'next/server';
 import { guardarCaptacionWeb } from '@/lib/crm-captacion-web';
 
@@ -17,7 +18,7 @@ const NEWSLETTER_LISTS = {
 async function sendEmail({ to, toName, subject, htmlContent }) {
   if (!BREVO_API_KEY) return false;
   try {
-    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    const res = await brevoFetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
         'api-key': BREVO_API_KEY,
@@ -50,7 +51,7 @@ async function subscribeNewsletter({ nombre, email, telefono, tipoUsuario }) {
     const attributes = { NOMBRE: nombre };
     if (telefono) attributes.TELEFONO = telefono;
 
-    await fetch('https://api.brevo.com/v3/contacts', {
+    await brevoFetch('https://api.brevo.com/v3/contacts', {
       method: 'POST',
       headers: {
         'api-key': BREVO_API_KEY,

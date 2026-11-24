@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 import { getBrevoApiKey } from '@/lib/brevo-config';
+import { brevoFetch } from '@/lib/brevo-fetch';
 import { NextResponse } from 'next/server';
 import { guardarCaptacionWeb } from '@/lib/crm-captacion-web';
 
@@ -94,7 +95,7 @@ export async function POST(request) {
 async function sendEmailComercial(apiKey, { nombre, email, empresa, telefono, cargo, guiaNombre, newsletter }) {
   if (!apiKey) return false;
 
-  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+  const res = await brevoFetch('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
     headers: { 'accept': 'application/json', 'api-key': apiKey, 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -146,7 +147,7 @@ async function sendEmailComercial(apiKey, { nombre, email, empresa, telefono, ca
 async function sendEmailInteresado(apiKey, { nombre, email, guiaNombre, newsletter }) {
   if (!apiKey) return false;
 
-  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+  const res = await brevoFetch('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
     headers: { 'accept': 'application/json', 'api-key': apiKey, 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -208,7 +209,7 @@ async function addToBrevo(apiKey, { nombre, email, empresa, telefono, guiaNombre
       updateEnabled: true
     };
 
-    const res = await fetch('https://api.brevo.com/v3/contacts', {
+    const res = await brevoFetch('https://api.brevo.com/v3/contacts', {
       method: 'POST',
       headers: { 'accept': 'application/json', 'api-key': apiKey, 'content-type': 'application/json' },
       body: JSON.stringify(contactData)
@@ -220,7 +221,7 @@ async function addToBrevo(apiKey, { nombre, email, empresa, telefono, guiaNombre
 
     // Si ya existe, actualizar listas
     if (res.status === 400 && (await res.json()).code === 'duplicate_parameter') {
-      const addToList = await fetch(`https://api.brevo.com/v3/contacts/lists/${BREVO_LIST_NEWSLETTER_EMPRESAS}/contacts/add`, {
+      const addToList = await brevoFetch(`https://api.brevo.com/v3/contacts/lists/${BREVO_LIST_NEWSLETTER_EMPRESAS}/contacts/add`, {
         method: 'POST',
         headers: { 'accept': 'application/json', 'api-key': apiKey, 'content-type': 'application/json' },
         body: JSON.stringify({ emails: [email] })

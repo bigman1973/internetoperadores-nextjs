@@ -1,4 +1,5 @@
 import { getBrevoApiKey } from '@/lib/brevo-config'
+import { brevoFetch } from '@/lib/brevo-fetch'
 import { NextRequest, NextResponse } from 'next/server'
 import { put } from '@vercel/blob'
 import prisma from '@/lib/prisma'
@@ -81,7 +82,7 @@ async function sendEmailToCliente({
   `
 
   try {
-    await fetch('https://api.brevo.com/v3/smtp/email', {
+    await brevoFetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
         'api-key': BREVO_API_KEY,

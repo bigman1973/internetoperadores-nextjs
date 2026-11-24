@@ -54,7 +54,7 @@ async function main() {
   await t('clave restringida sin permiso de cuenta: listas OK igualmente y el mensaje no incluye la clave', async () => {
     const f = (async (url: string) => url.endsWith('/v3/account') ? new Response('{"code":"permission_denied","message":"denied for k-secreta"}', { status: 403 }) : new Response('{"count":1,"lists":[{"id":32,"name":"Partners","uniqueSubscribers":0}]}')) as unknown as typeof fetch
     const r = await comprobarBrevo(f, { BREVO_API_KEY_STAGING: 'k-secreta' })
-    assert.equal(r.ok, true); assert.equal(r.error, 'BREVO_CUENTA_HTTP_403_SIN_PERMISO_CUENTA'); assert.equal(r.listas.length, 1)
+    assert.equal(r.ok, true); assert.equal(r.error, null); assert.equal(r.estadoCuenta, 'sin permiso, no necesario'); assert.equal(r.listas.length, 1)
     assert.ok(!JSON.stringify(r).includes('k-secreta'))
   })
   await t('ningún fichero del panel lee process.env.BREVO_API_KEY directamente', () => {

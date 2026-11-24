@@ -1,4 +1,5 @@
 import { getBrevoApiKey } from '@/lib/brevo-config'
+import { brevoFetch } from '@/lib/brevo-fetch'
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { initiatePayment, type PaymentMethod } from '@/lib/payments'
@@ -15,7 +16,7 @@ const NEWSLETTER_LISTS: Record<string, number> = {
 
 async function sendEmail({ to, toName, subject, htmlContent }: { to: string; toName: string; subject: string; htmlContent: string }) {
   try {
-    await fetch('https://api.brevo.com/v3/smtp/email', {
+    await brevoFetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
         'api-key': BREVO_API_KEY,
@@ -41,7 +42,7 @@ async function subscribeNewsletter({ nombre, email, telefono, tipoCliente }: { n
   try {
     const attributes: Record<string, string> = { NOMBRE: nombre }
     if (telefono) attributes.TELEFONO = telefono
-    await fetch('https://api.brevo.com/v3/contacts', {
+    await brevoFetch('https://api.brevo.com/v3/contacts', {
       method: 'POST',
       headers: { 'api-key': BREVO_API_KEY, 'Content-Type': 'application/json', 'accept': 'application/json' },
       body: JSON.stringify({ email, attributes, listIds: [listId], updateEnabled: true }),

@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 import { getBrevoApiKey } from '@/lib/brevo-config';
+import { brevoFetch } from '@/lib/brevo-fetch';
 import { NextResponse } from 'next/server';
 import { guardarCaptacionWeb } from '@/lib/crm-captacion-web';
 
@@ -153,7 +154,7 @@ export async function POST(request) {
       };
 
       try {
-        const brevoResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
+        const brevoResponse = await brevoFetch('https://api.brevo.com/v3/smtp/email', {
           method: 'POST',
           headers: {
             'accept': 'application/json',
@@ -193,7 +194,7 @@ export async function POST(request) {
           contactData.listIds = [listId];
         }
 
-        const contactResponse = await fetch('https://api.brevo.com/v3/contacts', {
+        const contactResponse = await brevoFetch('https://api.brevo.com/v3/contacts', {
           method: 'POST',
           headers: {
             'accept': 'application/json',
@@ -209,7 +210,7 @@ export async function POST(request) {
           // Si ya existe y quiere newsletter, añadir a la lista
           if (contactError.code === 'duplicate_parameter') {
             const listId = tipoUsuario === 'particular' ? BREVO_LISTA_PARTICULARES : BREVO_LISTA_EMPRESAS;
-            await fetch(`https://api.brevo.com/v3/contacts/lists/${listId}/contacts/add`, {
+            await brevoFetch(`https://api.brevo.com/v3/contacts/lists/${listId}/contacts/add`, {
               method: 'POST',
               headers: {
                 'accept': 'application/json',

@@ -1,4 +1,5 @@
 import { getBrevoApiKey } from '@/lib/brevo-config'
+import { brevoFetch } from '@/lib/brevo-fetch'
 import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
@@ -204,7 +205,7 @@ export async function POST(request: Request) {
 
   // Enviar email via Brevo
   try {
-    const brevoRes = await fetch('https://api.brevo.com/v3/smtp/email', {
+    const brevoRes = await brevoFetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
         'accept': 'application/json',
