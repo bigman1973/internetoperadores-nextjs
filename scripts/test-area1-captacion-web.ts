@@ -55,7 +55,7 @@ async function main() {
   const first = await guardarCaptacionWebEn(db, request(), base, instant)
   assert.equal(first.repetido, false)
   assert.equal(state.crmRegistroHubspot.length, 1)
-  assert.equal(state.crmRegistroHubspot[0].hubspotId, null)
+  assert.match(String(state.crmRegistroHubspot[0].hubspotId), /^local:[0-9a-f-]{36}$/)
   assert.equal(state.crmRegistroHubspot[0].clienteWebId, undefined)
   const event = state.crmCaptacionWeb[0]
   assert.equal(event.webOrigen, 'https://staging.internetoperadores.com')

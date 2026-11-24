@@ -82,7 +82,7 @@ async function crearContacto(tx: Prisma.TransactionClient, input: EntradaCaptaci
   // Deliberately do not match by email/NIF/phone: a human must confirm identity.
   return tx.crmRegistroHubspot.create({
     data: {
-      hubspotId: null,
+      hubspotId: `local:${randomUUID()}`,
       objectTypeId: '0-1',
       nombre: texto(input.nombre),
       email: texto(input.email).toLowerCase() || null,

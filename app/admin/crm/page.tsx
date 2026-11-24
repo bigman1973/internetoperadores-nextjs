@@ -45,7 +45,6 @@ export default async function CrmPage() {
   const visibleContactScope = {
     objectTypeId: '0-1',
     OR: [
-      { hubspotId: null },
       { hubspotId: { startsWith: 'local:' } },
       { empresasCrm: { some: { activo: true } } },
       { listas: { some: { activo: true, lista: { activo: true } } } },

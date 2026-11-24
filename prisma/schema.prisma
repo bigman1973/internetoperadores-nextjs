@@ -608,7 +608,7 @@ enum Periodicidad {
 model LeadMigracionWeb {
   id                String              @id @default(uuid())
   crmContactoId     String?             @map("area1_crm_contacto_id")
-  crmContacto       CrmRegistroHubspot? @relation(fields: [crmContactoId], references: [id], onDelete: Restrict, map: "area1_leads_migracion_contacto_fkey")
+  crmContacto       CrmRegistroHubspot? @relation(fields: [crmContactoId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "area1_leads_migracion_contacto_fkey")
   // Datos básicos (Paso 1)
   nombreEmpresa     String              @map("nombre_empresa")
   contacto          String
@@ -757,7 +757,7 @@ enum EstadoCuestionario {
 model AltaServicio {
   id                    String              @id @default(uuid())
   crmContactoId         String?             @map("area1_crm_contacto_id")
-  crmContacto           CrmRegistroHubspot? @relation(fields: [crmContactoId], references: [id], onDelete: Restrict, map: "area1_altas_contacto_fkey")
+  crmContacto           CrmRegistroHubspot? @relation(fields: [crmContactoId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "area1_altas_contacto_fkey")
   // Tipo de cliente
   tipoCliente           TipoCliente         @map("tipo_cliente")
   
@@ -952,7 +952,7 @@ model MagicLink {
 model LeadSolucion {
   id              String            @id @default(uuid())
   crmContactoId   String?             @map("area1_crm_contacto_id")
-  crmContacto     CrmRegistroHubspot? @relation(fields: [crmContactoId], references: [id], onDelete: Restrict, map: "area1_leads_soluciones_contacto_fkey")
+  crmContacto     CrmRegistroHubspot? @relation(fields: [crmContactoId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "area1_leads_soluciones_contacto_fkey")
   // Tipo de solución (origen del formulario)
   tipo            TipoSolucion
   // Datos de contacto
@@ -1000,7 +1000,7 @@ model LeadSolucion {
 model LeadPartner {
   id              String            @id @default(uuid())
   crmContactoId   String?             @map("area1_crm_contacto_id")
-  crmContacto     CrmRegistroHubspot? @relation(fields: [crmContactoId], references: [id], onDelete: Restrict, map: "area1_leads_partners_contacto_fkey")
+  crmContacto     CrmRegistroHubspot? @relation(fields: [crmContactoId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "area1_leads_partners_contacto_fkey")
   segmentoCrm     SegmentoCrm       @default(PARTNER) @map("segmento_crm")
   nombre          String
   empresa         String?
@@ -3721,7 +3721,7 @@ model CrmLista {
 
 model CrmRegistroHubspot {
   id                   String            @id @default(cuid())
-  hubspotId            String?           @map("hubspot_id")
+  hubspotId            String            @map("hubspot_id")
   objectTypeId         String            @map("object_type_id")
   nombre               String?
   email                String?
@@ -3788,7 +3788,7 @@ model CrmCaptacionWeb {
   referenciaId             String?          @map("referencia_id")
   huella                   String
   claveIdempotencia        String           @unique @map("clave_idempotencia")
-  contacto                 CrmRegistroHubspot @relation(fields: [contactoId], references: [id], onDelete: Restrict)
+  contacto                 CrmRegistroHubspot @relation(fields: [contactoId], references: [id], onDelete: Restrict, onUpdate: NoAction)
 
   @@index([contactoId, fechaEnvio(sort: Desc)])
   @@index([huella, fechaEnvio])
