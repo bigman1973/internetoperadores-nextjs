@@ -1,15 +1,14 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
-import { analizarCadenaSaldo } from '@/lib/finanzas/bank-balance-chain'
-import { derivarOrdenBancarioPorSaldo } from '@/lib/finanzas/bank-order-by-balance'
+import { analizarCuadreDia } from '@/lib/finanzas/conciliar-cuadre-dia'
 
 /**
  * Encargo J · Conciliar unificado. Lectura de solo lectura del encadenado de saldos por cuenta.
- * Usa exactamente los mismos analizadores que /api/admin/finanzas/estado-cuentas
- * (derivarOrdenBancarioPorSaldo + analizarCadenaSaldo); no calcula nada de cobros.
+ * Cuadre a NIVEL DE DÍA (lib/finanzas/conciliar-cuadre-dia.ts): dentro de un día basta con que exista un orden
+ * que encadene saldo anterior + importe = saldo (el orden exacto no se exige); entre días, el saldo de apertura
+ * tiene que ser el cierre del día anterior. No relaja /api/admin/finanzas/estado-cuentas ni calcula cobros.
  *
- * "Cuadra" = la cadena de saldos de la cuenta está en estado OK. El aviso COBERTURA_NO_VERIFICADA
- * (no hay saldo puente anterior al primer apunte) no impide cuadrar: describe el origen, no un hueco.
+ * "Cuadra" = ningún día tiene hueco. Un hueco se explica con el día y el importe que falta.
  */
 
 export type EstadoCadena = 'OK' | 'HUECO' | 'SIN_SALDO' | 'ORDEN_AMBIGUO'
@@ -27,6 +26,12 @@ export type CuentaCuadre = Readonly<{
   ultimoMovimiento: string | null
   fechaCorteExtracto: string | null
   avisos: ReadonlyArray<Readonly<{ codigo: string; mensaje: string; fecha: string | null }>>
+  /** Detalle del cuadre por día (Encargo J): lo que se ignora o se acepta y desde cuándo la cadena es correcta. */
+  diasAmbiguosAceptados: number
+  duplicadosIgnorados: number
+  saldosDeducidos: number
+  huecosTotal: number
+  cadenaCorrectaDesde: string | null
 }>
 
 function iso(value: Date | null | undefined): string | null {
@@ -61,8 +66,11 @@ export async function readCuentasCuadre(onlyIds?: readonly string[]): Promise<re
   }
   const resultado = cuentas.map((cuenta): CuentaCuadre => {
     const lista = porCuenta.get(cuenta.id) ?? []
-    const orden = derivarOrdenBancarioPorSaldo(lista, null)
-    const cadena = analizarCadenaSaldo(lista.map((m: any, i: number) => ({ ...m, ordenBancario: orden[i] })), null)
+    const cadena = analizarCuadreDia(lista.map((m: any) => ({
+      dia: m.fechaOperacion instanceof Date ? m.fechaOperacion.toISOString().slice(0, 10) : '',
+      importe: Number(m.importe),
+      saldo: m.saldo === null || m.saldo === undefined ? null : Number(m.saldo),
+    })).filter((f: { dia: string }) => f.dia !== ''))
     const iban = typeof cuenta.iban === 'string' ? cuenta.iban.replace(/\s+/g, '') : ''
     return {
       id: cuenta.id,
@@ -71,12 +79,19 @@ export async function readCuentasCuadre(onlyIds?: readonly string[]): Promise<re
       etiqueta: cuenta.alias || cuenta.banco,
       ultimos4: iban.length >= 4 ? iban.slice(-4) : null,
       activa: cuenta.activa === true,
-      estado: cadena.estado,
-      cuadra: cadena.estado === 'OK',
+      estado: lista.length === 0 ? 'SIN_SALDO' : cadena.estado,
+      cuadra: cadena.cuadra && lista.length > 0,
       totalMovimientos: lista.length,
       ultimoMovimiento: lista.length ? iso(lista[lista.length - 1].fechaOperacion) : null,
       fechaCorteExtracto: iso(cuenta.fechaCorteExtracto),
-      avisos: cadena.avisos.map(a => ({ codigo: a.codigo, mensaje: a.mensaje, fecha: iso(a.fecha) })),
+      avisos: lista.length === 0
+        ? [{ codigo: 'SIN_MOVIMIENTOS', mensaje: 'La cuenta no tiene movimientos cargados: falta el saldo inicial o final.', fecha: null }]
+        : cadena.huecos.map(h => ({ codigo: h.tipo, mensaje: h.mensaje, fecha: h.dia })),
+      diasAmbiguosAceptados: cadena.diasAmbiguosAceptados,
+      duplicadosIgnorados: cadena.duplicadosIgnorados,
+      saldosDeducidos: cadena.saldosDeducidos,
+      huecosTotal: cadena.huecos.length,
+      cadenaCorrectaDesde: cadena.cadenaCorrectaDesde,
     }
   })
   return resultado

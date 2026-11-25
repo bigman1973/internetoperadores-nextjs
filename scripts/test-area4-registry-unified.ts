@@ -229,7 +229,7 @@ test('el callback surface-aware cierra una acción nueva pese al permiso padre y
 })
 
 test('navegación fácil deriva rutas y códigos del mismo registro', () => {
-  assert.deepEqual(getEasyOnlySidebarNavigation('staging', true).map(item => [item.name, item.href]), [['Conciliar', '/admin/finanzas/conciliar'], ['Para pedir', '/admin/finanzas/para-pedir']])
+  assert.deepEqual(getEasyOnlySidebarNavigation('staging', true).map(item => [item.name, item.href]), [['Conciliar', '/admin/finanzas/conciliar']])
   assert.deepEqual(getEasyOnlySidebarNavigation('production', false).map(item => [item.name, item.href]), [['Modo fácil', '/admin/finanzas/modo-facil'], ['Para pedir', '/admin/finanzas/para-pedir']])
   for (const item of getEasyOnlySidebarNavigation('staging', true)) assert.equal(item.section, area4RegisteredSurface(item.href, 'page')?.section.areaCode)
 })

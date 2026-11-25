@@ -225,7 +225,8 @@ test('las banderas de entorno de staging se conservan en histórico y agrupado',
     assert.ok(staging.some(item => item.href === '/admin/rentabilidad'))
     assert.ok(staging.some(item => item.href === '/admin/finanzas/conciliar'))
     assert.ok(staging.some(item => item.href === '/admin/finanzas/analitica-cliente'))
-    assert.ok(staging.some(item => item.href === '/admin/finanzas/para-pedir' && item.name.endsWith(' · staging')))
+    // Encargo J: Conciliar sustituye a Modo fácil, Pendientes, Conciliación y Para pedir en el menú; sus URLs redirigen.
+    assert.ok(!staging.some(item => ['/admin/finanzas/para-pedir', '/admin/finanzas/modo-facil', '/admin/finanzas/pendientes', '/admin/finanzas/conciliacion-v2'].includes(item.href)))
     assert.ok(!production.some(item => ['/admin/rentabilidad', '/admin/finanzas/conciliar', '/admin/finanzas/analitica-cliente'].includes(item.href)))
     assert.ok(!unavailable.some(item => ['/admin/rentabilidad', '/admin/finanzas/modo-facil', '/admin/finanzas/para-pedir', '/admin/finanzas/reparto-clientes'].includes(item.href)))
   }

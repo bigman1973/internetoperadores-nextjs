@@ -81,6 +81,7 @@ export function getSidebarNavigation(
     const rentabilidadReadonly = item.href === '/admin/rentabilidad' && rentabilidadReadonlyEnabled === true && financeEnvironment !== 'staging'
     if (availability?.stagingOnly && financeEnvironment !== 'staging' && !rentabilidadReadonly) return null
     if (availability?.conciliarOnly && !conciliarEnabled) return null
+    if (availability?.replacedByConciliar && conciliarEnabled) return null
     if (availability?.needsFinance && financeEnvironment === null) return null
     return { ...item,
       name: rentabilidadReadonly ? 'Rentabilidad · solo lectura'

@@ -513,15 +513,24 @@ function ParaPedirVista(p: Readonly<{ perfil: EasyAccessProfile | null; rev: num
 function CuentasVista({ cuentas }: Readonly<{ cuentas: readonly CuentaCuadre[] }>) {
   const [abierta, setAbierta] = useState<string | null>(null);
   const activas = cuentasActivas(cuentas);
+  const cerradas = cuentas.filter(c => !c.activa);
   const cuadran = activas.filter(c => c.cuadra).length;
+  const resumenCuadre = (c: CuentaCuadre) => c.cuadra
+    ? [c.diasAmbiguosAceptados ? `${nf(c.diasAmbiguosAceptados)} día${c.diasAmbiguosAceptados === 1 ? '' : 's'} con varios órdenes válidos (el saldo de cierre es correcto)` : '', c.duplicadosIgnorados ? `${nf(c.duplicadosIgnorados)} apunte${c.duplicadosIgnorados === 1 ? '' : 's'} repetido${c.duplicadosIgnorados === 1 ? '' : 's'} de importación ignorado${c.duplicadosIgnorados === 1 ? '' : 's'} al comprobar` : '', c.saldosDeducidos ? `${nf(c.saldosDeducidos)} saldo${c.saldosDeducidos === 1 ? '' : 's'} en blanco deducido${c.saldosDeducidos === 1 ? '' : 's'} por continuidad` : ''].filter(Boolean).join(' · ')
+    : c.cadenaCorrectaDesde ? `${nf(c.huecosTotal)} hueco${c.huecosTotal === 1 ? '' : 's'}; la cadena es correcta desde el ${fechaLarga(c.cadenaCorrectaDesde)}` : `${nf(c.huecosTotal)} hueco${c.huecosTotal === 1 ? '' : 's'}`;
   return <section className="view" id="v-cuentas"><div className="panel"><h2>Cuentas y extractos</h2>
-    <p className="help">Para poder confirmar, el saldo de cada cuenta tiene que encadenar sin huecos. {cuadran === activas.length ? 'Hoy todas cuadran.' : cuadran === 0 ? 'Hoy ninguna cuadra: faltan apuntes intermedios.' : `Hoy cuadran ${cuadran} de ${activas.length}.`}</p>
-    <div id="chain">{cuentas.map(c => <div key={c.id}>
-      <div className="chain"><div><b style={{ fontWeight: 500 }}>{c.etiqueta}{c.ultimos4 ? ` · ****${c.ultimos4}` : ''}{c.activa ? '' : ' (inactiva)'}</b><div className="small muted">Extracto hasta {c.fechaCorteExtracto ? fechaLarga(c.fechaCorteExtracto) : 'sin fecha'} · {nf(c.totalMovimientos)} movimientos</div></div>
+    <p className="help">Para poder confirmar, el saldo de cada cuenta tiene que encadenar sin huecos. Dentro de un mismo día basta con que el saldo de cierre sea correcto. {cuadran === activas.length ? 'Hoy todas cuadran.' : cuadran === 0 ? 'Hoy ninguna cuadra: faltan apuntes intermedios.' : `Hoy cuadran ${cuadran} de ${activas.length}.`}</p>
+    <div id="chain">{activas.map(c => <div key={c.id}>
+      <div className="chain"><div><b style={{ fontWeight: 500 }}>{c.etiqueta}{c.ultimos4 ? ` · ****${c.ultimos4}` : ''}</b><div className="small muted">Extracto hasta {c.fechaCorteExtracto ? fechaLarga(c.fechaCorteExtracto) : 'sin fecha'} · {nf(c.totalMovimientos)} movimientos{resumenCuadre(c) ? ` · ${resumenCuadre(c)}` : ''}</div></div>
         <span className={`st ${claseEstadoCadena(c.estado)}`}>{textoEstadoCadena(c.estado)}</span>
-        <button className="btn small" type="button" aria-expanded={abierta === c.id} onClick={() => setAbierta(abierta === c.id ? null : c.id)}>{abierta === c.id ? 'Ocultar huecos' : 'Ver huecos'}</button></div>
-      {abierta === c.id && <div className="small" style={{ padding: '4px 0 10px' }}>{c.avisos.length ? <ul style={{ margin: 0, paddingLeft: 18 }}>{c.avisos.map((a, i) => <li key={i}>{a.fecha ? `${fechaLarga(a.fecha)} · ` : ''}{a.mensaje}</li>)}</ul> : <span className="muted">Sin avisos de cadena.</span>}</div>}
+        <button className="btn small" type="button" aria-expanded={abierta === c.id} onClick={() => setAbierta(abierta === c.id ? null : c.id)}>{abierta === c.id ? 'Ocultar huecos' : c.cuadra ? 'Ver detalle' : 'Ver huecos'}</button></div>
+      {abierta === c.id && <div className="small" style={{ padding: '4px 0 10px' }}>{c.avisos.length ? <ul style={{ margin: 0, paddingLeft: 18 }}>{c.avisos.map((a, i) => <li key={i}>{a.mensaje}</li>)}</ul> : <span className="muted">Sin huecos: la cadena de saldos encadena de principio a fin.</span>}</div>}
     </div>)}</div>
+    {cerradas.length > 0 && <div id="chain-cerradas" style={{ marginTop: 14 }}>
+      <p className="small muted" style={{ margin: '0 0 6px' }}>Cuentas cerradas o inactivas · no entran en el recuento ni bloquean nada</p>
+      {cerradas.map(c => <div className="chain" key={c.id} style={{ opacity: 0.6 }}><div><b style={{ fontWeight: 500 }}>{c.etiqueta.replace(/\s*\(cerrada\)\s*$/i, '')}{c.ultimos4 && c.ultimos4 !== '0000' ? ` · ****${c.ultimos4}` : ''}</b><div className="small muted">{c.totalMovimientos ? `${nf(c.totalMovimientos)} movimientos · último ${c.ultimoMovimiento ? fechaLarga(c.ultimoMovimiento) : 'sin fecha'}` : 'Sin movimientos cargados'}</div></div>
+        <span className="st b" style={{ background: 'transparent', color: 'inherit', border: '1px solid currentColor' }}>Cerrada</span><span /></div>)}
+    </div>}
     <p className="small muted" style={{ margin: '10px 0 0' }}>Solución habitual: descargar del banco el extracto completo del periodo (Norma 43 o Excel) y <a href="/admin/finanzas/importar">cargarlo de nuevo</a>.</p>
   </div></section>;
 }
