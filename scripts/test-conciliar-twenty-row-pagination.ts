@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { canAdoptConciliarMutationProjection } from '../components/finanzas/conciliar/conciliar-mutation-ui';
 
 const root = process.cwd();
-const page = readFileSync(resolve(root, 'app/admin/finanzas/conciliar/page.tsx'), 'utf8');
+const page = readFileSync(resolve(root, 'app/admin/finanzas/conciliar/ConciliarClasica.tsx'), 'utf8');
 const workspace = readFileSync(resolve(root, 'components/finanzas/conciliar/ConciliarWorkspace.tsx'), 'utf8');
 
 assert.match(page, /const input = parseConciliarGetInput\(\{[\s\S]*?limit: '20',[\s\S]*?offset: '0',[\s\S]*?\}\);/, 'la semilla SSR debe solicitar sólo 20 filas desde el servidor');

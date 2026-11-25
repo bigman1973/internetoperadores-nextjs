@@ -1,16 +1,9 @@
-import { notFound } from 'next/navigation';
-import EasyReconciliationWorkspace from '@/components/finanzas/easy/EasyReconciliationWorkspace';
-import { assertFinanceEasyRuntime, FinanceEasyRuntimeError } from '@/lib/finanzas/prototype-staging';
+import { redirect } from 'next/navigation';
+import { REDIRECTS_ANTIGUOS, destinoConciliar } from '@/lib/finanzas/conciliar-unificado';
 
 export const dynamic = 'force-dynamic';
 
-/** Sólo se monta tras validar el contexto de servidor y la identidad viva de BD. */
-export default async function ModoFacilPage() {
-  try {
-    const context = await assertFinanceEasyRuntime();
-    return <EasyReconciliationWorkspace environment={context.runtime} />;
-  } catch (error) {
-    if (error instanceof FinanceEasyRuntimeError) notFound();
-    throw error;
-  }
+/** Encargo J: esta pantalla se ha integrado en /admin/finanzas/conciliar (vista «bandeja»). Las APIs no cambian. */
+export default function Page(): never {
+  redirect(destinoConciliar(REDIRECTS_ANTIGUOS['/admin/finanzas/modo-facil'] ?? 'bandeja'));
 }

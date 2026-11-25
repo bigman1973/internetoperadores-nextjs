@@ -2,7 +2,7 @@ const { readFileSync } = require('node:fs');
 const { resolve } = require('node:path');
 
 const root = process.cwd();
-const page = readFileSync(resolve(root, 'app/admin/finanzas/conciliar/page.tsx'), 'utf8');
+const page = readFileSync(resolve(root, 'app/admin/finanzas/conciliar/ConciliarClasica.tsx'), 'utf8');
 const workspace = readFileSync(resolve(root, 'components/finanzas/conciliar/ConciliarWorkspace.tsx'), 'utf8');
 const helpers = readFileSync(resolve(root, 'components/finanzas/conciliar/conciliar-ui-helpers.ts'), 'utf8');
 const contract = readFileSync(resolve(root, 'components/finanzas/conciliar/conciliar-contract.ts'), 'utf8');

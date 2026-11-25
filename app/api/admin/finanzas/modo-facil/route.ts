@@ -7,6 +7,7 @@ import { easyErrorResponse, confirmEasyReconciliation, readEasyReconciliation } 
 import { parseEasyReadInput } from '@/lib/finanzas/easy-reconciliation-core'
 import { readEasyStepCounters } from '@/lib/finanzas/easy-counterparty-db'
 import { readEasyCollectionsForMovements } from '@/lib/finanzas/easy-collections-db'
+import { guardaCuadreModoFacil } from '@/lib/finanzas/conciliar-cuadre'
 import { scheduleConciliarProjectionRefresh } from '@/lib/finanzas/conciliar-refresh'
 
 export const dynamic = 'force-dynamic'
@@ -70,6 +71,9 @@ export async function POST(req: NextRequest) {
     if (!sameOrigin(req)) return privateJson({ error: 'Origen de la solicitud no válido' }, 403)
     const body = await readBoundedJson(req)
     if ('response' in body) return body.response
+    // Encargo J: no se confirma ni se marca «no requiere» mientras la cuenta no cuadre.
+    const bloqueo = await guardaCuadreModoFacil(body.value)
+    if (bloqueo) return privateJson(bloqueo, 409)
     const result = await confirmEasyReconciliation(access.actor.id, body.value)
     scheduleConciliarProjectionRefresh(access.actor.id)
     return privateJson(result)
