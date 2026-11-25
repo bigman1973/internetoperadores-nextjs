@@ -233,7 +233,8 @@ function datosContrato(x: PlanImportacion['contratos'][number], importacionId: s
   }
 }
 
-export async function aplicarImportacion(db: PrismaClient, plan: PlanImportacion, meta: { ficheroNombre: string; bytes: number; actorId: number; actorEmail: string }) {
+export type ResultadoAplicarIsp = { importacionId: string; resumen: Record<string, any>; propuestasNuevas: number; propuestasObsoletas: number }
+export async function aplicarImportacion(db: PrismaClient, plan: PlanImportacion, meta: { ficheroNombre: string; bytes: number; actorId: number; actorEmail: string }, dentroTx?: (tx: Prisma.TransactionClient, r: ResultadoAplicarIsp) => Promise<void>): Promise<ResultadoAplicarIsp> {
   return db.$transaction(async (tx) => {
     const importacionId = createId()
     const ahora = new Date()
@@ -287,7 +288,10 @@ export async function aplicarImportacion(db: PrismaClient, plan: PlanImportacion
     const obsoletas = existentes.filter((e) => e.estado === 'PENDIENTE' && !vigentes.has(clave(e.ispClienteRowId, e.tipo, e.destinoId))).map((e) => e.id)
     for (const l of lotes(obsoletas)) await tx.ispVinculoArea1.updateMany({ where: { id: { in: l } }, data: { estado: 'OBSOLETO', ultimaImportacionId: importacionId } })
 
-    return { importacionId, resumen: plan.resumen, propuestasNuevas: crear.length, propuestasObsoletas: obsoletas.length }
+    const r = { importacionId, resumen: plan.resumen, propuestasNuevas: crear.length, propuestasObsoletas: obsoletas.length }
+    // Recibo de auditoría del Área 4 en la misma transacción: si falla, se revierte la importación.
+    if (dentroTx) await dentroTx(tx, r)
+    return r
   }, { timeout: 180000, maxWait: 15000 })
 }
 

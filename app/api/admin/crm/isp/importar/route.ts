@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma'
 import { autorizarSuperadminIsp } from '@/lib/crm-isp-auth'
 import { ErrorFicheroIsp, leerFicheroIsp } from '@/lib/crm-isp-import-core'
 import { aplicarImportacion, obtenerBajas, planificarImportacion } from '@/lib/crm-isp-import'
+import { aplicarIspConRecibo, ErrorImportacionNoAuditada, propietarioImportacion } from '@/lib/area1-import-recibo'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -28,6 +29,13 @@ export async function POST(request: Request) {
   if (modo !== 'simular' && modo !== 'aplicar') return NextResponse.json({ error: 'Modo no válido.' }, { status: 400 })
   const consultarBrevo = String(form.get('consultarBrevo') ?? '1') !== '0'
 
+  // Aplicar: propietario canónico vivo y sin «Actuar como» (frontera del Área 4); su id firma el recibo.
+  let propietarioId: number | null = null
+  if (modo === 'aplicar') {
+    const owner = await propietarioImportacion()
+    if (!owner.ok || !owner.actorId) return owner.response!
+    propietarioId = owner.actorId
+  }
   try {
     const buffer = Buffer.from(await fichero.arrayBuffer())
     const datos = leerFicheroIsp(buffer)
@@ -38,9 +46,10 @@ export async function POST(request: Request) {
     const fuente = await obtenerBajas(prisma, { consultarBrevo })
     const plan = await planificarImportacion(prisma, datos, fuente)
     if (modo === 'simular') return NextResponse.json({ modo, hash: datos.hash, resumen: plan.resumen })
-    const r = await aplicarImportacion(prisma, plan, { ficheroNombre: fichero.name, bytes: datos.bytes, actorId: auth.actor.id, actorEmail: auth.actor.email })
-    return NextResponse.json({ modo, hash: datos.hash, ...r })
+    const r = await aplicarIspConRecibo(prisma, plan, propietarioId!, (dentroTx) => aplicarImportacion(prisma, plan, { ficheroNombre: fichero.name, bytes: datos.bytes, actorId: propietarioId!, actorEmail: auth.actor!.email }, dentroTx))
+    return NextResponse.json({ modo, hash: datos.hash, ...r, recibo: { resultado: r.recibo.resultado } })
   } catch (error) {
+    if (error instanceof ErrorImportacionNoAuditada) return NextResponse.json({ error: 'La importación ha fallado y no se ha guardado nada. Además, no se pudo registrar en la auditoría.', auditoria: 'NO_REGISTRADA' }, { status: 500 })
     if (error instanceof ErrorFicheroIsp) return NextResponse.json({ error: error.message, codigo: error.codigo }, { status: 422 })
     console.error('[CRM-ISP] Error en la importación:', error instanceof Error ? error.message : 'desconocido')
     return NextResponse.json({ error: 'No se pudo procesar el fichero. No se ha guardado nada.' }, { status: 500 })

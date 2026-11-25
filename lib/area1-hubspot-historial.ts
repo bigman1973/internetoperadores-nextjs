@@ -11,6 +11,7 @@
  * - HubSpot SOLO lectura: únicamente peticiones GET.
  */
 import { randomUUID } from 'node:crypto'
+import { ErrorAuditoriaImportacion, ErrorImportacionNoAuditada, ORIGEN_RECIBO_HUBSPOT, reciboHubspot, registrarReciboImportacion, type DespuesRecibo } from './area1-import-recibo'
 import prisma from '@/lib/prisma'
 import { hubspotRequest } from '@/lib/hubspot-listas'
 
@@ -237,7 +238,15 @@ function resumirConsentimientos(lista: Consentimiento[]) {
 
 function trozos<T>(xs: T[], n: number): T[][] { const out: T[][] = []; for (let i = 0; i < xs.length; i += n) out.push(xs.slice(i, i + n)); return out }
 
-export async function ejecutarHistorialHubspot(modo: 'simular' | 'importar', ejecutadoPor: string, request: Request = hubspotRequest): Promise<ResultadoHistorial> {
+export type AuditoriaHistorial = {
+  actorId: number
+  registrar?: typeof registrarReciboImportacion
+  db?: Parameters<typeof registrarReciboImportacion>[0]
+  reloj?: () => number
+}
+export async function ejecutarHistorialHubspot(modo: 'simular' | 'importar', ejecutadoPor: string, request: Request = hubspotRequest, auditoria?: AuditoriaHistorial): Promise<ResultadoHistorial & { recibo?: DespuesRecibo }> {
+  const reloj = auditoria?.reloj || Date.now
+  const t0 = reloj()
   const ctxBase = await cargarContexto()
   const errores: ResultadoHistorial['errores'] = {}
   const propietarios = await leerPropietarios(request).catch(() => new Map<string, string>())
@@ -283,9 +292,24 @@ export async function ejecutarHistorialHubspot(modo: 'simular' | 'importar', eje
           rebote = EXCLUDED.rebote, marketing = EXCLUDED.marketing, fecha_origen = EXCLUDED.fecha_origen, updated_at = NOW()`)
     }
     await prisma.crmSincronizacionHubspot.update({ where: { id: sync.id }, data: { estado: 'COMPLETADA', bloqueo: null, finalizadoAt: new Date(), registrosActualizados: resultado.importados.actividades, errores: Object.keys(errores).length, detalle: JSON.parse(JSON.stringify({ resumen, errores, importados: resultado.importados, consentimientos: resultado.consentimientos })) } })
-    return resultado
   } catch (e) {
     await prisma.crmSincronizacionHubspot.update({ where: { id: sync.id }, data: { estado: 'ERROR', bloqueo: null, errores: 1, finalizadoAt: new Date(), detalle: [{ error: e instanceof Error ? e.message.slice(0, 300) : 'error' }] } })
+    // Recibo con lo comprometido de verdad por los lotes ya cerrados (PARCIAL) o nada (ERROR).
+    try { await auditarHistorial(auditoria, sync.id, resultado, errores, e, reloj() - t0) } catch { throw new ErrorImportacionNoAuditada(e) }
     throw e
   }
+  // Sincronización ya cerrada (sin bloqueo). Si el recibo falla, ErrorAuditoriaImportacion: no se silencia.
+  const recibo = await auditarHistorial(auditoria, sync.id, resultado, errores, undefined, reloj() - t0)
+  return recibo ? { ...resultado, recibo } : resultado
+}
+
+async function auditarHistorial(a: AuditoriaHistorial | undefined, journalId: string, r: ResultadoHistorial, errores: ResultadoHistorial['errores'], fallo: unknown, duracionMs: number): Promise<DespuesRecibo | undefined> {
+  if (!a) return undefined
+  const despues = reciboHubspot({ journalId, importados: r.importados, consentimientosGuardados: r.consentimientos.guardados, erroresLectura: errores, fallo, duracionMs })
+  try {
+    await (a.registrar || registrarReciboImportacion)(a.db || prisma, { actorId: a.actorId, origen: ORIGEN_RECIBO_HUBSPOT, despues })
+  } catch {
+    throw new ErrorAuditoriaImportacion()
+  }
+  return despues
 }
