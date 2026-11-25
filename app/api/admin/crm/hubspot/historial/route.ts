@@ -1,5 +1,6 @@
 import { getServerSession } from 'next-auth'
 import { NextResponse } from 'next/server'
+import { importacionesCrmCerradas } from '@/lib/area1-puertas-produccion'
 import { authOptions } from '@/lib/auth'
 import { ejecutarHistorialHubspot } from '@/lib/area1-hubspot-historial'
 import { ErrorAuditoriaImportacion, ErrorImportacionNoAuditada, propietarioImportacion } from '@/lib/area1-import-recibo'
@@ -31,10 +32,12 @@ async function ejecutar(modo: 'simular' | 'importar', actorId?: number) {
 }
 
 export async function GET() {
+  if (importacionesCrmCerradas()) return NextResponse.json({ error: 'No disponible.' }, { status: 404 })
   return ejecutar('simular')
 }
 
 export async function POST(request: Request) {
+  if (importacionesCrmCerradas()) return NextResponse.json({ error: 'No disponible.' }, { status: 404 })
   const body = await request.json().catch(() => ({}))
   if (body?.confirmar !== true) return NextResponse.json({ error: 'Simula primero y confirma la importación.' }, { status: 400 })
   // Propietario canónico vivo y sin «Actuar como» (frontera del Área 4); su id firma el recibo.

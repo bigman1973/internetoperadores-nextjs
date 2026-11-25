@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { importacionesCrmCerradas } from '@/lib/area1-puertas-produccion'
 import { requireAuth } from '@/lib/middleware/auth'
 import prisma from '@/lib/prisma'
 import CrmHubspotHistorialPanel from '@/components/admin/CrmHubspotHistorialPanel'
@@ -6,6 +7,7 @@ import CrmHubspotHistorialPanel from '@/components/admin/CrmHubspotHistorialPane
 export const dynamic = 'force-dynamic'
 
 export default async function CrmHubspotHistorialPage() {
+  if (importacionesCrmCerradas()) notFound()
   const session = await requireAuth('admin')
   const cuenta = await prisma.usuarioAdmin.findUnique({ where: { id: Number(session.user.id) }, select: { rol: true, activo: true } })
   if (!cuenta?.activo || cuenta.rol !== 'SUPER_ADMIN') notFound()

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { importacionesCrmCerradas } from '@/lib/area1-puertas-produccion'
 import type { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { autorizarSuperadminIsp } from '@/lib/crm-isp-auth'
@@ -13,6 +14,7 @@ const ESTADOS = new Set(['PENDIENTE', 'CONFIRMADO', 'DESCARTADO', 'OBSOLETO'])
 const POR_PAGINA = 50
 
 export async function GET(request: Request) {
+  if (importacionesCrmCerradas()) return NextResponse.json({ error: 'No disponible.' }, { status: 404 })
   const auth = await autorizarSuperadminIsp()
   if (!auth.actor) return NextResponse.json({ error: 'No autorizado.' }, { status: auth.status })
   const url = new URL(request.url)
@@ -57,6 +59,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  if (importacionesCrmCerradas()) return NextResponse.json({ error: 'No disponible.' }, { status: 404 })
   const auth = await autorizarSuperadminIsp()
   if (!auth.actor) return NextResponse.json({ error: 'No autorizado.' }, { status: auth.status })
   const body = await request.json().catch(() => ({}))

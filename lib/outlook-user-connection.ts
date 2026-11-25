@@ -1,10 +1,11 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
 import prisma from '@/lib/prisma'
-import { M365_SCOPES_TODOS, scopesParaRenovar, tienePermiso, type M365Necesidad } from '@/lib/area1-m365'
+import { M365_SCOPES_CALENDARIO, M365_SCOPES_TODOS, m365Habilitado, scopesParaRenovar, tienePermiso, type M365Necesidad } from '@/lib/area1-m365'
 
 // Área 1 · M365: se piden calendario + correo (delegados). Las conexiones antiguas (solo calendario)
 // siguen renovándose con sus scopes; para correo se pide «Conceder permiso de correo» (reconexión).
-const OUTLOOK_SCOPES = M365_SCOPES_TODOS
+// Tanda 1 de producción: con M365 apagado solo se piden los permisos de calendario que ya existían.
+function scopesSolicitados(): readonly string[] { return m365Habilitado() ? M365_SCOPES_TODOS : M365_SCOPES_CALENDARIO }
 const GRAPH_ROOT = 'https://graph.microsoft.com/v1.0'
 const ALLOWED_DOMAINS = ['internetoperadores.com', 'lfgd.es', 'farmsplanet.es', 'elypseadvisory.com']
 const ALLOWED_PUBLIC_HOSTS = new Set(['www.internetoperadores.com', 'staging.internetoperadores.com'])
@@ -34,6 +35,8 @@ export type OutlookConnectionStatus = {
   lastError: string | null
   /** Área 1 · la conexión incluye Mail.Send + Mail.ReadWrite */
   mail: boolean
+  /** Área 1 · Microsoft 365 en la ficha (correo, IA, respuestas) disponible en este entorno */
+  m365: boolean
 }
 
 export function isOutlookUserIntegrationEnabled() {
@@ -65,7 +68,7 @@ export function createOutlookAuthorization(origin: string, userId: number, login
   url.searchParams.set('response_type', 'code')
   url.searchParams.set('redirect_uri', getOutlookRedirectUri(publicOrigin))
   url.searchParams.set('response_mode', 'query')
-  url.searchParams.set('scope', OUTLOOK_SCOPES.join(' '))
+  url.searchParams.set('scope', scopesSolicitados().join(' '))
   url.searchParams.set('state', state)
   url.searchParams.set('code_challenge', challenge)
   url.searchParams.set('code_challenge_method', 'S256')
@@ -97,7 +100,7 @@ export async function exchangeOutlookAuthorizationCode(code: string, verifier: s
       code,
       code_verifier: verifier,
       redirect_uri: redirectUri,
-      scope: OUTLOOK_SCOPES.join(' '),
+      scope: scopesSolicitados().join(' '),
     }),
     cache: 'no-store',
     signal: AbortSignal.timeout(15_000),
@@ -108,7 +111,7 @@ export async function exchangeOutlookAuthorizationCode(code: string, verifier: s
   if (!grantedScopes.has('user.read') || !grantedScopes.has('calendars.readwrite')) {
     throw new Error('Microsoft no ha concedido todos los permisos necesarios para la agenda.')
   }
-  return { accessToken: token.access_token, refreshToken: token.refresh_token, scopes: token.scope || OUTLOOK_SCOPES.join(' ') }
+  return { accessToken: token.access_token, refreshToken: token.refresh_token, scopes: token.scope || scopesSolicitados().join(' ') }
 }
 
 export async function getMicrosoftUserIdentity(accessToken: string) {
@@ -171,7 +174,8 @@ export async function getOutlookConnectionStatus(userId: number): Promise<Outloo
     email: connection && !connection.revocadoAt ? connection.email : null,
     connectedAt: connection && !connection.revocadoAt ? connection.conectadoAt.toISOString() : null,
     lastError: connection?.ultimoError || null,
-    mail: Boolean(connection && !connection.revocadoAt && tienePermiso(connection.scopes, 'correo')),
+    mail: m365Habilitado() && Boolean(connection && !connection.revocadoAt && tienePermiso(connection.scopes, 'correo')),
+    m365: m365Habilitado(),
   }
 }
 

@@ -6,6 +6,7 @@ import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import { authorizeCrmEmpresas } from '@/lib/crm-empresas-auth'
 import { bloqueoActuacion } from '@/lib/area1-m365'
+import { fichaNuevaHabilitada } from '@/lib/area1-puertas-produccion'
 import { cargarFichaCliente, generarPuntosIa, MODELO_FICHA_IA } from '@/lib/area1-ficha-cliente'
 export const dynamic = 'force-dynamic'
 /**
@@ -14,6 +15,7 @@ export const dynamic = 'force-dynamic'
  * El contexto que se envía a la IA no lleva costes, márgenes, correos ni teléfonos. No envía nada a nadie.
  */
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+  if (!fichaNuevaHabilitada()) return NextResponse.json({ error: 'No disponible.' }, { status: 404 })
   const auth = await authorizeCrmEmpresas()
   if (auth.status !== 200 || !auth.user) return NextResponse.json({ error: auth.status === 401 ? 'No autorizado.' : 'No tienes permiso para ver esta ficha.' }, { status: auth.status })
   const session = await getServerSession(authOptions)

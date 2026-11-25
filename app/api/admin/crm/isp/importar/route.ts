@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { importacionesCrmCerradas } from '@/lib/area1-puertas-produccion'
 import prisma from '@/lib/prisma'
 import { autorizarSuperadminIsp } from '@/lib/crm-isp-auth'
 import { ErrorFicheroIsp, leerFicheroIsp } from '@/lib/crm-isp-import-core'
@@ -17,6 +18,7 @@ const MAX_BYTES = 4 * 1024 * 1024 // Vercel limita el cuerpo de la petición a 4
  * La respuesta solo contiene agregados.
  */
 export async function POST(request: Request) {
+  if (importacionesCrmCerradas()) return NextResponse.json({ error: 'No disponible.' }, { status: 404 })
   const auth = await autorizarSuperadminIsp()
   if (!auth.actor) return NextResponse.json({ error: auth.status === 401 ? 'No autorizado.' : 'Solo el superadministrador puede importar el fichero de ISP.' }, { status: auth.status })
   const largo = Number(request.headers.get('content-length') || 0)

@@ -39,6 +39,7 @@ type Props = {
     connectedAt: string | null
     lastError: string | null
     mail?: boolean
+    m365?: boolean
   }
   /** Área 1 · aviso de aislamiento de Microsoft 365 (staging); null en producción */
   m365Aviso?: string | null
@@ -290,7 +291,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
 
             {type === 'CORREO' && <>
               <Area1M365Aviso aviso={m365Aviso} />
-              <Area1M365Correo contactId={contactId} conexion={outlookConnection} corporativo={senderEmail} viaOutlook={viaOutlook} onCanal={setViaOutlook} onBorrador={({ asunto, cuerpo }) => { setTitle(asunto); setDescription(cuerpo); setAiDraft(true) }} />
+              {outlookConnection.m365 !== false && <Area1M365Correo contactId={contactId} conexion={outlookConnection} corporativo={senderEmail} viaOutlook={viaOutlook} onCanal={setViaOutlook} onBorrador={({ asunto, cuerpo }) => { setTitle(asunto); setDescription(cuerpo); setAiDraft(true) }} />}
               <div className="space-y-3">
                 <label className="block text-sm font-semibold text-slate-900">Para<input type="text" value={to} onChange={(event) => setTo(event.target.value)} required placeholder="correo@empresa.com" className="mt-2 block min-h-11 w-full rounded-xl border-slate-300 text-sm text-slate-900 focus:border-blue-500 focus:ring-blue-500" /></label>
                 <button type="button" onClick={() => setShowCopies((current) => !current)} className="text-xs font-semibold text-blue-700 hover:text-blue-900">{showCopies ? 'Ocultar CC y CCO' : 'Añadir CC o CCO'}</button>
