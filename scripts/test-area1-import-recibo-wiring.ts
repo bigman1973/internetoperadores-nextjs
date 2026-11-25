@@ -100,7 +100,7 @@ async function main() {
   })
   await t('HubSpot real: cierre y auditoría fallan → ErrorImportacionNoAuditada con la causa original', async () => {
     const filas = Array.from({ length: 501 }, (_, i) => fila(i))
-    await assert.rejects(hs(hsDb({ fallaLote: (n) => n === 2, fallaCierre: true }), filas, auditDb(true)), (e: any) => e instanceof ErrorImportacionNoAuditada && e.causa?.code === 'P2003')
+    await assert.rejects(hs(hsDb({ fallaLote: (n) => n === 2, fallaCierre: true }), filas, auditDb(true)), (e: any) => e instanceof ErrorImportacionNoAuditada && (e.causa as { code?: string } | undefined)?.code === 'P2003')
   })
   await t('HubSpot real: todo comprometido → EXITO con conteos reales', async () => {
     const audit = auditDb()

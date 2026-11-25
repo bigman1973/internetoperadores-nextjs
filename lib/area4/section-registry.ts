@@ -2368,6 +2368,12 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         baselineDescriptor: "[1,\"crm.empresas\",\"admin.crm.empresas\",\"api\",\"/api/admin/crm/empresas/[id]/contactos\",[\"V\",\"E\",\"C\",\"X\"],[[\"V\",\"lectura\"],[\"E\",\"escritura\"],[\"C\",\"confirmar\"],[\"X\",\"exportar\"]],null,{\"safeMethods\":[\"GET\",\"HEAD\",\"OPTIONS\"],\"selectors\":[\"action\",\"accion\"],\"confirmActions\":[\"confirmar\",\"confirmar_traspasos_propios_manual\",\"aprobar\",\"aprobar_extra\",\"aprobar_gasto\",\"validar\",\"asociar_devolucion\",\"asociar_facturas\",\"vincular_factura_interes\",\"vincular_compra\",\"vincular_personal\",\"imputar\",\"imputar-a-ventas\",\"imputar-todas-proveedor\",\"aplicar-similares\",\"guardar-lineas\",\"RESOLVER_CUARENTENA\",\"RESOLVER_HISTORICA\"],\"exportActions\":[\"exportar\",\"export\",\"download\",\"descargar\",\"pdf\",\"excel\",\"csv\"],\"confirmPathSegments\":[\"confirmar\",\"aprobar\",\"validar\",\"confirmacion\"],\"exportPathSegments\":[\"exportar\",\"exportar-a3\",\"export\",\"exportaciones\",\"excel\",\"csv\"],\"exportFinalSegment\":\"pdf\",\"singleDocumentException\":\"/api/admin/finanzas/conciliar/documento\"}]",
       },
       {
+        path: "/api/admin/crm/empresas/[id]/resumen-ia",
+        kind: "api",
+        actions: ["V", "E"],
+        request: { requiredActions: { GET: ["V", "E"], HEAD: ["V", "E"] } },
+      },
+      {
         path: "/api/admin/crm/empresas/buscar-clientes",
         kind: "api",
         actions: ["V","E","C","X"],

@@ -6219,3 +6219,17 @@ model Area1CrmConsentimiento {
   @@index([estado])
   @@map("area1_crm_consentimientos")
 }
+
+/// Área 1 · Caché diaria del resumen con IA de la ficha de cliente («Lo que hay que saber»).
+model Area1CrmFichaIa {
+  id          String   @id @default(cuid())
+  empresaId   String   @map("empresa_id")
+  dia         DateTime @db.Date
+  huella      String
+  puntos      Json     @db.JsonB
+  modelo      String
+  creadoPorId Int?     @map("creado_por_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  @@unique([empresaId, dia], map: "area1_crm_ficha_ia_empresa_dia_key")
+  @@map("area1_crm_ficha_ia")
+}
