@@ -90,7 +90,14 @@ for (const concepto of ['Comisión 0', 'Comisión: 0.00', 'Comisión 0,0000', 'C
 assert.equal(selectPureBankCommissions([movement({ ...commission, id: 'no-bank', bancoCuenta: null })]).length, 0)
 
 const preview = parseEasyAutoInput({ action: 'previsualizar', desde: EASY_AUTO_DATA_FROM, hasta: EASY_AUTO_DATA_UNTIL, limite: 10 })
-assert.deepEqual(preview, { action: 'previsualizar', desde: '2026-01-01', hasta: '2026-10-08', limite: 10 })
+assert.deepEqual(preview, { action: 'previsualizar', desde: '2026-01-01', hasta: '2026-11-25', limite: 10 })
+// Ventana ampliada (Víctor 25/11/2026): incluye el 25/11 y rechaza cualquier otro corte.
+assert.equal(EASY_AUTO_DATA_UNTIL, '2026-11-25')
+for (const hasta of ['2026-11-26', '2026-11-24']) {
+  assert.equal(errorCode(() => parseEasyAutoInput({ action: 'previsualizar', desde: EASY_AUTO_DATA_FROM, hasta, limite: 10 })), 'VENTANA_POLITICA_RESTRINGIDA')
+}
+// El payload histórico (ventana original 08/10) sigue siendo válido para replay.
+assert.equal(parseEasyAutoInput({ action: 'previsualizar', desde: EASY_AUTO_DATA_FROM, hasta: '2026-10-08', limite: 10 }).action, 'previsualizar')
 assert.equal(errorCode(() => parseEasyAutoInput({ action: 'registrar_tercero_banco', cuentaId: 'x', nombreBancoCobrador: 'Banco', referenciaEvidencia: 'referencia suficiente', confirmacion: true })), 'VALIDATION_ERROR')
 const hash = reviewHash('22222222-2222-4222-8222-222222222222', [commissionCandidates[0]!])
 assert.match(hash, /^[a-f0-9]{64}$/)

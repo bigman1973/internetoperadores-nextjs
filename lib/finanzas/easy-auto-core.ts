@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto'
 
 export const EASY_AUTO_POLICY_KEY = 'MODO_FACIL_AUTO_RESTRINGIDA_STAGING_20261024' as const
 export const EASY_AUTO_DATA_FROM = '2026-01-01' as const
-export const EASY_AUTO_DATA_UNTIL = '2026-10-08' as const
+export const EASY_AUTO_DATA_UNTIL = '2026-11-25' as const
+/** Ventana original (política del 24/10). Producción la conserva; un payload histórico sigue siendo válido para replay. */
+export const EASY_AUTO_LEGACY_DATA_UNTIL = '2026-10-08' as const
 export const EASY_AUTO_ORIGIN = 'REGLA' as const
 export const EASY_AUTO_MAX_LIMIT = 100
 
@@ -383,8 +385,8 @@ type WindowAction = 'previsualizar' | 'ejecutar'
 function windowFrom<A extends WindowAction>(value: Record<string, unknown>, action: A): Readonly<{ action: A; desde: string; hasta: string; limite: number }> {
   const desde = isoDay(value.desde, 'desde')
   const hasta = isoDay(value.hasta, 'hasta')
-  if (desde !== EASY_AUTO_DATA_FROM || hasta !== EASY_AUTO_DATA_UNTIL) {
-    fail(422, 'VENTANA_POLITICA_RESTRINGIDA', `La automatización sólo admite ${EASY_AUTO_DATA_FROM} a ${EASY_AUTO_DATA_UNTIL}.`)
+  if (desde !== EASY_AUTO_DATA_FROM || (hasta !== EASY_AUTO_DATA_UNTIL && hasta !== EASY_AUTO_LEGACY_DATA_UNTIL)) {
+    fail(422, 'VENTANA_POLITICA_RESTRINGIDA', `La automatización sólo admite ${EASY_AUTO_DATA_FROM} a ${EASY_AUTO_DATA_UNTIL} (o la ventana original hasta ${EASY_AUTO_LEGACY_DATA_UNTIL}).`)
   }
   return { action, desde, hasta, limite: integer(value.limite, 'limite', 1, EASY_AUTO_MAX_LIMIT) }
 }

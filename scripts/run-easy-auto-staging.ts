@@ -238,12 +238,19 @@ async function main() {
 
   // Explicit authorization remains append-only and does not claim account ownership.
   await mutateEasyAutomation(actor, { action: 'registrar_politica', referenciaAutorizacion: authorization, confirmacion: true })
-  const preview: any = await previewEasyAutomation({ action: 'previsualizar', desde: '2026-01-01', hasta: '2026-10-08', limite: 100 })
+  const preview: any = await previewEasyAutomation({ action: 'previsualizar', desde: '2026-01-01', hasta: '2026-11-25', limite: 100 })
   const overview = concise(preview)
   if (!preview.candidates?.length || typeof preview.reviewHash !== 'string') {
     console.log(JSON.stringify({ mode: 'APPLY', ...overview, applied: 0, replays: 0, requestPersisted: false, note: 'No hay candidatos válidos; sólo se registró o reutilizó la política explícita.' }))
     return
   }
+
+  // Alcance: esta autorización solo cubre la ampliación (movimientos del 09/10 al 25/11).
+  // Si aparece un candidato que sea solo histórico (anterior), se aborta sin aplicar nada.
+  const AMPLIACION_DESDE = '2026-10-09'
+  const ajenos = (preview.candidates as Array<{ movimientos: Array<{ fecha: string }> }>)
+    .filter(candidate => !candidate.movimientos.some(movement => movement.fecha >= AMPLIACION_DESDE))
+  if (ajenos.length > 0) fail('EASY_AUTO_CANDIDATES_OUTSIDE_AUTHORIZED_SCOPE')
 
   const created: PersistedRequest = {
     schema: REQUEST_SCHEMA,
@@ -252,7 +259,7 @@ async function main() {
     authorizationHash,
     bindingHash,
     request: {
-      action: 'ejecutar', desde: '2026-01-01', hasta: '2026-10-08', limite: 100,
+      action: 'ejecutar', desde: '2026-01-01', hasta: '2026-11-25', limite: 100,
       idempotencyKey: randomUUID(), reviewHash: preview.reviewHash, confirmacion: true,
     },
   }
