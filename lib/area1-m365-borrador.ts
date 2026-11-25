@@ -5,6 +5,7 @@
  * contratos activos y facturación 2026. Sin márgenes ni rentabilidad (no se exponen al comercial).
  */
 import prisma from '@/lib/prisma'
+import { leerSubidaCliente, textoSubida } from '@/lib/area1-subida-cliente'
 
 export type ContextoBorrador = {
   contacto: { nombre: string | null; cargo: string | null; empresa: string | null; segmento: string | null; ciudad: string | null }
@@ -45,6 +46,7 @@ export function construirPromptBorrador(ctx: ContextoBorrador, pet: PeticionBorr
     'Eres el asistente comercial de Internet Operadores (operador de telecomunicaciones e IT para empresas y particulares en España).',
     'Redactas UN borrador de correo en español de España para que un comercial lo revise antes de enviarlo.',
     'Usa solo los datos del contexto; si falta un dato (precio, fecha, condición), NO lo inventes: deja un hueco entre corchetes, p. ej. [fecha], y añádelo a «avisos».',
+    'Menciona la subida de precios solo si el objetivo del correo trata de precios, renovación o la propia subida; si la usas, añade a «avisos» que hay que confirmarla con dirección antes de enviar.',
     'Nunca prometas descuentos, precios ni plazos que no estén en el contexto. No incluyas datos internos (márgenes, costes, notas internas literales).',
     'No pongas firma: el sistema añade «Un saludo» y el nombre del remitente.',
     'Responde SOLO con JSON: {"asunto": string (máx. 120 caracteres), "cuerpo": string (texto plano con saltos de línea, sin HTML), "avisos": string[]}.',
@@ -89,7 +91,7 @@ export async function cargarContextoBorrador(contactoId: string, autor: string):
     }),
     prisma.ispClienteArea1.findFirst({
       where: { crmContactoId: contactoId },
-      select: { codigo: true, nombre: true, personaFisica: true, contratos: { where: { activo: true }, select: { descripcion: true, tarifa: true, proveedor: true, velocidad: true, importeSinIva: true, permanenciaHasta: true }, take: 10 } },
+      select: { codigo: true, nombre: true, personaFisica: true, cif: true, nif: true, contratos: { where: { activo: true }, select: { codigoContratoIsp: true, descripcion: true, tarifa: true, proveedor: true, velocidad: true, importeSinIva: true, permanenciaHasta: true }, take: 10 } },
     }).catch(() => null),
   ])
 
@@ -99,6 +101,9 @@ export async function cargarContextoBorrador(contactoId: string, autor: string):
     if (filas.length) facturacion2026 = { meses: filas.length, total: filas.reduce((s, f) => s + Number(f.importeBase), 0) }
   }
 
+  const subidaPrecios = isp
+    ? textoSubida(await leerSubidaCliente({ codigosContrato: isp.contratos.map((c) => c.codigoContratoIsp), cif: isp.cif || isp.nif || null }).catch(() => null))
+    : null
   return {
     contacto: {
       nombre: contacto.nombre || [str(p, 'firstname'), str(p, 'lastname')].filter(Boolean).join(' ') || null,
@@ -117,8 +122,8 @@ export async function cargarContextoBorrador(contactoId: string, autor: string):
       permanenciaHasta: c.permanenciaHasta ? c.permanenciaHasta.toISOString().slice(0, 10) : null,
     })),
     facturacion2026,
-    // Pendiente: el Área 2 debe exponer un lector por cliente de la subida de precios. Hasta entonces no se inventa.
-    subidaPrecios: null,
+    // Subida: último escenario APROBADO (lector del Área 1, solo lectura, sin coste ni margen). Sin dato, no se menciona.
+    subidaPrecios,
     autor,
   }
 }
