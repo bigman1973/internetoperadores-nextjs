@@ -23,7 +23,7 @@ export function failure(error: unknown) {
 }
 const text = z.string().trim().min(1).max(240);
 const optionalText = z.string().trim().max(240).optional();
-export const querySchema = z.object({ month: monthSchema.optional(), mode: z.enum(['real', 'contratado']).default('real') }).strict();
+export const querySchema = z.object({ month: monthSchema.optional(), mode: z.enum(['real', 'contratado']).default('real'), detalle: z.enum(['cliente', 'producto']).optional(), clave: z.string().trim().min(1).max(200).optional(), vista: z.enum(['facturado', 'coste', 'contratos']).optional() }).strict().refine(q => !q.detalle || (!!q.clave && !!q.vista && !!q.month), { message: 'DETALLE_INCOMPLETO' });
 export function parseQuery(req: NextRequest) {
   const params = req.nextUrl.searchParams;
   if (Array.from(params.keys()).some(key => params.getAll(key).length !== 1)) throw new RentabilidadError('DUPLICATED_PARAMETER');
