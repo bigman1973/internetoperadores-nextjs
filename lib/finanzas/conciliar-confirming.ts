@@ -298,8 +298,8 @@ async function readMovements(tx: ConfirmingQueryClient, options: ReadConciliarCo
   const where = onlyIds
     ? Prisma.sql`m.id IN (${Prisma.join(selectedIds.map((value) => Prisma.sql`${value}`))})`
     : options.allRebuild
-      ? Prisma.sql`COALESCE(e.estado::text, 'SIN_DOCUMENTO')='SIN_DOCUMENTO' AND m.importe > 0`
-      : Prisma.sql`COALESCE(e.estado::text, 'SIN_DOCUMENTO')='SIN_DOCUMENTO' AND m.importe > 0`
+      ? Prisma.sql`COALESCE(e.estado::text, 'SIN_DOCUMENTO')='SIN_DOCUMENTO' AND m.importe > 0 AND m.duplicado_de_id IS NULL`
+      : Prisma.sql`COALESCE(e.estado::text, 'SIN_DOCUMENTO')='SIN_DOCUMENTO' AND m.importe > 0 AND m.duplicado_de_id IS NULL`
   const rows = await tx.$queryRaw<RawMovement[]>(Prisma.sql`
     SELECT m.id, m.fecha_operacion::date::text AS fecha, m.importe::text AS "importeDecimal",
       COALESCE(e.estado::text, 'SIN_DOCUMENTO') AS "estadoB4", cb.banco, cb.alias AS cuenta,
