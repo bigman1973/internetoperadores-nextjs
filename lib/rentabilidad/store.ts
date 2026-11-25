@@ -525,7 +525,7 @@ export async function appendRun(input: any) {
   })
 }
 export async function saveSnapshot(month: string, raw: any, actorId: number, kind = 'CIERRE') {
-  monthSchema.parse(month); keySchema.parse(kind); const payload = safePayload(raw, 8 * 1024 * 1024)
+  monthSchema.parse(month); keySchema.parse(kind); const payload = safePayload(raw, 16 * 1024 * 1024)
   const { generatedAt: ignoredDate, runs: ignoredRuns, snapshots: ignoredSnapshots, ...semantic } = payload
   const hash = sourceHash({ month, kind, semantic })
   return transaction(actorId, async tx => {
