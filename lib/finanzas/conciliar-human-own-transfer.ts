@@ -292,6 +292,7 @@ export async function readLiveManualOwnTransferPopulationTx(tx: Tx): Promise<rea
     JOIN cuentas_bancarias c ON c.id=m.cuenta_id
     LEFT JOIN estado_justificacion_movimientos e ON e.movimiento_id=m.id
     WHERE COALESCE(e.estado::text,'SIN_DOCUMENTO')='SIN_DOCUMENTO'
+      AND m.duplicado_de_id IS NULL
       AND b4_importe_bancario_centimos(m.importe) IS NOT NULL
     ORDER BY m.fecha_operacion DESC,m.id ASC
     LIMIT ${MAX_MANUAL_OWN_TRANSFER_POPULATION + 1}
@@ -323,6 +324,7 @@ async function lockSelectedManualOwnTransferMovementsTx(tx: Tx, movementIds: rea
     LEFT JOIN estado_justificacion_movimientos e ON e.movimiento_id=m.id
     WHERE m.id IN (${Prisma.join(movementIds.map(movementId => Prisma.sql`${movementId}`))})
       AND COALESCE(e.estado::text,'SIN_DOCUMENTO')='SIN_DOCUMENTO'
+      AND m.duplicado_de_id IS NULL
       AND b4_importe_bancario_centimos(m.importe) IS NOT NULL
     ORDER BY m.id ASC
     FOR UPDATE OF m

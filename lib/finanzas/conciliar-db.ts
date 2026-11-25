@@ -381,6 +381,7 @@ export async function unresolvedMovements(tx: Tx, movementId?: string, lock = tr
       ORDER BY d.created_at DESC,d.id DESC LIMIT 1
     ) p1 ON TRUE
     WHERE COALESCE(e.estado::text,'SIN_DOCUMENTO')='SIN_DOCUMENTO' AND b4_importe_bancario_centimos(m.importe) IS NOT NULL
+      AND m.duplicado_de_id IS NULL
       ${movementId ? Prisma.sql`AND m.id=${movementId}` : Prisma.empty}
     ORDER BY m.fecha_operacion DESC,m.id ASC LIMIT ${movementId ? 1 : MAX_REBUILD_ROWS}
       ${movementId && lock ? Prisma.sql`FOR UPDATE OF m` : Prisma.empty}
@@ -1302,6 +1303,7 @@ export async function restoreLiveBankFeeProjectionBatchTx(base: Prisma.Transacti
     JOIN cuentas_bancarias c ON c.id=m.cuenta_id
     LEFT JOIN estado_justificacion_movimientos e ON e.movimiento_id=m.id
     WHERE m.id IN (${ids}) AND COALESCE(e.estado::text,'SIN_DOCUMENTO')='SIN_DOCUMENTO'
+      AND m.duplicado_de_id IS NULL
     FOR UPDATE OF m,c
   `)
   if (movements.length !== movimientoIds.length) return false
@@ -1386,7 +1388,7 @@ export async function readStrictOwnTransfers(tx: Tx): Promise<ReadonlyMap<string
     FROM movimientos_bancarios m
     JOIN cuentas_bancarias c ON c.id=m.cuenta_id AND c.activa=true
     LEFT JOIN estado_justificacion_movimientos e ON e.movimiento_id=m.id
-    WHERE COALESCE(e.estado::text,'SIN_DOCUMENTO')='SIN_DOCUMENTO'
+    WHERE COALESCE(e.estado::text,'SIN_DOCUMENTO')='SIN_DOCUMENTO' AND m.duplicado_de_id IS NULL
       AND m.factura_id IS NULL AND m.gasto_id IS NULL AND m.factura_emitida_id IS NULL AND m.nomina_id IS NULL
       AND m.entrega_a_cuenta_empleado_id IS NULL
       AND NOT EXISTS (SELECT 1 FROM patas_recibo_auto_modo_facil p WHERE p.movimiento_id=m.id)
@@ -1480,7 +1482,7 @@ export async function readConciliarProjectionPlanSourcesTx(base: Prisma.Transact
   if (requireCompletePopulation) {
     const sizes = await tx.$queryRaw<Array<{ movements: bigint; proposals: bigint; received: bigint; payroll: bigint }>>(Prisma.sql`
     SELECT
-      (SELECT COUNT(*) FROM movimientos_bancarios m LEFT JOIN estado_justificacion_movimientos e ON e.movimiento_id=m.id WHERE COALESCE(e.estado::text,'SIN_DOCUMENTO')='SIN_DOCUMENTO') AS movements,
+      (SELECT COUNT(*) FROM movimientos_bancarios m LEFT JOIN estado_justificacion_movimientos e ON e.movimiento_id=m.id WHERE COALESCE(e.estado::text,'SIN_DOCUMENTO')='SIN_DOCUMENTO' AND m.duplicado_de_id IS NULL) AS movements,
       (SELECT COUNT(*) FROM modo_facil_propuestas_cobro p WHERE p.generacion_id=(SELECT id FROM modo_facil_generaciones_cobro ORDER BY creada_at DESC,id DESC LIMIT 1) AND p.estado_propuesto IN ('JUSTIFICADO','NO_REQUIERE')) AS proposals,
       (SELECT COUNT(*) FROM facturas_recibidas) AS received,
       (SELECT COUNT(*) FROM nominas) AS payroll

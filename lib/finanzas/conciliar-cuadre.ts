@@ -29,6 +29,8 @@ export type CuentaCuadre = Readonly<{
   /** Detalle del cuadre por día (Encargo J): lo que se ignora o se acepta y desde cuándo la cadena es correcta. */
   diasAmbiguosAceptados: number
   duplicadosIgnorados: number
+  /** Apuntes marcados con duplicado_de_id (copias repetidas): fuera de la cadena, de la bandeja y de los KPIs. */
+  duplicadosMarcados: number
   saldosDeducidos: number
   huecosTotal: number
   cadenaCorrectaDesde: string | null
@@ -54,10 +56,15 @@ export async function readCuentasCuadre(onlyIds?: readonly string[]): Promise<re
   })
   if (!cuentas.length) return []
   const movimientos = await db.movimientoBancario.findMany({
-    where: { cuentaId: { in: cuentas.map(c => c.id) } },
+    where: { cuentaId: { in: cuentas.map(c => c.id) }, duplicadoDeId: null },
     select: { cuentaId: true, fechaOperacion: true, importe: true, saldo: true },
     orderBy: [{ cuentaId: 'asc' }, { fechaOperacion: 'asc' }, { createdAt: 'asc' }],
   })
+  const marcadosRows: Array<{ cuentaId: string }> = await db.movimientoBancario.findMany({
+    where: { cuentaId: { in: cuentas.map(c => c.id) }, duplicadoDeId: { not: null } }, select: { cuentaId: true },
+  })
+  const marcadosPorCuenta = new Map<string, number>()
+  for (const r of marcadosRows) marcadosPorCuenta.set(r.cuentaId, (marcadosPorCuenta.get(r.cuentaId) ?? 0) + 1)
   const porCuenta = new Map<string, any[]>()
   for (const movimiento of movimientos) {
     const lista = porCuenta.get(movimiento.cuentaId)
@@ -89,6 +96,7 @@ export async function readCuentasCuadre(onlyIds?: readonly string[]): Promise<re
         : cadena.huecos.map(h => ({ codigo: h.tipo, mensaje: h.mensaje, fecha: h.dia })),
       diasAmbiguosAceptados: cadena.diasAmbiguosAceptados,
       duplicadosIgnorados: cadena.duplicadosIgnorados,
+      duplicadosMarcados: marcadosPorCuenta.get(cuenta.id) ?? 0,
       saldosDeducidos: cadena.saldosDeducidos,
       huecosTotal: cadena.huecos.length,
       cadenaCorrectaDesde: cadena.cadenaCorrectaDesde,
@@ -114,7 +122,7 @@ export async function readResumenMovimientos(desde = '2026-01-01'): Promise<Resu
       COALESCE(SUM(CASE WHEN importe<0 THEN -importe::numeric ELSE 0 END),0)::text AS salen,
       COUNT(*) FILTER (WHERE conciliado)::bigint AS conciliados,
       COUNT(*) FILTER (WHERE tercero IS NULL OR btrim(tercero)='')::bigint AS sin_tercero
-    FROM movimientos_bancarios WHERE fecha_operacion >= CAST(${desde} AS date)`)
+    FROM movimientos_bancarios WHERE duplicado_de_id IS NULL AND fecha_operacion >= CAST(${desde} AS date)`)
   const r = rows[0]
   return {
     movimientos: Number(r?.n ?? 0), entranCentimos: aCentimos(r?.entran), salenCentimos: aCentimos(r?.salen),

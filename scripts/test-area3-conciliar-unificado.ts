@@ -17,7 +17,7 @@ const leer = (p: string) => readFileSync(resolve(p), 'utf8')
 
 const cuenta = (o: Partial<CuentaCuadre>): CuentaCuadre => ({
   id: 'x', banco: 'B', alias: null, etiqueta: 'Cuenta', ultimos4: null, activa: true, estado: 'OK', cuadra: true, totalMovimientos: 10,
-  ultimoMovimiento: null, fechaCorteExtracto: '2026-11-25', avisos: [], diasAmbiguosAceptados: 0, duplicadosIgnorados: 0, saldosDeducidos: 0, huecosTotal: 0, cadenaCorrectaDesde: null, ...o,
+  ultimoMovimiento: null, fechaCorteExtracto: '2026-11-25', avisos: [], diasAmbiguosAceptados: 0, duplicadosIgnorados: 0, duplicadosMarcados: 0, saldosDeducidos: 0, huecosTotal: 0, cadenaCorrectaDesde: null, ...o,
 } as CuentaCuadre)
 const CUENTAS: CuentaCuadre[] = [
   cuenta({ id: 'bbva', etiqueta: 'BBVA Principal', estado: 'HUECO', cuadra: false, fechaCorteExtracto: '2026-11-20' }),
