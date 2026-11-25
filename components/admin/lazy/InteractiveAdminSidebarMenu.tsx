@@ -9,6 +9,7 @@ import {
   filterAuthorizedSidebarNavigation,
   getEasyOnlySidebarNavigation,
   isSidebarNavigationGroup,
+  sidebarItemContainsActivePath,
   type FinanceEnvironment,
   type SidebarPresentation,
   type SidebarNavigationGroup,
@@ -46,16 +47,23 @@ export default function InteractiveAdminSidebarMenu({
 
   // Auto-abrir el grupo si la ruta actual está dentro.
   useEffect(() => {
+    const activeGroups: string[] = []
+    const visit = (item: SidebarNavigationItem) => {
+      if (item.collapsible && sidebarItemContainsActivePath(item, pathname)) activeGroups.push(`item:${item.href}`)
+      item.subitems?.forEach(visit)
+    }
     visibleNavigation.forEach(entry => {
-      if (!isSidebarNavigationGroup(entry)) return
-      const isChildActive = entry.children.some(
-        child => pathname === child.href || pathname.startsWith(child.href + '/'),
-      )
-      if (isChildActive && !openGroups.includes(entry.name)) {
-        setOpenGroups(prev => [...prev, entry.name])
+      if (isSidebarNavigationGroup(entry)) {
+        if (entry.children.some(child => sidebarItemContainsActivePath(child, pathname))) activeGroups.push(entry.name)
+        entry.children.forEach(visit)
+      } else {
+        visit(entry)
       }
     })
-  }, [pathname, visibleNavigation, openGroups])
+    setOpenGroups(prev => activeGroups.some(name => !prev.includes(name))
+      ? [...new Set([...prev, ...activeGroups])] : prev)
+    // A manual collapse stays closed until the route or authorized tree changes.
+  }, [pathname, visibleNavigation])
 
   const toggleGroup = (name: string) => {
     setOpenGroups(prev => (
@@ -64,22 +72,24 @@ export default function InteractiveAdminSidebarMenu({
   }
 
   const renderNavItem = (item: SidebarNavigationItem, isChild = false, depth = 0): React.ReactNode => {
-    const isActive = pathname === item.href ||
+    const isActive = !item.containerOnly && (pathname === item.href ||
       (!item.exact && item.href !== '/admin' && pathname.startsWith(item.href + '/')) ||
-      (item.href === '/admin' && pathname === '/admin')
+      (item.href === '/admin' && pathname === '/admin'))
+    const className = `group flex min-h-11 items-center gap-x-3 rounded-lg px-3 py-2 text-sm font-semibold leading-6 ${depth > 0 ? 'pl-8 text-xs' : isChild ? 'pl-10' : ''} ${isActive ? 'bg-orange-50 text-orange-600' : 'text-gray-700 hover:bg-gray-50 hover:text-orange-600'}`
+    const label = <><AdminSidebarIcon name={item.icon} className={`${depth > 0 ? 'h-5 w-5' : 'h-6 w-6'} shrink-0 ${isActive ? 'text-orange-600' : 'text-gray-400 group-hover:text-orange-600'}`} />{item.name}</>
+    const link = !item.containerOnly ? <Link href={item.href} prefetch={false} onClick={onNavigate} className={className} aria-label={`Abrir ${item.name}`}>{label}</Link> : null
+    const expandable = item.collapsible && !!item.subitems?.length
+    const isOpen = openGroups.includes(`item:${item.href}`)
 
     return (
-      <li key={item.name}>
-        <Link
-          href={item.href}
-          prefetch={false}
-          onClick={onNavigate}
-          className={`group flex min-h-11 items-center gap-x-3 rounded-lg px-3 py-2 text-sm font-semibold leading-6 ${depth > 0 ? 'pl-8 text-xs' : isChild ? 'pl-10' : ''} ${isActive ? 'bg-orange-50 text-orange-600' : 'text-gray-700 hover:bg-gray-50 hover:text-orange-600'}`}
-        >
-          <AdminSidebarIcon name={item.icon} className={`${depth > 0 ? 'h-5 w-5' : 'h-6 w-6'} shrink-0 ${isActive ? 'text-orange-600' : 'text-gray-400 group-hover:text-orange-600'}`} />
-          {item.name}
-        </Link>
-        {item.subitems && item.subitems.length > 0 && (
+      <li key={item.href}>
+        {expandable ? (
+          <button type="button" onClick={() => toggleGroup(`item:${item.href}`)} aria-expanded={isOpen} aria-label={`Desplegar ${item.name}`} className={`${className} w-full text-left`}>
+            {label}<AdminSidebarChevron className={`ml-auto h-4 w-4 shrink-0 text-gray-400 ${isOpen ? 'rotate-180' : ''}`} />
+          </button>
+        ) : item.containerOnly ? <span className={className}>{label}</span> : link}
+        {expandable && isOpen && link}
+        {item.subitems && item.subitems.length > 0 && (!expandable || isOpen) && (
           <ul className="ml-5 mt-1 space-y-1 border-l border-slate-200" aria-label={`Subapartados de ${item.name}`}>
             {item.subitems.map(child => renderNavItem(child, true, depth + 1))}
           </ul>
@@ -90,9 +100,7 @@ export default function InteractiveAdminSidebarMenu({
 
   const renderNavGroup = (group: SidebarNavigationGroup) => {
     const isOpen = openGroups.includes(group.name)
-    const isChildActive = group.children.some(
-      child => pathname === child.href || pathname.startsWith(child.href + '/'),
-    )
+    const isChildActive = group.children.some(child => sidebarItemContainsActivePath(child, pathname))
 
     return (
       <li key={group.name}>

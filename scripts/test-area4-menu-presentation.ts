@@ -28,7 +28,7 @@ function grantsForTemplate(id: string): AdminSidebarPermission[] {
 }
 
 function leafItems(tree: SidebarNavigationEntry[]): SidebarNavigationItem[] {
-  const nested = (item: SidebarNavigationItem): SidebarNavigationItem[] => [item, ...(item.subitems || []).flatMap(nested)]
+  const nested = (item: SidebarNavigationItem): SidebarNavigationItem[] => [...(item.containerOnly ? [] : [item]), ...(item.subitems || []).flatMap(nested)]
   return tree.flatMap(entry => isSidebarNavigationGroup(entry) ? entry.children.flatMap(nested) : nested(entry))
 }
 
@@ -178,6 +178,7 @@ test('los grants explícitos false o solo escritura no caen al fallback legacy',
 test('el técnico Draxton ve las ocho páginas específicas en ambos menús, sin root Clientes', () => {
   const grants = grantsForTemplate('area4-tecnico-draxton-8')
   const expected = AREA4_DRAXTON_TECHNICAL_MENU.map(item => item.href).sort()
+  assert.equal(expected.length, 8)
   for (const presentation of ['historico', 'agrupado'] as const) {
     const tree = menu(presentation, { permisosGranulares: grants, tienePermisosGranulares: true })
     const hrefs = leafItems(tree).map(item => item.href).sort()

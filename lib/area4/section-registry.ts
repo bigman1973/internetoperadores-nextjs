@@ -26,7 +26,7 @@ export type Area4MenuGroup = typeof AREA4_MENU_GROUP_METADATA[number]['name']
 export type Area4SurfaceKind = 'page' | 'api'
 export type Area4MenuPresentation = 'historico' | 'agrupado'
 export type Area4MenuAppearance = Readonly<{ presentation: Area4MenuPresentation; order: number; parent?: string; label?: string; icon?: string; exact?: boolean }>
-export type Area4SurfaceMenu = Readonly<{ id: string; label: string; icon: string; sectionKey?: string; query?: string; parameters?: Readonly<Record<string, string>>; appearances: readonly Area4MenuAppearance[] }>
+export type Area4SurfaceMenu = Readonly<{ id: string; label: string; icon: string; sectionKey?: string; query?: string; parameters?: Readonly<Record<string, string>>; appearances: readonly Area4MenuAppearance[]; collapsible?: boolean; preserveContainer?: boolean }>
 export type Area4Surface = Readonly<{
   path: string; kind: Area4SurfaceKind; actions?: readonly Area4ActionLetter[];
   request?: Readonly<{ commandBodyLimit?: number; multipartBodyLimit?: number;
@@ -728,7 +728,7 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         path: "/admin/clientes/ggcc/draxton/actualizaciones",
         kind: "page",
         actions: ["V"],
-        menu: [{"id":"draxton-actualizaciones:0:0","label":"Draxton · Actualizaciones","icon":"arrowPath","appearances":[{"presentation":"agrupado","order":4,"parent":"clientes:0:1"},{"presentation":"historico","order":5,"parent":"container:clientes"}]}],
+        menu: [{"id":"draxton-actualizaciones:0:0","label":"Actualizaciones","icon":"arrowPath","appearances":[{"presentation":"agrupado","order":0,"parent":"clientes.ggcc.draxton:0:0"},{"presentation":"historico","order":0,"parent":"clientes.ggcc.draxton:0:0"}]}],
         baselineDescriptor: "[1,\"draxton-actualizaciones\",\"admin.clientes.ggcc.draxton.actualizaciones\",\"page\",\"/admin/clientes/ggcc/draxton/actualizaciones\",[\"V\"],[[\"V\",\"lectura\"]],null,null]",
       },
       {
@@ -761,7 +761,7 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         path: "/admin/clientes/ggcc/draxton/contrato-guardias",
         kind: "page",
         actions: ["V"],
-        menu: [{"id":"draxton-contrato-guardias:0:0","label":"Draxton · Contrato guardias","icon":"shieldCheck","appearances":[{"presentation":"agrupado","order":5,"parent":"clientes:0:1"},{"presentation":"historico","order":6,"parent":"container:clientes"}]}],
+        menu: [{"id":"draxton-contrato-guardias:0:0","label":"Contrato de guardias","icon":"shieldCheck","appearances":[{"presentation":"agrupado","order":1,"parent":"clientes.ggcc.draxton:0:0"},{"presentation":"historico","order":1,"parent":"clientes.ggcc.draxton:0:0"}]}],
         baselineDescriptor: "[1,\"draxton-contrato-guardias\",\"admin.clientes.ggcc.draxton.contrato_guardias\",\"page\",\"/admin/clientes/ggcc/draxton/contrato-guardias\",[\"V\"],[[\"V\",\"lectura\"]],null,null]",
       },
       {
@@ -794,7 +794,7 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         path: "/admin/clientes/ggcc/draxton/informes",
         kind: "page",
         actions: ["V"],
-        menu: [{"id":"draxton-informes:0:0","label":"Draxton · Informes","icon":"documentText","appearances":[{"presentation":"agrupado","order":6,"parent":"clientes:0:1"},{"presentation":"historico","order":7,"parent":"container:clientes"}]}],
+        menu: [{"id":"draxton-informes:0:0","label":"Informes","icon":"documentText","appearances":[{"presentation":"agrupado","order":2,"parent":"clientes.ggcc.draxton:0:0"},{"presentation":"historico","order":2,"parent":"clientes.ggcc.draxton:0:0"}]}],
         baselineDescriptor: "[1,\"draxton-informes\",\"admin.clientes.ggcc.draxton.informes\",\"page\",\"/admin/clientes/ggcc/draxton/informes\",[\"V\"],[[\"V\",\"lectura\"]],null,null]",
       },
       {
@@ -826,7 +826,7 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         path: "/admin/clientes/ggcc/draxton/kpis",
         kind: "page",
         actions: ["V"],
-        menu: [{"id":"draxton-kpis:0:0","label":"Draxton · KPIs","icon":"chartBar","appearances":[{"presentation":"agrupado","order":7,"parent":"clientes:0:1"},{"presentation":"historico","order":8,"parent":"container:clientes"}]}],
+        menu: [{"id":"draxton-kpis:0:0","label":"KPIs","icon":"chartBar","appearances":[{"presentation":"agrupado","order":3,"parent":"clientes.ggcc.draxton:0:0"},{"presentation":"historico","order":3,"parent":"clientes.ggcc.draxton:0:0"}]}],
         baselineDescriptor: "[1,\"draxton-kpis\",\"admin.clientes.ggcc.draxton.kpis\",\"page\",\"/admin/clientes/ggcc/draxton/kpis\",[\"V\"],[[\"V\",\"lectura\"]],null,null]",
       },
       {
@@ -870,7 +870,7 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         path: "/admin/clientes/ggcc/draxton/organigrama",
         kind: "page",
         actions: ["V"],
-        menu: [{"id":"draxton-organigrama:0:0","label":"Draxton · Organigrama","icon":"userGroup","appearances":[{"presentation":"agrupado","order":8,"parent":"clientes:0:1"},{"presentation":"historico","order":9,"parent":"container:clientes"}]}],
+        menu: [{"id":"draxton-organigrama:0:0","label":"Organigrama","icon":"userGroup","appearances":[{"presentation":"agrupado","order":4,"parent":"clientes.ggcc.draxton:0:0"},{"presentation":"historico","order":4,"parent":"clientes.ggcc.draxton:0:0"}]}],
         baselineDescriptor: "[1,\"draxton-organigrama\",\"admin.clientes.ggcc.draxton.organigrama\",\"page\",\"/admin/clientes/ggcc/draxton/organigrama\",[\"V\"],[[\"V\",\"lectura\"]],null,null]",
       },
       {
@@ -902,7 +902,7 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         path: "/admin/clientes/ggcc/draxton/personal",
         kind: "page",
         actions: ["V"],
-        menu: [{"id":"draxton-personal:0:0","label":"Draxton · Personal","icon":"briefcase","appearances":[{"presentation":"agrupado","order":9,"parent":"clientes:0:1"},{"presentation":"historico","order":10,"parent":"container:clientes"}]}],
+        menu: [{"id":"draxton-personal:0:0","label":"Personal","icon":"briefcase","appearances":[{"presentation":"agrupado","order":5,"parent":"clientes.ggcc.draxton:0:0"},{"presentation":"historico","order":5,"parent":"clientes.ggcc.draxton:0:0"}]}],
         baselineDescriptor: "[1,\"draxton-personal\",\"admin.clientes.ggcc.draxton.personal\",\"page\",\"/admin/clientes/ggcc/draxton/personal\",[\"V\"],[[\"V\",\"lectura\"]],null,null]",
       },
       {
@@ -929,7 +929,7 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         path: "/admin/clientes/ggcc/draxton/proyectos",
         kind: "page",
         actions: ["V"],
-        menu: [{"id":"draxton-proyectos:0:0","label":"Draxton · Proyectos internos","icon":"folder","appearances":[{"presentation":"agrupado","order":10,"parent":"clientes:0:1"},{"presentation":"historico","order":11,"parent":"container:clientes"}]}],
+        menu: [{"id":"draxton-proyectos:0:0","label":"Proyectos","icon":"folder","appearances":[{"presentation":"agrupado","order":6,"parent":"clientes.ggcc.draxton:0:0"},{"presentation":"historico","order":6,"parent":"clientes.ggcc.draxton:0:0"}]}],
         baselineDescriptor: "[1,\"draxton-proyectos\",\"admin.clientes.ggcc.draxton.proyectos\",\"page\",\"/admin/clientes/ggcc/draxton/proyectos\",[\"V\"],[[\"V\",\"lectura\"]],null,null]",
       },
       {
@@ -991,7 +991,7 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         path: "/admin/clientes/ggcc/draxton/seguimiento",
         kind: "page",
         actions: ["V"],
-        menu: [{"id":"draxton-seguimiento:0:0","label":"Draxton · Seguimiento","icon":"clock","appearances":[{"presentation":"agrupado","order":11,"parent":"clientes:0:1"},{"presentation":"historico","order":12,"parent":"container:clientes"}]}],
+        menu: [{"id":"draxton-seguimiento:0:0","label":"Seguimiento","icon":"clock","appearances":[{"presentation":"agrupado","order":7,"parent":"clientes.ggcc.draxton:0:0"},{"presentation":"historico","order":7,"parent":"clientes.ggcc.draxton:0:0"}]}],
         baselineDescriptor: "[1,\"draxton-seguimiento\",\"admin.clientes.ggcc.draxton.seguimiento\",\"page\",\"/admin/clientes/ggcc/draxton/seguimiento\",[\"V\"],[[\"V\",\"lectura\"]],null,null]",
       },
       {
@@ -2540,7 +2540,7 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         path: "/admin/clientes/ggcc/draxton",
         kind: "page",
         actions: ["V"],
-        menu: [{"id":"clientes.ggcc.draxton:0:0","label":"GGCC · Draxton","icon":"buildingOffice","appearances":[{"presentation":"agrupado","order":2,"parent":"clientes:0:1"},{"presentation":"historico","order":2,"parent":"container:clientes","label":"GGCC - Draxton"}]}],
+        menu: [{"id":"clientes.ggcc.draxton:0:0","label":"GGCC Draxton","icon":"buildingOffice","appearances":[{"presentation":"agrupado","order":2,"parent":"clientes:0:1"},{"presentation":"historico","order":2,"parent":"container:clientes"}],"collapsible":true,"preserveContainer":true}],
         baselineDescriptor: "[1,\"clientes.ggcc.draxton\",\"admin.clientes.ggcc.draxton\",\"page\",\"/admin/clientes/ggcc/draxton\",[\"V\"],[[\"V\",\"lectura\"]],null,null]",
       },
       {
@@ -2570,7 +2570,7 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         path: "/admin/clientes/ggcc/draxton/contratos",
         kind: "page",
         actions: ["V"],
-        menu: [{"id":"draxton-contratos:0:0","label":"Draxton · Contratos","icon":"documentDuplicate","appearances":[{"presentation":"agrupado","order":12,"parent":"clientes:0:1"}]}],
+        menu: [{"id":"draxton-contratos:0:0","label":"Draxton · Contratos","icon":"documentDuplicate","appearances":[{"presentation":"agrupado","order":12,"parent":"clientes.ggcc.draxton:0:0"},{"presentation":"historico","order":12,"parent":"clientes.ggcc.draxton:0:0"}]}],
         baselineDescriptor: "[1,\"draxton-contratos\",\"admin.clientes.ggcc.draxton.contratos\",\"page\",\"/admin/clientes/ggcc/draxton/contratos\",[\"V\"],[[\"V\",\"lectura\"]],null,null]",
       },
       {
@@ -2636,7 +2636,7 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         path: "/admin/clientes/ggcc/draxton/finanzas",
         kind: "page",
         actions: ["V"],
-        menu: [{"id":"draxton-finanzas:0:0","label":"Draxton · Finanzas","icon":"banknotes","appearances":[{"presentation":"agrupado","order":13,"parent":"clientes:0:1"}]}],
+        menu: [{"id":"draxton-finanzas:0:0","label":"Draxton · Finanzas","icon":"banknotes","appearances":[{"presentation":"agrupado","order":13,"parent":"clientes.ggcc.draxton:0:0"},{"presentation":"historico","order":13,"parent":"clientes.ggcc.draxton:0:0"}]}],
         baselineDescriptor: "[1,\"draxton-finanzas\",\"admin.clientes.ggcc.draxton.finanzas\",\"page\",\"/admin/clientes/ggcc/draxton/finanzas\",[\"V\"],[[\"V\",\"lectura\"]],null,null]",
       },
       {
@@ -2678,7 +2678,7 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         path: "/admin/clientes/ggcc/draxton/proyectos-singulares",
         kind: "page",
         actions: ["V"],
-        menu: [{"id":"draxton-proyectos-singulares:0:0","label":"Draxton · Proyectos singulares","icon":"rocketLaunch","appearances":[{"presentation":"agrupado","order":14,"parent":"clientes:0:1"}]}],
+        menu: [{"id":"draxton-proyectos-singulares:0:0","label":"Draxton · Proyectos singulares","icon":"rocketLaunch","appearances":[{"presentation":"agrupado","order":14,"parent":"clientes.ggcc.draxton:0:0"},{"presentation":"historico","order":14,"parent":"clientes.ggcc.draxton:0:0"}]}],
         baselineDescriptor: "[1,\"draxton-proyectos-singulares\",\"admin.clientes.ggcc.draxton.proyectos_singulares\",\"page\",\"/admin/clientes/ggcc/draxton/proyectos-singulares\",[\"V\"],[[\"V\",\"lectura\"]],null,null]",
       },
     ],
@@ -3187,7 +3187,7 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         path: "/admin/finanzas/clientes/ggcc-draxton",
         kind: "page",
         actions: ["V"],
-        menu: [{"id":"finanzas-draxton:0:0","label":"GGCC Draxton","icon":"buildingOffice","appearances":[{"presentation":"agrupado","order":16,"parent":"finanzas:0:0"},{"presentation":"historico","order":20,"parent":"container:finanzas"}]}],
+        menu: [{"id":"finanzas-draxton:0:0","label":"Finanzas Draxton","icon":"buildingOffice","appearances":[{"presentation":"agrupado","order":8,"parent":"clientes.ggcc.draxton:0:0"},{"presentation":"historico","order":8,"parent":"clientes.ggcc.draxton:0:0"}]}],
         baselineDescriptor: "[1,\"finanzas-draxton\",\"admin.finanzas.ggcc_draxton\",\"page\",\"/admin/finanzas/clientes/ggcc-draxton\",[\"V\"],[[\"V\",\"lectura\"]],null,null]",
       },
       {
@@ -3900,7 +3900,7 @@ export function area4UsersRowIsBaseline(row: UsersSection): boolean {
 }
 
 export type Area4MenuLeaf = Readonly<{ name: string; href: string; icon: string; section: string; exact?: boolean }>
-export type Area4MenuItem = Area4MenuLeaf & Readonly<{ subitems?: readonly Area4MenuLeaf[] }>
+export type Area4MenuItem = Area4MenuLeaf & Readonly<{ subitems?: readonly Area4MenuItem[]; collapsible?: boolean; preserveContainer?: boolean }>
 export type Area4HistoricalMenuEntry = Area4MenuItem | Readonly<{ name: string; icon: string; section: string; children: readonly Area4MenuItem[] }>
 
 type MenuCandidate = { section: Area4Section; surface: Area4Surface; menu: Area4SurfaceMenu; appearance: Area4MenuAppearance }
@@ -3915,9 +3915,15 @@ function menuLeaf(candidate: MenuCandidate): Area4MenuLeaf {
     icon: appearance.icon || menu.icon, section: menu.sectionKey || section.key,
     ...(appearance.exact ? { exact: true } : {}) }
 }
-function menuItem(candidate: MenuCandidate, candidates: readonly MenuCandidate[]): Area4MenuItem {
+function menuItem(candidate: MenuCandidate, candidates: readonly MenuCandidate[], ancestors: readonly string[] = []): Area4MenuItem {
+  // Some legacy overview appearances reuse their parent's menu id: keep the link,
+  // but do not recursively expand that alias (or any future cyclic appearance).
+  if (ancestors.includes(candidate.menu.id)) return menuLeaf(candidate)
   const children = candidates.filter(child => child.appearance.parent === candidate.menu.id).sort((a, b) => a.appearance.order - b.appearance.order)
-  return { ...menuLeaf(candidate), ...(children.length ? { subitems: children.map(menuLeaf) } : {}) }
+  return { ...menuLeaf(candidate),
+    ...(candidate.menu.collapsible ? { collapsible: true } : {}),
+    ...(candidate.menu.preserveContainer ? { preserveContainer: true } : {}),
+    ...(children.length ? { subitems: children.map(child => menuItem(child, candidates, [...ancestors, candidate.menu.id])) } : {}) }
 }
 export const AREA4_GROUPED_MENU: Readonly<Record<Area4MenuGroup, readonly Area4MenuItem[]>> = AREA4_MENU_GROUPS.reduce((menu, group) => {
   const candidates = menuCandidates('agrupado')
@@ -3954,4 +3960,78 @@ export function area4EasyMenu(conciliarEnabled: boolean): readonly Area4MenuLeaf
     return { name: menu?.label || section.label, href: surface.path,
       icon: easy === 'para-pedir' ? 'documentText' : 'clipboardDocumentList', section: section.key }
   })))
+}
+
+/** Dashboard presentation belongs to this registry, not to a second role/access catalogue.
+ * Each block names an EXISTING apartado and its real page; metadata NEVER grants V.
+ * Readers require both apartado V and source-surface permission before any data is loaded.
+ * Baseline descriptors/identities above are untouched; no automatic assignments or adoption.
+ */
+export type Area4DashboardReader = 'finance' | 'clients' | 'contracts' | 'crm' | 'rentabilidad' | 'decisions' | 'soon'
+export type Area4DashboardDefinition = Readonly<{
+  id: string; sectionKey: string; sourcePath: string; title: string; help: string;
+  reader: Area4DashboardReader; chart?: 'money' | 'percent';
+}>
+export const AREA4_DASHBOARD_BLOCKS: readonly Area4DashboardDefinition[] = [
+  { id: 'decisiones', sectionKey: 'usuarios-permisos', sourcePath: '/admin/usuarios', title: 'Necesita tu decisión', help: 'Lo que está parado esperando un sí o un no tuyo.', reader: 'decisions' },
+  { id: 'facturado', sectionKey: 'facturacion', sourcePath: '/admin/facturacion', title: 'Facturado por mes · {year}', help: '{month} va en curso.', reader: 'finance', chart: 'money' },
+  { id: 'avisos', sectionKey: 'conciliacion', sourcePath: '/admin/finanzas/conciliar', title: 'Avisos', help: '', reader: 'finance' },
+  { id: 'margen', sectionKey: 'rentabilidad', sourcePath: '/admin/rentabilidad', title: 'Margen por mes', help: 'Margen conocido; provisional si faltan costes o repartos.', reader: 'rentabilidad', chart: 'percent' },
+  { id: 'mi-dia', sectionKey: 'crm', sourcePath: '/admin/crm', title: 'Mi día', help: 'Reuniones guardadas y tareas del CRM.', reader: 'crm' },
+  { id: 'altas', sectionKey: 'altas-pendientes', sourcePath: '/admin/altas-pendientes', title: 'Altas pendientes', help: 'Contratos firmados que aún no están en ISP.', reader: 'soon' },
+  { id: 'permanencias', sectionKey: 'contratos', sourcePath: '/admin/contratos', title: 'Permanencias que acaban', help: 'Próximos 60 días: buena ocasión para renovar.', reader: 'soon' },
+  { id: 'cierre', sectionKey: 'conciliacion', sourcePath: '/admin/finanzas/conciliar', title: 'Cierre de {month}', help: 'Lo que falta para cerrar el mes.', reader: 'soon' },
+  { id: 'para-hoy', sectionKey: 'conciliacion', sourcePath: '/admin/finanzas/conciliar', title: 'Para hoy', help: '', reader: 'finance' },
+  { id: 'gastos-equipo', sectionKey: 'personal', sourcePath: '/admin/empleados', title: 'Gastos de trabajadores', help: 'Área 5.', reader: 'soon' },
+  { id: 'negocios', sectionKey: 'crm', sourcePath: '/admin/crm', title: 'Mis negocios por etapa', help: 'Pulsa uno para abrir su ficha.', reader: 'crm' },
+  { id: 'objetivo', sectionKey: 'crm', sourcePath: '/admin/crm', title: 'Objetivo de {month}', help: '', reader: 'soon' },
+  { id: 'leads-nuevos', sectionKey: 'leads', sourcePath: '/admin/leads', title: 'Leads nuevos sin contactar', help: 'Llegados por la web y por teléfono.', reader: 'crm' },
+  { id: 'draxton-facturas', sectionKey: 'draxton-finanzas', sourcePath: '/admin/clientes/ggcc/draxton/finanzas', title: 'Facturas de Draxton', help: 'Solo las de las sociedades del grupo.', reader: 'soon' },
+  { id: 'draxton-documentos', sectionKey: 'draxton-contratos', sourcePath: '/admin/clientes/ggcc/draxton/contratos', title: 'Documentación', help: 'Requerimientos y contratos.', reader: 'soon' },
+  { id: 'mis-gastos', sectionKey: 'portal-empleado', sourcePath: '/empleado/gastos', title: 'Mis gastos', help: 'Sube el ticket con el móvil.', reader: 'soon' },
+  { id: 'mis-documentos', sectionKey: 'portal-empleado', sourcePath: '/empleado/nominas', title: 'Mis documentos', help: '', reader: 'soon' },
+  { id: 'comunicados', sectionKey: 'comunicados', sourcePath: '/admin/comunicados', title: 'Comunicados', help: '', reader: 'soon' },
+]
+export type Area4DashboardKpiDefinition = Readonly<{
+  id: string; sectionKey: string; sourcePath: string; label: string; reader: Area4DashboardReader;
+}>
+export const AREA4_DASHBOARD_KPIS: readonly Area4DashboardKpiDefinition[] = [
+  { id: 'facturado-anio', sectionKey: 'facturacion', sourcePath: '/admin/facturacion', label: 'Facturado {year}', reader: 'finance' },
+  { id: 'facturado-mes', sectionKey: 'facturacion', sourcePath: '/admin/facturacion', label: '{month}', reader: 'finance' },
+  { id: 'margen-ultimo', sectionKey: 'rentabilidad', sourcePath: '/admin/rentabilidad', label: 'Margen del último mes con dato', reader: 'rentabilidad' },
+  { id: 'cobro', sectionKey: 'conciliacion', sourcePath: '/admin/finanzas/conciliar', label: 'Cobro confirmado', reader: 'finance' },
+  { id: 'clientes', sectionKey: 'clientes', sourcePath: '/admin/clientes', label: 'Clientes activos', reader: 'clients' },
+  { id: 'contratos', sectionKey: 'contratos', sourcePath: '/admin/contratos', label: 'Contratos activos', reader: 'contracts' },
+  { id: 'altas-pendientes', sectionKey: 'altas-pendientes', sourcePath: '/admin/altas-pendientes', label: 'Altas pendientes', reader: 'soon' },
+  { id: 'leads', sectionKey: 'leads', sourcePath: '/admin/leads', label: 'Leads abiertos', reader: 'crm' },
+  { id: 'reuniones', sectionKey: 'crm', sourcePath: '/admin/crm', label: 'Reuniones esta semana', reader: 'crm' },
+  { id: 'por-confirmar', sectionKey: 'conciliacion', sourcePath: '/admin/finanzas/conciliar', label: 'Por confirmar', reader: 'finance' },
+  { id: 'extractos', sectionKey: 'conciliacion', sourcePath: '/admin/finanzas/conciliar', label: 'Extractos', reader: 'finance' },
+  { id: 'proveedores', sectionKey: 'finanzas-facturas', sourcePath: '/admin/finanzas/facturas', label: 'Facturas de proveedor', reader: 'soon' },
+  { id: 'remesa', sectionKey: 'finanzas-remesas', sourcePath: '/admin/finanzas/conciliacion-remesas', label: 'Remesa {month}', reader: 'soon' },
+  { id: 'mis-leads', sectionKey: 'leads', sourcePath: '/admin/leads', label: 'Mis leads', reader: 'crm' },
+  { id: 'mis-negocios', sectionKey: 'crm', sourcePath: '/admin/crm', label: 'Mis negocios', reader: 'crm' },
+  { id: 'ganado', sectionKey: 'crm', sourcePath: '/admin/crm', label: 'Ganado en {month}', reader: 'crm' },
+  { id: 'objetivo-mes', sectionKey: 'crm', sourcePath: '/admin/crm', label: 'Objetivo del mes', reader: 'soon' },
+  { id: 'mis-clientes', sectionKey: 'clientes', sourcePath: '/admin/clientes', label: 'Mis clientes', reader: 'soon' },
+  { id: 'draxton-facturado', sectionKey: 'draxton-finanzas', sourcePath: '/admin/clientes/ggcc/draxton/finanzas', label: 'Facturado a Draxton {year}', reader: 'soon' },
+  { id: 'draxton-sedes', sectionKey: 'draxton-contratos', sourcePath: '/admin/clientes/ggcc/draxton/contratos', label: 'Sedes', reader: 'soon' },
+  { id: 'draxton-pendientes', sectionKey: 'draxton-finanzas', sourcePath: '/admin/clientes/ggcc/draxton/finanzas', label: 'Facturas pendientes', reader: 'soon' },
+  { id: 'draxton-incidencias', sectionKey: 'draxton-seguimiento', sourcePath: '/admin/clientes/ggcc/draxton/seguimiento', label: 'Incidencias abiertas', reader: 'soon' },
+  { id: 'draxton-requerimientos', sectionKey: 'draxton-contratos', sourcePath: '/admin/clientes/ggcc/draxton/contratos', label: 'Requerimientos AEAT', reader: 'soon' },
+  { id: 'draxton-ultima', sectionKey: 'draxton-finanzas', sourcePath: '/admin/clientes/ggcc/draxton/finanzas', label: 'Última factura', reader: 'soon' },
+  { id: 'gastos-propios', sectionKey: 'portal-empleado', sourcePath: '/empleado/gastos', label: 'Mis gastos', reader: 'soon' },
+  { id: 'nomina-propia', sectionKey: 'portal-empleado', sourcePath: '/empleado/nominas', label: 'Última nómina', reader: 'soon' },
+  { id: 'vacaciones-propias', sectionKey: 'portal-empleado', sourcePath: '/empleado', label: 'Vacaciones', reader: 'soon' },
+  { id: 'peticiones-propias', sectionKey: 'peticiones-propias', sourcePath: '/peticiones', label: 'Mis peticiones', reader: 'soon' },
+  { id: 'comunicados-propios', sectionKey: 'comunicados', sourcePath: '/admin/comunicados', label: 'Comunicados', reader: 'soon' },
+  { id: 'agenda-propia', sectionKey: 'portal-empleado', sourcePath: '/empleado', label: 'Mi día', reader: 'soon' },
+]
+export const AREA4_DASHBOARD_LAYOUTS: Readonly<Record<import('./users-contract').ApprovedRoleKey, Readonly<{ kpis: readonly string[]; columns: readonly (readonly string[])[] }>>> = {
+  superadmin: { kpis: ['facturado-anio','facturado-mes','margen-ultimo','cobro','clientes','contratos'], columns: [['decisiones','facturado'],['avisos','margen','mi-dia']] },
+  gerente: { kpis: ['facturado-mes','clientes','contratos','altas-pendientes','leads','reuniones'], columns: [['mi-dia','altas'],['facturado','permanencias']] },
+  contabilidad: { kpis: ['facturado-mes','cobro','por-confirmar','extractos','proveedores','remesa'], columns: [['cierre','facturado'],['para-hoy','gastos-equipo']] },
+  comercial: { kpis: ['mis-leads','mis-negocios','ganado','objetivo-mes','reuniones','mis-clientes'], columns: [['mi-dia','negocios'],['objetivo','leads-nuevos']] },
+  draxton: { kpis: ['draxton-facturado','draxton-sedes','draxton-pendientes','draxton-incidencias','draxton-requerimientos','draxton-ultima'], columns: [['draxton-facturas'],['draxton-documentos']] },
+  empleado: { kpis: ['gastos-propios','nomina-propia','vacaciones-propias','peticiones-propias','comunicados-propios','agenda-propia'], columns: [['mis-gastos'],['mis-documentos','comunicados']] },
 }

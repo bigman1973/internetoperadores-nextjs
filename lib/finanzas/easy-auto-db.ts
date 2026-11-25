@@ -9,6 +9,7 @@ import { appendAutoCounterpartyReceiptTx, undoAutoCounterpartyReceiptTx } from '
 import {
   EASY_AUTO_DATA_FROM,
   EASY_AUTO_DATA_UNTIL,
+  EASY_AUTO_LEGACY_DATA_UNTIL,
   EASY_AUTO_ORIGIN,
   EASY_AUTO_POLICY_KEY,
   type EasyAutoBalanceRow,
@@ -41,6 +42,8 @@ type AutoPolicyScope = Readonly<{
   key: typeof EASY_AUTO_POLICY_KEY | typeof EASY_AUTO_PRODUCTION_POLICY_KEY
   environment: 'STAGING' | 'PRODUCTION'
   stagingOnly: boolean
+  /** La ampliación al 25/11 es solo de staging: producción conserva su ventana original. */
+  dataUntil: typeof EASY_AUTO_DATA_UNTIL | typeof EASY_AUTO_LEGACY_DATA_UNTIL
 }>
 const AUTO_SCHEMA_TABLES = [
   'politicas_auto_modo_facil', 'atestaciones_cuenta_auto_modo_facil', 'terceros_banco_auto_modo_facil',
@@ -51,8 +54,8 @@ const AUTO_SCHEMA_TABLES = [
 
 function policyScope(runtime: FinanceEasyRuntimeContext): AutoPolicyScope {
   return runtime.runtime === 'production'
-    ? { key: EASY_AUTO_PRODUCTION_POLICY_KEY, environment: 'PRODUCTION', stagingOnly: false }
-    : { key: EASY_AUTO_POLICY_KEY, environment: 'STAGING', stagingOnly: true }
+    ? { key: EASY_AUTO_PRODUCTION_POLICY_KEY, environment: 'PRODUCTION', stagingOnly: false, dataUntil: EASY_AUTO_LEGACY_DATA_UNTIL }
+    : { key: EASY_AUTO_POLICY_KEY, environment: 'STAGING', stagingOnly: true, dataUntil: EASY_AUTO_DATA_UNTIL }
 }
 
 /** Re-check the exact database identity on the transaction connection itself. */
@@ -135,7 +138,7 @@ async function activePolicy(tx: Tx, scope: AutoPolicyScope, required: boolean): 
       autorizada_en::date::text AS autorizada_en,referencia_autorizacion
     FROM politicas_auto_modo_facil
     WHERE politica_key=${scope.key} AND entorno=${scope.environment} AND estado='ACTIVA'
-      AND datos_desde=CAST(${EASY_AUTO_DATA_FROM} AS date) AND datos_hasta=CAST(${EASY_AUTO_DATA_UNTIL} AS date)
+      AND datos_desde=CAST(${EASY_AUTO_DATA_FROM} AS date) AND datos_hasta=CAST(${scope.dataUntil} AS date)
     ORDER BY autorizada_en DESC,created_at DESC,id DESC LIMIT 1
   `)
   const row = rows[0]
@@ -346,14 +349,18 @@ async function recentFailures(tx: Tx, policy: Policy) {
   return rows.map(row => ({ id: String(row.id), fingerprint: String(row.fingerprint), clase: String(row.clase), codigo: String(row.codigo), mensaje: String(row.mensaje), createdAt: new Date(row.created_at).toISOString() }))
 }
 
-async function appliedReceipts(tx: Tx, policy: Policy) {
+async function appliedReceipts(tx: Tx, scope: AutoPolicyScope) {
   const rows = await tx.$queryRaw<Array<any>>(Prisma.sql`
     SELECT r.id::text,r.clase,r.origen,r.created_at,rv.id::text AS reversion_id,
       array_remove(array_agg(p.operacion_b4_id::text ORDER BY p.ordinal),NULL) AS operaciones_b4
     FROM recibos_auto_modo_facil r
     LEFT JOIN patas_recibo_auto_modo_facil p ON p.recibo_id=r.id
     LEFT JOIN reversiones_auto_modo_facil rv ON rv.recibo_id=r.id
-    WHERE r.politica_id=CAST(${policy.id} AS uuid)
+    -- Todas las políticas del mismo entorno (también sin política vigente): ampliar la ventana no oculta recibos ni su reversión.
+    WHERE r.politica_id IN (
+      SELECT sibling.id FROM politicas_auto_modo_facil sibling
+      WHERE sibling.politica_key=${scope.key} AND sibling.entorno=${scope.environment}
+    )
     GROUP BY r.id,rv.id ORDER BY r.created_at DESC,r.id DESC LIMIT 100
   `)
   return rows.map(row => ({ operationId: String(row.id), clase: String(row.clase), origen: String(row.origen),
@@ -373,7 +380,7 @@ export async function readEasyAutomation() {
       // A production GET is a zero-result projection until a separately and
       // explicitly confirmed POST registers its production policy. It never
       // inserts, applies, or creates a policy while reading.
-      if (!policy) return { stagingOnly: scope.stagingOnly, automaticas: true as const, policy: null, counts: { examinados: 0, traspasos: 0, comisiones: 0, excluidos: 0, bloqueadosTitularidad: 0, fallosCadena: 0 }, reviewHash: null, candidates: [], bloqueados: [], fallosCadena: [], fallos: [], recibos: [] }
+      if (!policy) return { stagingOnly: scope.stagingOnly, automaticas: true as const, policy: null, counts: { examinados: 0, traspasos: 0, comisiones: 0, excluidos: 0, bloqueadosTitularidad: 0, fallosCadena: 0 }, reviewHash: null, candidates: [], bloqueados: [], fallosCadena: [], fallos: [], recibos: await appliedReceipts(work, scope) }
       const read = await candidatesTx(work, policy)
       const selected = read.candidates.slice(0, 100)
       const transfers = selected.filter(candidate => candidate.clase === 'TRASPASO_PROPIO').length
@@ -383,7 +390,7 @@ export async function readEasyAutomation() {
         counts: { examinados: read.examined, traspasos: transfers, comisiones: commissions, excluidos: read.excluded, bloqueadosTitularidad: read.blocked.length, fallosCadena: read.chainFailures.length },
         reviewHash: reviewHash(policy.id, selected), candidates: selected.map(candidateDto),
         fallosCadena: read.chainFailures.map(failure => ({ cuenta: { cuentaId: failure.cuenta.accountId, banco: failure.cuenta.banco, alias: failure.cuenta.alias, ibanUltimos4: failure.cuenta.ibanUltimos4 }, codigo: failure.codigo })),
-        bloqueados: read.blocked.map(blockedDto), fallos: await recentFailures(work, policy), recibos: await appliedReceipts(work, policy),
+        bloqueados: read.blocked.map(blockedDto), fallos: await recentFailures(work, policy), recibos: await appliedReceipts(work, scope),
       }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 45_000 })
   } catch (error) { return b4Failure(error) }
@@ -405,7 +412,7 @@ async function registerPolicy(actorId: number, referenciaAutorizacion: string) {
       }
       const rows = await work.$queryRaw<Array<any>>(Prisma.sql`
         INSERT INTO politicas_auto_modo_facil (id,politica_key,entorno,estado,datos_desde,datos_hasta,autorizada_en,referencia_autorizacion,creada_por_id,created_at)
-        VALUES (gen_random_uuid(),${scope.key},${scope.environment},'ACTIVA',CAST(${EASY_AUTO_DATA_FROM} AS date),CAST(${EASY_AUTO_DATA_UNTIL} AS date),CURRENT_DATE,${referenciaAutorizacion},${actorId},CURRENT_TIMESTAMP)
+        VALUES (gen_random_uuid(),${scope.key},${scope.environment},'ACTIVA',CAST(${EASY_AUTO_DATA_FROM} AS date),CAST(${scope.dataUntil} AS date),CURRENT_DATE,${referenciaAutorizacion},${actorId},CURRENT_TIMESTAMP)
         RETURNING id::text,datos_desde::date::text AS datos_desde,datos_hasta::date::text AS datos_hasta,autorizada_en::date::text AS autorizada_en,referencia_autorizacion
       `)
       const row = rows[0]
@@ -473,6 +480,7 @@ export async function previewEasyAutomationTx(tx: Prisma.TransactionClient, inpu
   const work = asTx(tx)
   const scope = await assertEasyRuntimeTx(work, establishedRuntime)
   await assertAutoSchema(work)
+  if (input.hasta !== scope.dataUntil) fail(422, 'VENTANA_POLITICA_RESTRINGIDA', `Este entorno sólo admite la ventana hasta ${scope.dataUntil}.`)
   const policy = await activePolicy(work, scope, true)
   const read = await candidatesTx(work, policy)
   const selected = read.candidates.slice(0, input.limite)
@@ -646,6 +654,8 @@ export async function executeEasyAutomationTx(tx: Prisma.TransactionClient, acto
     counts: { examinados: replay.summary.examinados, aplicados: 0, replays: replay.operations.length, excluidos: replay.summary.excluidos, fallidos: 0 },
     operations: replay.operations,
   }
+  // El replay histórico (ventana original) ya se resolvió arriba; una ejecución nueva exige la ventana del entorno.
+  if (input.hasta !== scope.dataUntil) fail(422, 'VENTANA_POLITICA_RESTRINGIDA', `Este entorno sólo admite la ventana hasta ${scope.dataUntil}.`)
   const policy = await activePolicy(work, scope, true)
   const read = await candidatesTx(work, policy)
   const candidates = read.candidates.slice(0, input.limite)

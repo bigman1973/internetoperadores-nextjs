@@ -41,6 +41,10 @@ export interface AnalyticsClient {
   cliente: string
   facturado: number
   facturas: number
+  /** Cobro documental confirmado (suma de los mismos centimos pagados de B7). */
+  cobrado: number
+  /** Importe de las facturas en revision (cobro no atribuible). */
+  revision: number
   pendienteReal: number
   sinExtracto: number
   sociedades: number
@@ -236,9 +240,11 @@ export function buildBankInvoicingAnalytics(input: AnalyticsInput): BankInvoicin
     series.set(serieName, serie)
 
     const group = clientGroup(invoice.cliente)
-    const client = clients.get(group.key) ?? { cliente: group.label, facturado: 0, facturas: 0, pendienteReal: 0, sinExtracto: 0, sociedades: 0, names: new Set<string>() }
+    const client = clients.get(group.key) ?? { cliente: group.label, facturado: 0, facturas: 0, cobrado: 0, revision: 0, pendienteReal: 0, sinExtracto: 0, sociedades: 0, names: new Set<string>() }
     client.facturado = safeAdd(client.facturado, invoice.targetCents)
     client.facturas += 1
+    client.cobrado = safeAdd(client.cobrado, paid)
+    if (bucket === 'REVISION') client.revision = safeAdd(client.revision, invoice.targetCents)
     client.names.add((invoice.cliente ?? '').trim().toLocaleUpperCase('es-ES'))
     if (bucket === 'REAL') client.pendienteReal = safeAdd(client.pendienteReal, remaining)
     if (bucket === 'SIN_EXTRACTO') client.sinExtracto = safeAdd(client.sinExtracto, remaining)
@@ -262,10 +268,12 @@ export function buildBankInvoicingAnalytics(input: AnalyticsInput): BankInvoicin
     cliente: `Resto (${rest.length} clientes)`,
     facturado: safeAdd(acc.facturado, row.facturado),
     facturas: acc.facturas + row.facturas,
+    cobrado: safeAdd(acc.cobrado, row.cobrado),
+    revision: safeAdd(acc.revision, row.revision),
     pendienteReal: safeAdd(acc.pendienteReal, row.pendienteReal),
     sinExtracto: safeAdd(acc.sinExtracto, row.sinExtracto),
     sociedades: acc.sociedades + row.sociedades,
-  }), { cliente: '', facturado: 0, facturas: 0, pendienteReal: 0, sinExtracto: 0, sociedades: 0 })
+  }), { cliente: '', facturado: 0, facturas: 0, cobrado: 0, revision: 0, pendienteReal: 0, sinExtracto: 0, sociedades: 0 })
 
   return {
     anioGrafico,

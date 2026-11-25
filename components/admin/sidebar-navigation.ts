@@ -21,6 +21,10 @@ export interface SidebarNavigationItem {
   icon: SidebarIconName
   section?: string
   exact?: boolean
+  collapsible?: boolean
+  preserveContainer?: boolean
+  /** Canonical href remains metadata only; a denied container never renders a link. */
+  containerOnly?: boolean
   subitems?: SidebarNavigationItem[]
 }
 export interface SidebarNavigationGroup {
@@ -34,11 +38,20 @@ export function isSidebarNavigationGroup(entry: SidebarNavigationEntry): entry i
   return 'children' in entry
 }
 
+/** Descendants can live outside the canonical parent's URL prefix. */
+export function sidebarItemContainsActivePath(item: SidebarNavigationItem, pathname: string): boolean {
+  return pathname === item.href || (!item.exact && item.href !== '/admin' && pathname.startsWith(item.href + '/'))
+    || (item.subitems || []).some(child => sidebarItemContainsActivePath(child, pathname))
+}
+
 function registryItem(item: Area4MenuItem): SidebarNavigationItem {
   const section = area4SectionByKey(item.section)
   if (!section) throw new Error(`Sección no registrada en el menú: ${item.section}`)
   return { name: item.name, href: item.href, icon: item.icon as SidebarIconName, section: section.areaCode,
-    ...(item.exact ? { exact: true } : {}), subitems: item.subitems?.map(registryItem) }
+    ...(item.exact ? { exact: true } : {}),
+    ...(item.collapsible ? { collapsible: true } : {}),
+    ...(item.preserveContainer ? { preserveContainer: true } : {}),
+    subitems: item.subitems?.map(registryItem) }
 }
 function groupedNavigation(): SidebarNavigationEntry[] {
   return AREA4_MENU_GROUP_METADATA.map(({ name, icon }) => ({ name, icon, section: 'admin',
@@ -84,8 +97,11 @@ function filterItem(
   hasSurfaceAccess: (href: string) => boolean,
 ): SidebarNavigationItem[] {
   const subitems = item.subitems?.flatMap(subitem => filterItem(subitem, hasAccess, hasSurfaceAccess))
-  // An allowed child is promoted, never converted into an allowed parent link.
-  if (!hasSurfaceAccess(item.href) || (item.section && !hasAccess(item.section))) return subitems || []
+  // Opt-in containers retain structure, never convert child V into a parent link.
+  if (!hasSurfaceAccess(item.href) || (item.section && !hasAccess(item.section))) {
+    if (item.preserveContainer && subitems?.length) return [{ ...item, containerOnly: true, subitems }]
+    return subitems || []
+  }
   return [{ ...item, subitems }]
 }
 

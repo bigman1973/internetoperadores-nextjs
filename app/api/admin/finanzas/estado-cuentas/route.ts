@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { authOptions } from '@/lib/auth'
 import { checkAdminAreaRead } from '@/lib/api-admin-area-read'
 import { analizarCadenaSaldo } from '@/lib/finanzas/bank-balance-chain'
+import { derivarOrdenBancarioPorSaldo } from '@/lib/finanzas/bank-order-by-balance'
 
 const AREA_IMPORTAR = 'admin.finanzas.importar'
 const ROLES_LEGACY = ['CONTABILIDAD']
@@ -60,9 +61,13 @@ export async function GET() {
       const movimientosCuenta = movimientosPorCuenta.get(cuenta.id) ?? []
       const primerMovimiento = movimientosCuenta[0]?.fechaOperacion ?? null
       const ultimoMovimiento = movimientosCuenta.length ? movimientosCuenta[movimientosCuenta.length - 1].fechaOperacion : null
-      // Los registros históricos no tienen secuencia intradía persistida: si hay más de
-      // uno el mismo día, el núcleo informa orden ambiguo en vez de fabricar cobertura.
-      const continuidad = analizarCadenaSaldo(movimientosCuenta, null)
+      // Sin secuencia intradía persistida, el orden se deduce del saldo de cada fila solo cuando
+      // es único; los días ambiguos o imposibles siguen avisando como orden ambiguo.
+      const ordenPorSaldo = derivarOrdenBancarioPorSaldo(movimientosCuenta, null)
+      const continuidad = analizarCadenaSaldo(
+        movimientosCuenta.map((movimiento: any, indice: number) => ({ ...movimiento, ordenBancario: ordenPorSaldo[indice] })),
+        null,
+      )
       const corte = cuenta.fechaCorteExtracto ?? null
       return {
         id: cuenta.id,

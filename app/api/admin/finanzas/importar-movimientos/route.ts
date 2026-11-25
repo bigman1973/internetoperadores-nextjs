@@ -25,6 +25,7 @@ import {
   fechaCorteExtracto,
   type AnalisisCadenaSaldo,
 } from '@/lib/finanzas/bank-balance-chain'
+import { cierreDiaPorSaldo, derivarOrdenBancarioPorSaldo } from '@/lib/finanzas/bank-order-by-balance'
 import {
   detectarComisionEnConcepto,
   presentarCategoriaHistorica,
@@ -360,15 +361,30 @@ export async function POST(req: NextRequest) {
       }),
     ])
 
-    // Dos saldos posibles del último día anterior no proporcionan secuencia intradía.
-    const puente = puentes.length > 1 && mismoDiaUtc(puentes[0].fechaOperacion, puentes[1].fechaOperacion)
-      ? null
-      : puentes[0] ?? null
+    // Si el último día anterior tiene varios apuntes, su cierre solo vale cuando el saldo de cada
+    // fila fija un orden único; si no, no hay puente (no se elige uno al azar).
+    let puente: { fechaOperacion: Date; saldo: number | null } | null = puentes[0] ?? null
+    if (puentes.length > 1 && mismoDiaUtc(puentes[0].fechaOperacion, puentes[1].fechaOperacion)) {
+      const diaPuente = puentes[0].fechaOperacion
+      const inicioDia = new Date(Date.UTC(diaPuente.getUTCFullYear(), diaPuente.getUTCMonth(), diaPuente.getUTCDate()))
+      const finDia = new Date(inicioDia.getTime() + 86_400_000)
+      const delDia = await prisma.movimientoBancario.findMany({
+        where: { cuentaId: cuenta.id, fechaOperacion: { gte: inicioDia, lt: finDia } },
+        select: { fechaOperacion: true, importe: true, saldo: true },
+      })
+      const cierre = cierreDiaPorSaldo(delDia)
+      puente = cierre === null ? null : { fechaOperacion: diaPuente, saldo: cierre }
+    }
 
-    // Los parsers actuales no exponen una secuencia intradía fiable: no se inventa con el id o el concepto.
-    const cadenaEntrada = parseado.movimientos.map((movimiento) => ({
+    // Los parsers no exponen secuencia intradía: se deduce del saldo de cada fila, solo donde el orden
+    // es único (nunca con el id o el concepto). Los días ambiguos o imposibles siguen avisando.
+    const ordenPorSaldo = derivarOrdenBancarioPorSaldo(
+      parseado.movimientos,
+      puente?.saldo === null || puente?.saldo === undefined ? null : puente.saldo,
+    )
+    const cadenaEntrada = parseado.movimientos.map((movimiento, indice) => ({
       ...movimiento,
-      ordenBancario: typeof (movimiento as any).ordenBancario === 'number' ? (movimiento as any).ordenBancario : null,
+      ordenBancario: typeof (movimiento as any).ordenBancario === 'number' ? (movimiento as any).ordenBancario : ordenPorSaldo[indice],
     }))
     const continuidad = analizarCadenaSaldo(
       cadenaEntrada,

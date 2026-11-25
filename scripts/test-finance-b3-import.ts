@@ -213,6 +213,8 @@ vm.runInNewContext(code, {
       parseNorma43: () => structuredClone(parsed),
     }
     if (name === '@/lib/finanzas/bank-balance-chain') return require(`${ROOT}/lib/finanzas/bank-balance-chain.ts`)
+    if (name === '@/lib/finanzas/bank-order-by-balance') return require(`${ROOT}/lib/finanzas/bank-order-by-balance.ts`)
+    if (name === '@/lib/finanzas/finance-runtime-safety') return { assertFinanceRuntimeReady: async () => { isolationCalls++; sequence.push('isolation') } }
     if (name === '@/lib/finanzas/movement-catalog') return {
       detectarComisionEnConcepto,
       validarCategoriaNueva: categoria,

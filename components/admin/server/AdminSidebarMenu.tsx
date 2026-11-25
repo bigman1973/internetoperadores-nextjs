@@ -23,21 +23,30 @@ interface AdminSidebarMenuProps {
 }
 
 function NavItem({ item, isChild = false, depth = 0 }: { item: SidebarNavigationItem; isChild?: boolean; depth?: number }) {
+  const className = `group flex min-h-11 items-center gap-x-3 rounded-lg px-3 py-2 text-sm font-semibold leading-6 text-gray-700 hover:bg-gray-50 hover:text-orange-600 ${depth > 0 ? 'pl-8 text-xs' : isChild ? 'pl-10' : ''}`
+  const label = <><AdminSidebarIcon name={item.icon} className={`${depth > 0 ? 'h-5 w-5' : 'h-6 w-6'} shrink-0 text-gray-400 group-hover:text-orange-600`} />{item.name}</>
+  const children = item.subitems?.length ? (
+    <ul className="ml-5 mt-1 space-y-1 border-l border-slate-200" aria-label={`Subapartados de ${item.name}`}>
+      {item.subitems.map(child => <NavItem key={child.href} item={child} isChild depth={depth + 1} />)}
+    </ul>
+  ) : null
+  if (item.collapsible && children) return (
+    <li>
+      <details data-admin-sidebar-item={item.name}>
+        <summary className={`${className} cursor-pointer list-none [&::-webkit-details-marker]:hidden`} aria-label={`Desplegar ${item.name}`}>
+          {label}
+          <AdminSidebarChevron className="ml-auto h-4 w-4 shrink-0 text-gray-400" />
+        </summary>
+        {!item.containerOnly && <a href={item.href} className={className} aria-label={`Abrir ${item.name}`}>{label}</a>}
+        {children}
+      </details>
+    </li>
+  )
   return (
     <li>
       {/* En SSR se usa un ancla normal: no hay prefetch ni JS de navegación inicial. */}
-      <a
-        href={item.href}
-        className={`group flex min-h-11 items-center gap-x-3 rounded-lg px-3 py-2 text-sm font-semibold leading-6 text-gray-700 hover:bg-gray-50 hover:text-orange-600 ${depth > 0 ? 'pl-8 text-xs' : isChild ? 'pl-10' : ''}`}
-      >
-        <AdminSidebarIcon name={item.icon} className={`${depth > 0 ? 'h-5 w-5' : 'h-6 w-6'} shrink-0 text-gray-400 group-hover:text-orange-600`} />
-        {item.name}
-      </a>
-      {item.subitems && item.subitems.length > 0 && (
-        <ul className="ml-5 mt-1 space-y-1 border-l border-slate-200" aria-label={`Subapartados de ${item.name}`}>
-          {item.subitems.map(child => <NavItem key={child.name} item={child} isChild depth={depth + 1} />)}
-        </ul>
-      )}
+      {item.containerOnly ? <span className={className}>{label}</span> : <a href={item.href} className={className}>{label}</a>}
+      {children}
     </li>
   )
 }
