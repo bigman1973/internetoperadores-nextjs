@@ -11,6 +11,7 @@ const TIPOS = new Set(['CLIENTE_WEB', 'CRM_CONTACTO', 'CRM_EMPRESA', 'CREAR_CONT
 const CONFIANZAS = new Set(['ALTA', 'MEDIA', 'BAJA'])
 const ESTADOS = new Set(['PENDIENTE', 'CONFIRMADO', 'DESCARTADO', 'OBSOLETO'])
 const POR_PAGINA = 50
+const MOTIVOS = new Set(['NIF', 'EMAIL', 'NOMBRE', 'CODIGO', 'ID_ISP_CODIGO_DISTINTO', 'EMAIL_EN_OTRO_CLIENTE', 'SIN_CANDIDATO'])
 
 export async function GET(request: Request) {
   const auth = await autorizarSuperadminIsp()
@@ -19,9 +20,10 @@ export async function GET(request: Request) {
   const estado = url.searchParams.get('estado') || 'PENDIENTE'
   const tipo = url.searchParams.get('tipo') || ''
   const confianza = url.searchParams.get('confianza') || ''
+  const motivo = url.searchParams.get('motivo') || ''
   const pagina = Math.max(1, Number(url.searchParams.get('pagina') || 1) || 1)
-  if (!ESTADOS.has(estado) || (tipo && !TIPOS.has(tipo)) || (confianza && !CONFIANZAS.has(confianza))) return NextResponse.json({ error: 'Filtro no válido.' }, { status: 400 })
-  const where: Prisma.IspVinculoArea1WhereInput = { estado, ...(tipo ? { tipo } : {}), ...(confianza ? { confianza } : {}) }
+  if (!ESTADOS.has(estado) || (tipo && !TIPOS.has(tipo)) || (confianza && !CONFIANZAS.has(confianza)) || (motivo && !MOTIVOS.has(motivo))) return NextResponse.json({ error: 'Filtro no válido.' }, { status: 400 })
+  const where: Prisma.IspVinculoArea1WhereInput = { estado, ...(tipo ? { tipo } : {}), ...(confianza ? { confianza } : {}), ...(motivo ? { motivo } : {}) }
   try {
     const [total, porTipo, filas] = await Promise.all([
       prisma.ispVinculoArea1.count({ where }),

@@ -310,85 +310,96 @@ export class ErrorVinculo extends Error { constructor(public codigo: string) { s
 const CATEGORIA: Record<string, 'CLIENTE_WEB' | 'CONTACTO' | 'EMPRESA'> = { CLIENTE_WEB: 'CLIENTE_WEB', CRM_CONTACTO: 'CONTACTO', CREAR_CONTACTO: 'CONTACTO', CRM_EMPRESA: 'EMPRESA', CREAR_EMPRESA: 'EMPRESA' }
 
 /** Confirma o descarta propuestas elegidas por una persona. Devuelve el resultado de cada una. */
+export type EfectoVinculo = { tipo: string; enlaceClienteWeb: boolean; obsoletas: number }
+/**
+ * Confirma o descarta UNA propuesta dentro de la transacción recibida. Mismas reglas para la
+ * confirmación una a una y para el bloque. Lanza ErrorVinculo si no se puede aplicar.
+ */
+export async function resolverVinculoEnTx(tx: Prisma.TransactionClient, id: string, accion: 'CONFIRMAR' | 'DESCARTAR', actor: string): Promise<EfectoVinculo> {
+  const efecto: EfectoVinculo = { tipo: '', enlaceClienteWeb: false, obsoletas: 0 }
+  const v = await tx.ispVinculoArea1.findUnique({ where: { id }, include: { cliente: true } })
+  if (!v) throw new ErrorVinculo('NO_EXISTE')
+  efecto.tipo = v.tipo
+  if (v.estado !== 'PENDIENTE') throw new ErrorVinculo('YA_RESUELTA')
+  const ahora = new Date()
+  if (accion === 'DESCARTAR') {
+    await tx.ispVinculoArea1.update({ where: { id }, data: { estado: 'DESCARTADO', revisadoPor: actor, revisadoAt: ahora } })
+    return efecto
+  }
+  const c = v.cliente
+  const origen = `ISP_CONFIRMADO:${actor}`.slice(0, 120)
+  if (v.tipo === 'CLIENTE_WEB') {
+    if (c.clienteWebId) throw new ErrorVinculo('CLIENTE_YA_VINCULADO')
+    const destino = Number(v.destinoId)
+    const cw = await tx.clienteWeb.findUnique({ where: { id: destino }, select: { id: true } })
+    if (!cw) throw new ErrorVinculo('DESTINO_NO_EXISTE')
+    const otra = await tx.ispClienteArea1.findFirst({ where: { clienteWebId: destino, id: { not: c.id } }, select: { id: true } })
+    if (otra) throw new ErrorVinculo('FICHA_DE_OTRA_CUENTA_ISP')
+    await tx.ispClienteArea1.update({ where: { id: c.id }, data: { clienteWebId: destino } })
+  } else if (v.tipo === 'CRM_CONTACTO' || v.tipo === 'CREAR_CONTACTO') {
+    if (c.crmContactoId) throw new ErrorVinculo('CONTACTO_YA_VINCULADO')
+    let contactoId = v.destinoId
+    if (v.tipo === 'CREAR_CONTACTO') {
+      const nuevo = await tx.crmRegistroHubspot.create({ data: {
+        objectTypeId: '0-1', hubspotId: `local:${createId()}`, nombre: c.nombre, email: c.email, telefono: c.movil || c.telefono,
+        segmentoCrm: c.segmentoCrm, segmentoCrmActualizadoAt: ahora, segmentoCrmActualizadoPor: origen,
+        clienteWebId: c.clienteWebId, vinculoClienteOrigen: c.clienteWebId ? 'ISP_CONFIRMADO' : null, convertidoAt: c.clienteWebId ? ahora : null,
+        propiedadesLocales: { origen: 'ISP_GESTION', codigoIsp: c.codigo, estadoMarketing: c.estadoMarketing } as Prisma.InputJsonValue,
+        datosActualizadoAt: ahora, datosActualizadoPor: origen,
+      }, select: { id: true } })
+      contactoId = nuevo.id
+    } else {
+      const contacto = await tx.crmRegistroHubspot.findUnique({ where: { id: contactoId }, select: { id: true, clienteWebId: true } })
+      if (!contacto) throw new ErrorVinculo('DESTINO_NO_EXISTE')
+      if (contacto.clienteWebId && contacto.clienteWebId !== c.clienteWebId) throw new ErrorVinculo('CONTACTO_DE_OTRO_CLIENTE')
+      if (!contacto.clienteWebId && c.clienteWebId) await tx.crmRegistroHubspot.update({ where: { id: contactoId }, data: { clienteWebId: c.clienteWebId, vinculoClienteOrigen: 'ISP_CONFIRMADO', convertidoAt: ahora } })
+    }
+    await tx.ispClienteArea1.update({ where: { id: c.id }, data: { crmContactoId: contactoId } })
+  } else {
+    if (c.crmEmpresaId) throw new ErrorVinculo('EMPRESA_YA_VINCULADA')
+    let empresaId = v.destinoId
+    if (v.tipo === 'CREAR_EMPRESA') {
+      const autonomo = (v.detalle as any)?.tipoEmpresa === 'AUTONOMO'
+      const empresa = await tx.crmEmpresa.create({ data: {
+        nombre: c.nombre, nombreComercial: c.nombreComercial, nif: c.cif || c.nif, nifNormalizado: c.docNormalizado,
+        tipo: autonomo ? 'AUTONOMO' : 'SOCIEDAD', segmentoCrm: 'EMPRESA', telefono: c.telefono || c.movil, email: c.email,
+        direccion: [c.domicilio, c.numero, c.piso, c.puerta].filter(Boolean).join(' ') || null, codigoPostal: c.codigoPostal,
+        localidad: c.municipio, provincia: c.provincia, pais: c.pais || 'ES', origen: 'ISP', actualizadoPor: origen,
+      }, select: { id: true } })
+      empresaId = empresa.id
+      // Un autónomo también es contacto: titular de su cuenta.
+      if (autonomo) {
+        const titular = c.crmContactoId || (await tx.crmRegistroHubspot.create({ data: {
+          objectTypeId: '0-1', hubspotId: `local:${createId()}`, nombre: c.nombre, email: c.email, telefono: c.movil || c.telefono, segmentoCrm: 'EMPRESA',
+          clienteWebId: c.clienteWebId, vinculoClienteOrigen: c.clienteWebId ? 'ISP_CONFIRMADO' : null, convertidoAt: c.clienteWebId ? ahora : null,
+          propiedadesLocales: { origen: 'ISP_GESTION', codigoIsp: c.codigo } as Prisma.InputJsonValue, datosActualizadoAt: ahora, datosActualizadoPor: origen,
+        }, select: { id: true } })).id
+        await tx.crmEmpresaContacto.create({ data: { empresaId, contactoId: titular, principal: true, papel: 'TITULAR', origen: 'ISP' } })
+        if (!c.crmContactoId) await tx.ispClienteArea1.update({ where: { id: c.id }, data: { crmContactoId: titular } })
+      }
+    } else {
+      const e = await tx.crmEmpresa.findFirst({ where: { id: empresaId, activo: true }, select: { id: true } })
+      if (!e) throw new ErrorVinculo('DESTINO_NO_EXISTE')
+    }
+    if (c.clienteWebId) {
+      const enlace = await tx.crmEmpresaCliente.findUnique({ where: { clienteId: c.clienteWebId } })
+      if (enlace && enlace.empresaId !== empresaId) throw new ErrorVinculo('CLIENTE_EN_OTRA_EMPRESA')
+      if (!enlace) { await tx.crmEmpresaCliente.create({ data: { empresaId, clienteId: c.clienteWebId, origen: 'ISP_CONFIRMADO' } }); efecto.enlaceClienteWeb = true }
+    }
+    await tx.ispClienteArea1.update({ where: { id: c.id }, data: { crmEmpresaId: empresaId } })
+  }
+  await tx.ispVinculoArea1.update({ where: { id }, data: { estado: 'CONFIRMADO', revisadoPor: actor, revisadoAt: ahora } })
+  // Las demás propuestas de la misma categoría para este cliente dejan de aplicar.
+  const hermanas = Object.entries(CATEGORIA).filter(([, cat]) => cat === CATEGORIA[v.tipo]).map(([t]) => t)
+  efecto.obsoletas = (await tx.ispVinculoArea1.updateMany({ where: { ispClienteRowId: c.id, estado: 'PENDIENTE', tipo: { in: hermanas }, id: { not: id } }, data: { estado: 'OBSOLETO', revisadoPor: actor, revisadoAt: ahora } })).count
+  return efecto
+}
 export async function resolverVinculos(db: PrismaClient, ids: string[], accion: 'CONFIRMAR' | 'DESCARTAR', actor: string) {
   const resultados: Array<{ id: string; ok: boolean; codigo?: string }> = []
   for (const id of ids) {
     try {
       await db.$transaction(async (tx) => {
-        const v = await tx.ispVinculoArea1.findUnique({ where: { id }, include: { cliente: true } })
-        if (!v) throw new ErrorVinculo('NO_EXISTE')
-        if (v.estado !== 'PENDIENTE') throw new ErrorVinculo('YA_RESUELTA')
-        const ahora = new Date()
-        if (accion === 'DESCARTAR') {
-          await tx.ispVinculoArea1.update({ where: { id }, data: { estado: 'DESCARTADO', revisadoPor: actor, revisadoAt: ahora } })
-          return
-        }
-        const c = v.cliente
-        const origen = `ISP_CONFIRMADO:${actor}`.slice(0, 120)
-        if (v.tipo === 'CLIENTE_WEB') {
-          if (c.clienteWebId) throw new ErrorVinculo('CLIENTE_YA_VINCULADO')
-          const destino = Number(v.destinoId)
-          const cw = await tx.clienteWeb.findUnique({ where: { id: destino }, select: { id: true } })
-          if (!cw) throw new ErrorVinculo('DESTINO_NO_EXISTE')
-          const otra = await tx.ispClienteArea1.findFirst({ where: { clienteWebId: destino, id: { not: c.id } }, select: { id: true } })
-          if (otra) throw new ErrorVinculo('FICHA_DE_OTRA_CUENTA_ISP')
-          await tx.ispClienteArea1.update({ where: { id: c.id }, data: { clienteWebId: destino } })
-        } else if (v.tipo === 'CRM_CONTACTO' || v.tipo === 'CREAR_CONTACTO') {
-          if (c.crmContactoId) throw new ErrorVinculo('CONTACTO_YA_VINCULADO')
-          let contactoId = v.destinoId
-          if (v.tipo === 'CREAR_CONTACTO') {
-            const nuevo = await tx.crmRegistroHubspot.create({ data: {
-              objectTypeId: '0-1', hubspotId: `local:${createId()}`, nombre: c.nombre, email: c.email, telefono: c.movil || c.telefono,
-              segmentoCrm: c.segmentoCrm, segmentoCrmActualizadoAt: ahora, segmentoCrmActualizadoPor: origen,
-              clienteWebId: c.clienteWebId, vinculoClienteOrigen: c.clienteWebId ? 'ISP_CONFIRMADO' : null, convertidoAt: c.clienteWebId ? ahora : null,
-              propiedadesLocales: { origen: 'ISP_GESTION', codigoIsp: c.codigo, estadoMarketing: c.estadoMarketing } as Prisma.InputJsonValue,
-              datosActualizadoAt: ahora, datosActualizadoPor: origen,
-            }, select: { id: true } })
-            contactoId = nuevo.id
-          } else {
-            const contacto = await tx.crmRegistroHubspot.findUnique({ where: { id: contactoId }, select: { id: true, clienteWebId: true } })
-            if (!contacto) throw new ErrorVinculo('DESTINO_NO_EXISTE')
-            if (contacto.clienteWebId && contacto.clienteWebId !== c.clienteWebId) throw new ErrorVinculo('CONTACTO_DE_OTRO_CLIENTE')
-            if (!contacto.clienteWebId && c.clienteWebId) await tx.crmRegistroHubspot.update({ where: { id: contactoId }, data: { clienteWebId: c.clienteWebId, vinculoClienteOrigen: 'ISP_CONFIRMADO', convertidoAt: ahora } })
-          }
-          await tx.ispClienteArea1.update({ where: { id: c.id }, data: { crmContactoId: contactoId } })
-        } else {
-          if (c.crmEmpresaId) throw new ErrorVinculo('EMPRESA_YA_VINCULADA')
-          let empresaId = v.destinoId
-          if (v.tipo === 'CREAR_EMPRESA') {
-            const autonomo = (v.detalle as any)?.tipoEmpresa === 'AUTONOMO'
-            const empresa = await tx.crmEmpresa.create({ data: {
-              nombre: c.nombre, nombreComercial: c.nombreComercial, nif: c.cif || c.nif, nifNormalizado: c.docNormalizado,
-              tipo: autonomo ? 'AUTONOMO' : 'SOCIEDAD', segmentoCrm: 'EMPRESA', telefono: c.telefono || c.movil, email: c.email,
-              direccion: [c.domicilio, c.numero, c.piso, c.puerta].filter(Boolean).join(' ') || null, codigoPostal: c.codigoPostal,
-              localidad: c.municipio, provincia: c.provincia, pais: c.pais || 'ES', origen: 'ISP', actualizadoPor: origen,
-            }, select: { id: true } })
-            empresaId = empresa.id
-            // Un autónomo también es contacto: titular de su cuenta.
-            if (autonomo) {
-              const titular = c.crmContactoId || (await tx.crmRegistroHubspot.create({ data: {
-                objectTypeId: '0-1', hubspotId: `local:${createId()}`, nombre: c.nombre, email: c.email, telefono: c.movil || c.telefono, segmentoCrm: 'EMPRESA',
-                clienteWebId: c.clienteWebId, vinculoClienteOrigen: c.clienteWebId ? 'ISP_CONFIRMADO' : null, convertidoAt: c.clienteWebId ? ahora : null,
-                propiedadesLocales: { origen: 'ISP_GESTION', codigoIsp: c.codigo } as Prisma.InputJsonValue, datosActualizadoAt: ahora, datosActualizadoPor: origen,
-              }, select: { id: true } })).id
-              await tx.crmEmpresaContacto.create({ data: { empresaId, contactoId: titular, principal: true, papel: 'TITULAR', origen: 'ISP' } })
-              if (!c.crmContactoId) await tx.ispClienteArea1.update({ where: { id: c.id }, data: { crmContactoId: titular } })
-            }
-          } else {
-            const e = await tx.crmEmpresa.findFirst({ where: { id: empresaId, activo: true }, select: { id: true } })
-            if (!e) throw new ErrorVinculo('DESTINO_NO_EXISTE')
-          }
-          if (c.clienteWebId) {
-            const enlace = await tx.crmEmpresaCliente.findUnique({ where: { clienteId: c.clienteWebId } })
-            if (enlace && enlace.empresaId !== empresaId) throw new ErrorVinculo('CLIENTE_EN_OTRA_EMPRESA')
-            if (!enlace) await tx.crmEmpresaCliente.create({ data: { empresaId, clienteId: c.clienteWebId, origen: 'ISP_CONFIRMADO' } })
-          }
-          await tx.ispClienteArea1.update({ where: { id: c.id }, data: { crmEmpresaId: empresaId } })
-        }
-        await tx.ispVinculoArea1.update({ where: { id }, data: { estado: 'CONFIRMADO', revisadoPor: actor, revisadoAt: ahora } })
-        // Las demás propuestas de la misma categoría para este cliente dejan de aplicar.
-        const hermanas = Object.entries(CATEGORIA).filter(([, cat]) => cat === CATEGORIA[v.tipo]).map(([t]) => t)
-        await tx.ispVinculoArea1.updateMany({ where: { ispClienteRowId: c.id, estado: 'PENDIENTE', tipo: { in: hermanas }, id: { not: id } }, data: { estado: 'OBSOLETO', revisadoPor: actor, revisadoAt: ahora } })
+        await resolverVinculoEnTx(tx, id, accion, actor)
       })
       resultados.push({ id, ok: true })
     } catch (e) {
