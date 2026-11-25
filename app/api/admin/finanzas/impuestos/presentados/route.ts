@@ -1,4 +1,5 @@
-import { NextRequest } from 'next/server';
+import { extrasProduccionCerrados } from '@/lib/produccion-disponibilidad';
+import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
@@ -14,6 +15,7 @@ const body = z.object({
 }).strict();
 /** Modelos presentados subidos a mano (sustituyen a lo que haya en AAPP para ese trimestre). */
 export async function GET(req: NextRequest) {
+  if (extrasProduccionCerrados()) return NextResponse.json({ error: 'No encontrado.' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } });
   try {
     const auth = await requireFinAuth('impuestos'); if ('error' in auth) return auth.error;
     const ejercicio = ejercicioSchema.parse(req.nextUrl.searchParams.get('ejercicio') ?? hoyMadrid().slice(0, 4));
@@ -21,6 +23,7 @@ export async function GET(req: NextRequest) {
   } catch (e) { return failure(e); }
 }
 export async function POST(req: NextRequest) {
+  if (extrasProduccionCerrados()) return NextResponse.json({ error: 'No encontrado.' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } });
   try {
     const auth = await requireFinAuth('impuestos', { editar: true }); if ('error' in auth) return auth.error;
     const b = body.parse(await readJson(req));
@@ -37,6 +40,7 @@ export async function POST(req: NextRequest) {
   } catch (e) { return failure(e); }
 }
 export async function DELETE(req: NextRequest) {
+  if (extrasProduccionCerrados()) return NextResponse.json({ error: 'No encontrado.' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } });
   try {
     const auth = await requireFinAuth('impuestos', { editar: true }); if ('error' in auth) return auth.error;
     const { id } = z.object({ id: idSchema }).strict().parse(await readJson(req));

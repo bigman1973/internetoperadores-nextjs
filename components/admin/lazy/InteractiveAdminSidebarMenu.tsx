@@ -23,6 +23,7 @@ interface InteractiveAdminSidebarMenuProps {
   financeEnvironment?: FinanceEnvironment
   /** Presentation seed from the server; cannot authorize routes or writes. */
   conciliarEnabled?: boolean
+  rentabilidadReadonlyEnabled?: boolean
   menuPresentation?: SidebarPresentation
   onNavigate?: () => void
 }
@@ -32,6 +33,7 @@ export default function InteractiveAdminSidebarMenu({
   easyOnly = false,
   financeEnvironment = null,
   conciliarEnabled = false,
+  rentabilidadReadonlyEnabled = false,
   menuPresentation = 'historico',
   onNavigate,
 }: InteractiveAdminSidebarMenuProps) {
@@ -42,8 +44,8 @@ export default function InteractiveAdminSidebarMenu({
   const visibleNavigation = useMemo(() => (
     easyOnly
       ? []
-      : filterAuthorizedSidebarNavigation(financeEnvironment, hasAccess, conciliarEnabled, menuPresentation, hasSurfaceAccess)
-  ), [easyOnly, financeEnvironment, conciliarEnabled, menuPresentation, hasAccess, hasSurfaceAccess])
+      : filterAuthorizedSidebarNavigation(financeEnvironment, hasAccess, conciliarEnabled, menuPresentation, hasSurfaceAccess, rentabilidadReadonlyEnabled)
+  ), [easyOnly, financeEnvironment, conciliarEnabled, menuPresentation, hasAccess, hasSurfaceAccess, rentabilidadReadonlyEnabled])
 
   // Auto-abrir el grupo si la ruta actual está dentro.
   useEffect(() => {

@@ -69,16 +69,22 @@ export function getSidebarNavigation(
   financeEnvironment: FinanceEnvironment,
   conciliarEnabled = financeEnvironment === 'staging',
   presentation: SidebarPresentation = 'historico',
+  /** Explicit server-derived production read-only availability; never an ACL. */
+  rentabilidadReadonlyEnabled = false,
 ): SidebarNavigationEntry[] {
   const adaptItem = (item: SidebarNavigationItem): SidebarNavigationItem | null => {
+    if (financeEnvironment !== 'staging' && ['/admin/sistemas', '/admin/finanzas/impuestos', '/admin/finanzas/presupuesto']
+      .some(path => item.href === path || item.href.startsWith(path + '/'))) return null
     const match = area4RegisteredSurface(item.href, 'page')
     if (!match) return null
     const availability = match.surface.availability
-    if (availability?.stagingOnly && financeEnvironment !== 'staging') return null
+    const rentabilidadReadonly = item.href === '/admin/rentabilidad' && rentabilidadReadonlyEnabled === true && financeEnvironment !== 'staging'
+    if (availability?.stagingOnly && financeEnvironment !== 'staging' && !rentabilidadReadonly) return null
     if (availability?.conciliarOnly && !conciliarEnabled) return null
     if (availability?.needsFinance && financeEnvironment === null) return null
     return { ...item,
-      name: availability?.financeSuffix && financeEnvironment === 'staging' ? `${item.name} · staging` : item.name,
+      name: rentabilidadReadonly ? 'Rentabilidad · solo lectura'
+        : availability?.financeSuffix && financeEnvironment === 'staging' ? `${item.name} · staging` : item.name,
       subitems: item.subitems?.map(adaptItem).filter((child): child is SidebarNavigationItem => child !== null) }
   }
   const base = presentation === 'agrupado' ? groupedNavigation() : historicalNavigation()
@@ -114,8 +120,9 @@ export function filterAuthorizedSidebarNavigation(
   conciliarEnabled = financeEnvironment === 'staging',
   presentation: SidebarPresentation = 'historico',
   hasSurfaceAccess: (href: string) => boolean = href => area4RegisteredSurface(href, 'page')?.baseline === true,
+  rentabilidadReadonlyEnabled = false,
 ): SidebarNavigationEntry[] {
-  return getSidebarNavigation(financeEnvironment, conciliarEnabled, presentation)
+  return getSidebarNavigation(financeEnvironment, conciliarEnabled, presentation, rentabilidadReadonlyEnabled)
     .flatMap((entry): SidebarNavigationEntry[] => {
       if (!isSidebarNavigationGroup(entry)) return filterItem(entry, hasAccess, hasSurfaceAccess)
       const children = entry.children.flatMap(child => filterItem(child, hasAccess, hasSurfaceAccess))

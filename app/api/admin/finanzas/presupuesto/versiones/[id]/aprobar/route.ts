@@ -1,4 +1,5 @@
-import { NextRequest } from 'next/server';
+import { extrasProduccionCerrados } from '@/lib/produccion-disponibilidad';
+import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
@@ -8,6 +9,7 @@ export const dynamic = 'force-dynamic';
 type Ctx = { params: Promise<{ id: string }> };
 /** Aprobar el presupuesto: solo SUPER_ADMIN (Víctor). La versión aprobada anterior pasa a REEMPLAZADO; no se borra nada. */
 export async function POST(req: NextRequest, ctx: Ctx) {
+  if (extrasProduccionCerrados()) return NextResponse.json({ error: 'No encontrado.' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } });
   try {
     const auth = await requireFinAuth('presupuesto', { aprobar: true }); if ('error' in auth) return auth.error;
     z.object({ confirmo: z.literal(true) }).strict().parse(await readJson(req));

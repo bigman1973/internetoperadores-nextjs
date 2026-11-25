@@ -1,4 +1,5 @@
-import { NextRequest } from 'next/server';
+import { extrasProduccionCerrados } from '@/lib/produccion-disponibilidad';
+import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
@@ -9,6 +10,7 @@ import { ApiError, failure, idSchema, readJson, reply, sinCredenciales } from '.
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
+  if (extrasProduccionCerrados()) return NextResponse.json({ error: 'No encontrado.' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } });
   try {
     const auth = await requireSistemasAuth(); if ('error' in auth) return auth.error;
     const rows: any[] = await prisma.$queryRaw(Prisma.sql`SELECT i.id, to_char(i.fecha_hora,'YYYY-MM-DD"T"HH24:MI') AS "fechaHora", i.tipo, i.titulo, i.detalle, s.nombre AS servicio, s.slug,
@@ -25,6 +27,7 @@ const crearSchema = z.object({
 }).strict();
 
 export async function POST(req: NextRequest) {
+  if (extrasProduccionCerrados()) return NextResponse.json({ error: 'No encontrado.' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } });
   try {
     const auth = await requireSistemasAuth(); if ('error' in auth) return auth.error;
     const b = crearSchema.parse(await readJson(req));
@@ -39,6 +42,7 @@ export async function POST(req: NextRequest) {
 
 /** Anula (no borra) una entrada del registro. */
 export async function DELETE(req: NextRequest) {
+  if (extrasProduccionCerrados()) return NextResponse.json({ error: 'No encontrado.' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } });
   try {
     const auth = await requireSistemasAuth(); if ('error' in auth) return auth.error;
     const { id } = z.object({ id: idSchema }).strict().parse(await readJson(req));

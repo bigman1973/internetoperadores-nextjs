@@ -1,4 +1,5 @@
-import { NextRequest } from 'next/server';
+import { extrasProduccionCerrados } from '@/lib/produccion-disponibilidad';
+import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
@@ -16,6 +17,7 @@ async function borrador(tx: Prisma.TransactionClient, id: string) {
 }
 /** Edita el presupuesto de una línea (o la restaura al valor automático). Solo en BORRADOR. */
 export async function PATCH(req: NextRequest, ctx: Ctx) {
+  if (extrasProduccionCerrados()) return NextResponse.json({ error: 'No encontrado.' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } });
   try {
     const auth = await requireFinAuth('presupuesto', { editar: true }); if ('error' in auth) return auth.error;
     const id = idSchema.parse((await ctx.params).id); const b = edit.parse(await readJson(req));
@@ -35,6 +37,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
 }
 /** Añade una línea manual (p. ej. una inversión o un gasto nuevo de 2027). */
 export async function POST(req: NextRequest, ctx: Ctx) {
+  if (extrasProduccionCerrados()) return NextResponse.json({ error: 'No encontrado.' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } });
   try {
     const auth = await requireFinAuth('presupuesto', { editar: true }); if ('error' in auth) return auth.error;
     const id = idSchema.parse((await ctx.params).id); const b = alta.parse(await readJson(req));
@@ -49,6 +52,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   } catch (e) { if (e instanceof Error && /unique|duplicate/i.test(e.message)) return reply({ error: 'Ya existe una línea con ese centro y esa cuenta.', code: 'DUPLICADA' }, 409); return failure(e); }
 }
 export async function DELETE(req: NextRequest, ctx: Ctx) {
+  if (extrasProduccionCerrados()) return NextResponse.json({ error: 'No encontrado.' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } });
   try {
     const auth = await requireFinAuth('presupuesto', { editar: true }); if ('error' in auth) return auth.error;
     const id = idSchema.parse((await ctx.params).id); const { lineaId } = z.object({ lineaId: idSchema }).strict().parse(await readJson(req));

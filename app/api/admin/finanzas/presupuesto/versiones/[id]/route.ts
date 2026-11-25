@@ -1,4 +1,5 @@
-import { NextRequest } from 'next/server';
+import { extrasProduccionCerrados } from '@/lib/produccion-disponibilidad';
+import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
@@ -8,6 +9,7 @@ import { reply, failure, readJson, ApiError, idSchema } from '../../../_fin-shar
 export const dynamic = 'force-dynamic';
 type Ctx = { params: Promise<{ id: string }> };
 export async function GET(_req: NextRequest, ctx: Ctx) {
+  if (extrasProduccionCerrados()) return NextResponse.json({ error: 'No encontrado.' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } });
   try {
     const auth = await requireFinAuth('presupuesto'); if ('error' in auth) return auth.error;
     const d = await detalleVersion(idSchema.parse((await ctx.params).id));
@@ -17,6 +19,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 }
 const patch = z.object({ nombre: z.string().trim().min(1).max(120).optional(), notas: z.string().trim().max(1500).nullable().optional() }).strict();
 export async function PATCH(req: NextRequest, ctx: Ctx) {
+  if (extrasProduccionCerrados()) return NextResponse.json({ error: 'No encontrado.' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } });
   try {
     const auth = await requireFinAuth('presupuesto', { editar: true }); if ('error' in auth) return auth.error;
     const id = idSchema.parse((await ctx.params).id); const b = patch.parse(await readJson(req));

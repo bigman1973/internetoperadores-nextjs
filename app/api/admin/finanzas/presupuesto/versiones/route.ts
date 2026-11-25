@@ -1,4 +1,5 @@
-import { NextRequest } from 'next/server';
+import { extrasProduccionCerrados } from '@/lib/produccion-disponibilidad';
+import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
@@ -13,6 +14,7 @@ const crearSchema = z.object({
   copiarDe: z.string().max(80).regex(/^[A-Za-z0-9_-]+$/).nullable().optional(),
 }).strict();
 export async function GET(req: NextRequest) {
+  if (extrasProduccionCerrados()) return NextResponse.json({ error: 'No encontrado.' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } });
   try {
     const auth = await requireFinAuth('presupuesto'); if ('error' in auth) return auth.error;
     const ejercicio = ejercicioSchema.parse(req.nextUrl.searchParams.get('ejercicio') ?? '2027');
@@ -23,6 +25,7 @@ export async function GET(req: NextRequest) {
 }
 /** Crea una versión nueva en BORRADOR: parte del real del año anterior o copia otra versión. */
 export async function POST(req: NextRequest) {
+  if (extrasProduccionCerrados()) return NextResponse.json({ error: 'No encontrado.' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } });
   try {
     const auth = await requireFinAuth('presupuesto', { editar: true }); if ('error' in auth) return auth.error;
     const b = crearSchema.parse(await readJson(req));

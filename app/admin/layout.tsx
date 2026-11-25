@@ -30,6 +30,7 @@ import { resolveLiveAdminPrincipal, readLiveArea4Adoption } from '@/lib/area4/li
 import { readArea4MenuConfiguration, resolveArea4MenuPresentation, type Area4MenuPresentation } from '@/lib/area4/menu-presentation'
 import { readArea4SurfacePermissionSeedWithFallback } from '@/lib/area4/surface-access'
 import { area4SurfacePermissionSignature, area4SurfaceSeedAllows, type Area4SurfacePermissionSeed } from '@/lib/area4/surface-access-contract'
+import { rentabilidadReadonlyMenuDisponible } from '@/lib/produccion-disponibilidad'
 
 type SidebarInitialModel = Readonly<{
   mode: 'easy' | 'privileged' | 'seed'
@@ -47,6 +48,7 @@ function getSidebarInitialModel({
   easyOnly,
   financeEnvironment,
   conciliarEnabled,
+  rentabilidadReadonlyEnabled,
   initialPermissions,
   isArea4Owner: isOwner,
   isViewingAsUser,
@@ -61,6 +63,7 @@ function getSidebarInitialModel({
   financeEnvironment: FinanceEnvironment
   /** Server-derived render/navigation seed; never authorization for an API. */
   conciliarEnabled: boolean
+  rentabilidadReadonlyEnabled: boolean
   initialPermissions: Awaited<ReturnType<typeof readAdminPermissionsSsrWithFallback>>
   isArea4Owner: boolean
   isViewingAsUser: boolean
@@ -102,7 +105,7 @@ function getSidebarInitialModel({
     tienePermisosGranulares,
     permissionsAdopted,
     surfacePermissions,
-  }), conciliarEnabled, menuPresentation, href => isOwner || area4SurfaceSeedAllows(surfacePermissions, href))
+  }), conciliarEnabled, menuPresentation, href => isOwner || area4SurfaceSeedAllows(surfacePermissions, href), rentabilidadReadonlyEnabled)
 
   return {
     mode: isPrivilegedRealRole ? 'privileged' : 'seed',
@@ -169,6 +172,9 @@ export default async function AdminLayout({
 
   const financeEnvironment = financeContext?.runtime ?? null
   const conciliarEnabled = conciliarContext !== null
+  // The existing profile runtime also proves production identity when the easy
+  // UI is off/read-only. Do not widen financeEnvironment for unrelated entries.
+  const rentabilidadReadonlyEnabled = rentabilidadReadonlyMenuDisponible(financeEnvironment ?? profileEnvironment)
   const menuPresentation = resolveArea4MenuPresentation(menuConfiguration, livePrincipal)
   const initialSidebar = getSidebarInitialModel({
     userRole,
@@ -176,6 +182,7 @@ export default async function AdminLayout({
     easyOnly,
     financeEnvironment,
     conciliarEnabled,
+    rentabilidadReadonlyEnabled,
     initialPermissions,
     isArea4Owner: isOwner,
     isViewingAsUser,
@@ -218,6 +225,7 @@ export default async function AdminLayout({
               easyOnly={easyOnly}
               financeEnvironment={financeEnvironment}
               conciliarEnabled={conciliarEnabled}
+              rentabilidadReadonlyEnabled={rentabilidadReadonlyEnabled}
               initialMenu={initialMenu}
               initialMenuMode={initialSidebar?.mode ?? 'unavailable'}
               initialPermissionSignature={initialSidebar?.permissionSignature}

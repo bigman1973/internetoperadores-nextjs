@@ -1,3 +1,5 @@
+import { extrasProduccionCerrados } from '@/lib/produccion-disponibilidad';
+import { NextResponse } from 'next/server';
 import { requireSistemasAuth } from '@/lib/sistemas/auth';
 import { listarServicios } from '@/lib/sistemas/data';
 import { leerBd, leerGithub, leerRailway, leerVercel, variablesDeEsteEntorno } from '@/lib/sistemas/vivo';
@@ -11,6 +13,7 @@ export const maxDuration = 30;
  * solo nombres y si están configuradas. Si una API no está conectada lo dice y la pantalla permite rellenar a mano.
  */
 export async function GET() {
+  if (extrasProduccionCerrados()) return NextResponse.json({ error: 'No encontrado.' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } });
   try {
     const auth = await requireSistemasAuth(); if ('error' in auth) return auth.error;
     const [github, railway, bd, servicios] = await Promise.all([leerGithub(), leerRailway(), leerBd(), listarServicios()]);

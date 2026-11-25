@@ -30,6 +30,7 @@ interface AdminSidebarProps {
   financeEnvironment?: FinanceEnvironment
   /** Render hint derived by the current server response, never API authority. */
   conciliarEnabled?: boolean
+  rentabilidadReadonlyEnabled?: boolean
   user: AdminSidebarUser
   /** Árbol ya autorizado de la respuesta SSR actual, formado por el layout. */
   initialMenu: ReactNode
@@ -49,6 +50,7 @@ export default function AdminSidebar({
   easyOnly = false,
   financeEnvironment = null,
   conciliarEnabled = false,
+  rentabilidadReadonlyEnabled = false,
   initialMenu,
   initialMenuMode,
   initialPermissionSignature = '',
@@ -199,6 +201,7 @@ export default function AdminSidebar({
         easyOnly={easyOnly}
         financeEnvironment={financeEnvironment}
         conciliarEnabled={conciliarEnabled}
+        rentabilidadReadonlyEnabled={rentabilidadReadonlyEnabled}
         menuPresentation={menuPresentation}
         onNavigate={onNavigate}
       />

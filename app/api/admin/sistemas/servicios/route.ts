@@ -1,4 +1,5 @@
-import { NextRequest } from 'next/server';
+import { extrasProduccionCerrados } from '@/lib/produccion-disponibilidad';
+import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
@@ -9,6 +10,7 @@ import { ApiError, failure, fechaSchema, readJson, reply, sinCredenciales } from
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
+  if (extrasProduccionCerrados()) return NextResponse.json({ error: 'No encontrado.' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } });
   try {
     const auth = await requireSistemasAuth(); if ('error' in auth) return auth.error;
     return reply({ servicios: await listarServicios() });
@@ -30,6 +32,7 @@ const editSchema = z.object({
 
 /** Edita los datos de un servicio. Cada campo es opcional; se audita qué campos cambian (no los valores sensibles). */
 export async function PATCH(req: NextRequest) {
+  if (extrasProduccionCerrados()) return NextResponse.json({ error: 'No encontrado.' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } });
   try {
     const auth = await requireSistemasAuth(); if ('error' in auth) return auth.error;
     const b = editSchema.parse(await readJson(req));
