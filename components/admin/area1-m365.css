@@ -1,0 +1,16 @@
+/* Área 1 · M365 en la ficha. Solo clases propias; el resto viene de components/io-ui (.btn, .seg, .note, .pill). */
+.io-ui.area1-m365{margin:0;min-height:0;background:transparent;display:grid;gap:8px}
+.io-ui.area1-m365 .m365-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.io-ui.area1-m365 .m365-lbl{font-family:var(--f-display);font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.io-ui.area1-m365 .m365-sub{margin:0;font-size:12px;color:var(--muted)}
+.io-ui.area1-m365 .m365-sub .btn{margin-right:6px;font-size:12px;padding:4px 10px;color:inherit;text-decoration:none}
+.io-ui.area1-m365 .m365-ia{display:grid;gap:8px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:10px 12px}
+.io-ui.area1-m365 .m365-input{flex:1 1 260px;min-width:0;border:1px solid var(--line);border-radius:var(--r);padding:6px 10px;font:inherit;background:var(--surface);color:var(--fg)}
+.io-ui.area1-m365 .m365-input:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
+.io-ui.area1-m365 .m365-list{margin:6px 0 0 18px;padding:0}
+.io-ui.area1-m365 .m365-hilo{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.io-ui.area1-m365 .m365-hilo li{border-left:3px solid var(--accent);background:var(--sunken);padding:6px 10px;border-radius:0 var(--r) var(--r) 0}
+.io-ui.area1-m365 .m365-hilo p{margin:2px 0 0;font-size:13px}
+.io-ui.area1-m365 .m365-de{font-weight:500;margin-right:8px}
+.io-ui.area1-m365 .m365-fecha{font-size:12px;color:var(--muted)}
+.io-ui.area1-m365 .seg button:disabled{opacity:.5;cursor:default}

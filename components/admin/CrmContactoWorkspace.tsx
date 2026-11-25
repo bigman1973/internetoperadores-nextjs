@@ -35,6 +35,7 @@ import CrmContactoDataEditor, {
 } from './CrmContactoDataEditor'
 import type { CrmActivityType } from './CrmActivityComposer'
 import { useRole } from './RoleContext'
+import { Area1M365Acciones } from './Area1M365'
 import CrmWebCaptures, { type CrmWebCapture, type CrmOriginalDetail } from '@/components/crm/CrmWebCaptures'
 
 const CrmContactoSettings = dynamic(() => import('./CrmContactoSettings'), { loading: () => <PanelLoading label="Cargando ajustes…" /> })
@@ -130,7 +131,10 @@ type Props = {
     email: string | null
     connectedAt: string | null
     lastError: string | null
+    mail?: boolean
   }
+  /** Área 1 · aviso de aislamiento M365 (staging) */
+  m365Aviso?: string | null
   qualityIssues: string[]
   history: HistoryEntry[]
   dataEditor: CrmContactDataEditorProps
@@ -149,7 +153,7 @@ const QUICK_FIELDS = [
   { name: 'hs_lead_status', icon: <CheckBadgeIcon className="h-4 w-4" /> },
 ]
 
-export default function CrmContactoWorkspace({ contact, statusNotice, customer, companies, deals, lists, activities = [], webCaptures = [], originalDetails = [], emailSender, outlookConnection, qualityIssues, history, dataEditor, settings }: Props) {
+export default function CrmContactoWorkspace({ contact, statusNotice, customer, companies, deals, lists, activities = [], webCaptures = [], originalDetails = [], emailSender, outlookConnection, m365Aviso = null, qualityIssues, history, dataEditor, settings }: Props) {
   const router = useRouter()
   const { hasAreaAccess, isSuperAdmin, isViewingAs } = useRole()
   const canWrite = !isViewingAs && (isSuperAdmin || hasAreaAccess('admin.crm.contactos', 'escritura'))
@@ -439,7 +443,7 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
         </section>}
       </div>
       <CrmCallComposer open={callComposerOpen} contactId={contact.id} contactName={contact.name} contactPhone={contact.phone === 'Sin informar' ? '' : contact.phone} deals={deals} onClose={() => setCallComposerOpen(false)} onCreated={() => handleActivityCreated('LLAMADA')} />
-      {activityComposerType && <CrmActivityComposer open type={activityComposerType} contactId={contact.id} contactName={contact.name} contactEmail={contact.email === 'Sin informar' ? '' : contact.email} contactPhone={contact.phone === 'Sin informar' ? '' : contact.phone} contactLinkedIn={contact.linkedIn} senderEmail={emailSender} outlookConnection={outlookConnection} deals={deals} onClose={() => setActivityComposerType(null)} onCreated={handleActivityCreated} />}
+      {activityComposerType && <CrmActivityComposer open type={activityComposerType} contactId={contact.id} contactName={contact.name} contactEmail={contact.email === 'Sin informar' ? '' : contact.email} contactPhone={contact.phone === 'Sin informar' ? '' : contact.phone} contactLinkedIn={contact.linkedIn} senderEmail={emailSender} outlookConnection={outlookConnection} m365Aviso={m365Aviso} deals={deals} onClose={() => setActivityComposerType(null)} onCreated={handleActivityCreated} />}
     </main>
   )
 }
@@ -494,6 +498,7 @@ function ActivityCard({ activity, canWrite, updating, onTaskState }: { activity:
         </div>
         {activity.type === 'CORREO' && <div className="mt-3 rounded-xl bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-900"><p><strong>De:</strong> {sender || 'Remitente no disponible'}</p><p><strong>Para:</strong> {emailTo.join(', ') || 'Destinatario no disponible'}</p>{(activity.result === 'ACEPTADO_GRAPH' || activity.result === 'ENVIADO') && <p className="font-semibold text-blue-700">Microsoft 365 aceptó el envío; se solicitó guardar copia en Elementos enviados.</p>}{(activity.result === 'ENVIO_INCIERTO' || activity.result === 'ENVIO_PENDIENTE') && <p className="font-semibold text-red-700">Requiere revisión en Elementos enviados antes de repetirlo.</p>}</div>}
         {activity.type === 'REUNION' && (activity.result?.startsWith('CALENDARIO_') || activity.result === 'ERROR_CALENDARIO') && <div className="mt-3 rounded-xl bg-violet-50 px-3 py-2 text-xs leading-5 text-violet-950">{activity.result === 'CALENDARIO_CREADO' && <p className="font-semibold text-violet-700">Evento creado y vinculado con la agenda individual de Outlook.</p>}{(activity.result === 'CALENDARIO_INCIERTO' || activity.result === 'CALENDARIO_PENDIENTE') && <p className="font-semibold text-red-700">Requiere revisión en la agenda antes de repetirlo.</p>}<div className="mt-1 flex flex-wrap gap-3">{outlookWebLink && <a href={outlookWebLink} target="_blank" rel="noopener noreferrer" className="font-bold text-violet-700 underline decoration-violet-300 underline-offset-2">Abrir en Outlook</a>}{teamsJoinUrl && <a href={teamsJoinUrl} target="_blank" rel="noopener noreferrer" className="font-bold text-violet-700 underline decoration-violet-300 underline-offset-2">Unirse por Teams</a>}</div></div>}
+        {canWrite && (activity.type === 'CORREO' || activity.type === 'REUNION') && <div className="mt-3"><Area1M365Acciones contactId={activity.contactId} activityId={activity.id} sincronizable={activity.metadata.outlookSincronizable === true} hilo={activity.metadata.hiloOutlook === true} aislamiento={typeof activity.metadata.aislamientoAccion === 'string' ? activity.metadata.aislamientoAccion : null} borradorIa={activity.metadata.borradorIa === true} /></div>}
         {activity.result === 'CANAL_PREPARADO' && <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-700"><strong>Contenido preparado desde el CRM.</strong> La plataforma externa no ha confirmado apertura ni entrega.</div>}
         {location && <p className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600"><MapPinIcon className="h-4 w-4" />{location}</p>}
         <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-700">{activity.description}</p>
@@ -536,12 +541,15 @@ function activityResultLabel(activity: ContactActivity) {
     CALENDARIO_PENDIENTE: 'Creando en Outlook',
     CALENDARIO_INCIERTO: 'Revisar calendario',
     ERROR_CALENDARIO: 'No creada en Outlook',
+    NO_ENVIADO_AISLADO: 'No enviado (pruebas)',
+    CALENDARIO_CANCELADO: 'Cancelada en Outlook',
   }
   return activity.result ? labels[activity.result] || humanizeActivity(activity.result) : 'Registrada'
 }
 
 function resultStyle(result: string | null) {
   if (result === 'ERROR_ENVIO' || result === 'ENVIO_INCIERTO' || result === 'ERROR_CALENDARIO' || result === 'CALENDARIO_INCIERTO') return 'bg-red-100 text-red-800'
+  if (result === 'NO_ENVIADO_AISLADO' || result === 'CALENDARIO_CANCELADO') return 'bg-slate-200 text-slate-700'
   if (result === 'PENDIENTE' || result === 'ENVIO_PENDIENTE' || result === 'CALENDARIO_PENDIENTE' || result === 'CANAL_PREPARADO') return 'bg-amber-100 text-amber-800'
   if (result === 'ACEPTADO_GRAPH') return 'bg-blue-100 text-blue-800'
   if (result === 'ENVIADO' || result === 'CONTACTADO' || result === 'REGISTRADA' || result === 'COMPLETADA' || result === 'CALENDARIO_CREADO') return 'bg-emerald-100 text-emerald-800'
