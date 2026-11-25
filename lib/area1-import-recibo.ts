@@ -55,14 +55,15 @@ export function reciboIspExito(plan: {
   contratos: ReadonlyArray<{ clase: Clase }>
   facturacion: ReadonlyArray<{ clase: Clase }>
   ausentes: { clientes: readonly unknown[]; contratos: readonly unknown[] }
-}, aplicado: { importacionId: string; propuestasNuevas: number; propuestasObsoletas: number }, duracionMs: number): DespuesRecibo {
+}, aplicado: { importacionId: string; propuestasNuevas: number; propuestasObsoletas: number; propuestasReactivadas?: number; propuestasActualizadas?: number; vinculosDirectos?: number }, duracionMs: number): DespuesRecibo {
   const conteos = {
     clientes: conteoClases(plan.clientes),
     contratos: conteoClases(plan.contratos),
     facturacion: conteoClases(plan.facturacion),
-    vinculos: { creados: n(aplicado.propuestasNuevas), actualizados: n(aplicado.propuestasObsoletas), omitidos: 0, errores: 0 },
+    propuestas: { creados: n(aplicado.propuestasNuevas), actualizados: n(aplicado.propuestasObsoletas) + n(aplicado.propuestasReactivadas) + n(aplicado.propuestasActualizadas), omitidos: 0, errores: 0 },
+    vinculosDirectos: { creados: 0, actualizados: n(aplicado.vinculosDirectos), omitidos: 0, errores: 0 },
   }
-  const cambios = ['clientes', 'contratos', 'facturacion', 'vinculos'].reduce((s, k) => s + (conteos as any)[k].creados + (conteos as any)[k].actualizados, 0)
+  const cambios = ['clientes', 'contratos', 'facturacion', 'propuestas', 'vinculosDirectos'].reduce((s, k) => s + (conteos as any)[k].creados + (conteos as any)[k].actualizados, 0)
   const ausentes = plan.ausentes.clientes.length + plan.ausentes.contratos.length
   // DUPLICADO solo si se verifica que el negocio no ha cambiado en nada.
   const duplicado = cambios === 0 && ausentes === 0
@@ -73,7 +74,7 @@ export function reciboIspExito(plan: {
 export function reciboIspError(hash: string | undefined, e: unknown, duracionMs: number): DespuesRecibo {
   return {
     resultado: 'ERROR', ...(hash ? { hash } : {}),
-    conteos: { clientes: cero(), contratos: cero(), facturacion: cero(), vinculos: cero() },
+    conteos: { clientes: cero(), contratos: cero(), facturacion: cero(), propuestas: cero(), vinculosDirectos: cero() },
     duracionMs: n(duracionMs), erroresCodigos: { aplicar: codigoError(e, 'APLICACION_FALLIDA') },
   }
 }
@@ -86,12 +87,14 @@ export function reciboHubspot(input: {
   erroresLectura: Record<string, unknown>
   fallo?: unknown
   duracionMs: number
+  cierreFallido?: boolean
 }): DespuesRecibo {
   const comprometido = n(input.importados.actividades) + n(input.importados.tareas) + n(input.importados.relacionesContacto) + n(input.consentimientosGuardados)
   const erroresCodigos: Record<string, string> = {}
   for (const k of Object.keys(input.erroresLectura)) erroresCodigos[k] = 'LECTURA_HUBSPOT_FALLIDA'
   const fallo = input.fallo !== undefined
   if (fallo) erroresCodigos.importacion = codigoError(input.fallo, 'LOTE_FALLIDO')
+  if (input.cierreFallido) erroresCodigos.cierreJournal = 'CIERRE_JOURNAL_FALLIDO'
   const hayErrores = fallo || Object.keys(erroresCodigos).length > 0
   let resultado: ResultadoRecibo
   if (fallo) resultado = comprometido > 0 ? 'PARCIAL' : 'ERROR'
@@ -105,7 +108,7 @@ export function reciboHubspot(input: {
       tareas: { creados: n(input.importados.tareas), actualizados: 0, omitidos: 0, errores: 0 },
       relacionesContacto: { creados: n(input.importados.relacionesContacto), actualizados: 0, omitidos: 0, errores: 0 },
       consentimientos: { creados: 0, actualizados: n(input.consentimientosGuardados), omitidos: 0, errores: 0 },
-      lecturas: { creados: 0, actualizados: 0, omitidos: 0, errores: nErr - (fallo ? 1 : 0) },
+      lecturas: { creados: 0, actualizados: 0, omitidos: 0, errores: nErr - (fallo ? 1 : 0) - (input.cierreFallido ? 1 : 0) },
     },
     duracionMs: n(input.duracionMs),
     ...(nErr ? { erroresCodigos } : {}),

@@ -11,7 +11,7 @@
  * - HubSpot SOLO lectura: únicamente peticiones GET.
  */
 import { randomUUID } from 'node:crypto'
-import { ErrorAuditoriaImportacion, ErrorImportacionNoAuditada, ORIGEN_RECIBO_HUBSPOT, reciboHubspot, registrarReciboImportacion, type DespuesRecibo } from './area1-import-recibo'
+import { codigoError, ErrorAuditoriaImportacion, ErrorImportacionNoAuditada, ORIGEN_RECIBO_HUBSPOT, reciboHubspot, registrarReciboImportacion, type DespuesRecibo } from './area1-import-recibo'
 import prisma from '@/lib/prisma'
 import { hubspotRequest } from '@/lib/hubspot-listas'
 
@@ -258,54 +258,85 @@ export async function ejecutarHistorialHubspot(modo: 'simular' | 'importar', eje
   const consent = await planConsentimientos()
   const resultado: ResultadoHistorial = { modo, resumen, errores, consentimientos: resumirConsentimientos(consent), importados: { actividades: 0, tareas: 0, relacionesContacto: 0 } }
   if (modo === 'simular') return resultado
+  return escribirHistorial(prisma as unknown as DbHistorial, { filas, consent, resultado, errores, resumen, ejecutadoPor, auditoria, reloj, t0 })
+}
 
-  const sync = await prisma.crmSincronizacionHubspot.create({ data: { modo: 'AREA1_HISTORIAL', estado: 'EN_PROGRESO', bloqueo: 'hubspot-crm-write', ejecutadoPor } })
+/** Base inyectable (pruebas en memoria). En producción es el cliente Prisma. */
+export type DbHistorial = {
+  $transaction: (fn: (tx: any) => Promise<unknown>, opts?: unknown) => Promise<unknown>
+  $executeRaw: (q: TemplateStringsArray, ...v: unknown[]) => Promise<number>
+  crmSincronizacionHubspot: { create: (a: any) => Promise<{ id: string }>; update: (a: any) => Promise<unknown> }
+}
+/** Escritura del historial por lotes + cierre del journal + recibo del Área 4. */
+export async function escribirHistorial(db: DbHistorial, x: {
+  filas: ReturnType<typeof planificarHistorial>['filas']
+  consent: Consentimiento[]
+  resultado: ResultadoHistorial
+  errores: ResultadoHistorial['errores']
+  resumen: ResultadoHistorial['resumen']
+  ejecutadoPor: string
+  auditoria?: AuditoriaHistorial
+  reloj: () => number
+  t0: number
+}): Promise<ResultadoHistorial & { recibo?: DespuesRecibo }> {
+  const { filas, consent, resultado, errores, resumen, ejecutadoPor, auditoria, reloj, t0 } = x
+  const sync = await db.crmSincronizacionHubspot.create({ data: { modo: 'AREA1_HISTORIAL', estado: 'EN_PROGRESO', bloqueo: 'hubspot-crm-write', ejecutadoPor } })
   try {
     for (const lote of trozos(filas, 500)) {
-      await prisma.$transaction(async (tx) => {
+      const delta = { actividades: 0, tareas: 0, relacionesContacto: 0 }
+      await db.$transaction(async (tx: any) => {
         const payload = JSON.stringify(lote.map((f) => ({ id: f.id, contacto_id: f.contactoId, tipo: f.tipo, titulo: f.titulo, descripcion: f.descripcion, fecha_actividad: f.fechaActividad, direccion: f.direccion, resultado: f.resultado, hubspot_id: f.hubspotId, creado_por_nombre: f.creadoPorNombre, metadatos: f.metadatos })))
-        const insertadas = await tx.$queryRaw<Array<{ id: string; hubspot_id: string }>>`
+        const insertadas: Array<{ id: string; hubspot_id: string }> = await tx.$queryRaw`
           INSERT INTO crm_actividades (id, contacto_id, tipo, titulo, descripcion, metadatos, fecha_actividad, direccion, resultado, origen, hubspot_id, creado_por_nombre, created_at, updated_at)
           SELECT r.id, r.contacto_id, r.tipo, r.titulo, r.descripcion, r.metadatos, r.fecha_actividad, r.direccion, r.resultado, 'HUBSPOT', r.hubspot_id, r.creado_por_nombre, NOW(), NOW()
           FROM jsonb_to_recordset(${payload}::jsonb) AS r(id text, contacto_id text, tipo text, titulo text, descripcion text, fecha_actividad timestamptz, direccion text, resultado text, hubspot_id text, creado_por_nombre text, metadatos jsonb)
           ON CONFLICT (hubspot_id) DO NOTHING
           RETURNING id, hubspot_id`
         const nuevas = new Set(insertadas.map((x) => x.id))
-        resultado.importados.actividades += insertadas.length
+        delta.actividades = insertadas.length
         const rel = lote.filter((f) => nuevas.has(f.id)).flatMap((f) => [f.contactoId, ...f.contactosExtra].map((contactoId) => ({ actividadId: f.id, contactoId })))
-        if (rel.length) resultado.importados.relacionesContacto += (await tx.crmActividadContacto.createMany({ data: rel, skipDuplicates: true })).count
+        if (rel.length) delta.relacionesContacto = (await tx.crmActividadContacto.createMany({ data: rel, skipDuplicates: true })).count
         const tareas = lote.filter((f) => f.tarea && nuevas.has(f.id)).map((f) => ({
           id: randomUUID(), contactoId: f.contactoId, actividadOrigenId: f.id, titulo: f.tarea!.titulo, descripcion: f.tarea!.descripcion,
           venceAt: new Date(f.tarea!.venceAt), estado: f.tarea!.estado, prioridad: f.tarea!.prioridad, asignadoANombre: f.tarea!.asignadoANombre,
           creadoPorNombre: `${f.creadoPorNombre} (HubSpot)`, completadoAt: f.tarea!.completadoAt ? new Date(f.tarea!.completadoAt) : null,
         }))
-        if (tareas.length) resultado.importados.tareas += (await tx.crmTarea.createMany({ data: tareas, skipDuplicates: true })).count
+        if (tareas.length) delta.tareas = (await tx.crmTarea.createMany({ data: tareas, skipDuplicates: true })).count
       }, { maxWait: 10_000, timeout: 60_000 })
+      // Solo cuenta lo que la BD ha confirmado: si el lote hace rollback, delta no se suma.
+      resultado.importados.actividades += delta.actividades
+      resultado.importados.relacionesContacto += delta.relacionesContacto
+      resultado.importados.tareas += delta.tareas
     }
     for (const lote of trozos(consent, 2000)) {
       const payload = JSON.stringify(lote.map((c) => ({ id: randomUUID(), contacto_id: c.contactoId, estado: c.estado, base_legal: c.baseLegal, bajas_tipos: c.bajasTipos, rebote: c.rebote, marketing: c.marketing, fecha_origen: c.fechaOrigen })))
-      resultado.consentimientos.guardados += Number(await prisma.$executeRaw`
+      resultado.consentimientos.guardados += Number(await db.$executeRaw`
         INSERT INTO area1_crm_consentimientos AS x (id, contacto_id, canal, fuente, estado, base_legal, bajas_tipos, rebote, marketing, fecha_origen, created_at, updated_at)
         SELECT r.id, r.contacto_id, 'EMAIL', 'HUBSPOT', r.estado, r.base_legal, ARRAY(SELECT jsonb_array_elements_text(COALESCE(r.bajas_tipos, '[]'::jsonb))), r.rebote, r.marketing, r.fecha_origen, NOW(), NOW()
         FROM jsonb_to_recordset(${payload}::jsonb) AS r(id text, contacto_id text, estado text, base_legal text, bajas_tipos jsonb, rebote boolean, marketing boolean, fecha_origen timestamptz)
         ON CONFLICT (contacto_id, canal, fuente) DO UPDATE SET estado = EXCLUDED.estado, base_legal = EXCLUDED.base_legal, bajas_tipos = EXCLUDED.bajas_tipos,
           rebote = EXCLUDED.rebote, marketing = EXCLUDED.marketing, fecha_origen = EXCLUDED.fecha_origen, updated_at = NOW()`)
     }
-    await prisma.crmSincronizacionHubspot.update({ where: { id: sync.id }, data: { estado: 'COMPLETADA', bloqueo: null, finalizadoAt: new Date(), registrosActualizados: resultado.importados.actividades, errores: Object.keys(errores).length, detalle: JSON.parse(JSON.stringify({ resumen, errores, importados: resultado.importados, consentimientos: resultado.consentimientos })) } })
+    await db.crmSincronizacionHubspot.update({ where: { id: sync.id }, data: { estado: 'COMPLETADA', bloqueo: null, finalizadoAt: new Date(), registrosActualizados: resultado.importados.actividades, errores: Object.keys(errores).length, detalle: JSON.parse(JSON.stringify({ resumen, errores, importados: resultado.importados, consentimientos: resultado.consentimientos })) } })
   } catch (e) {
-    await prisma.crmSincronizacionHubspot.update({ where: { id: sync.id }, data: { estado: 'ERROR', bloqueo: null, errores: 1, finalizadoAt: new Date(), detalle: [{ error: e instanceof Error ? e.message.slice(0, 300) : 'error' }] } })
+    // Cierre del journal: si falla, se sigue intentando el recibo y se conserva la causa original.
+    let cierreFallido = false
+    try {
+      await db.crmSincronizacionHubspot.update({ where: { id: sync.id }, data: { estado: 'ERROR', bloqueo: null, errores: 1, finalizadoAt: new Date(), detalle: [{ error: codigoError(e, 'LOTE_FALLIDO') }] } })
+    } catch {
+      cierreFallido = true
+    }
     // Recibo con lo comprometido de verdad por los lotes ya cerrados (PARCIAL) o nada (ERROR).
-    try { await auditarHistorial(auditoria, sync.id, resultado, errores, e, reloj() - t0) } catch { throw new ErrorImportacionNoAuditada(e) }
+    try { await auditarHistorial(auditoria, sync.id, resultado, errores, e, reloj() - t0, cierreFallido) } catch { throw new ErrorImportacionNoAuditada(e) }
     throw e
   }
   // Sincronización ya cerrada (sin bloqueo). Si el recibo falla, ErrorAuditoriaImportacion: no se silencia.
   const recibo = await auditarHistorial(auditoria, sync.id, resultado, errores, undefined, reloj() - t0)
   return recibo ? { ...resultado, recibo } : resultado
 }
-
-async function auditarHistorial(a: AuditoriaHistorial | undefined, journalId: string, r: ResultadoHistorial, errores: ResultadoHistorial['errores'], fallo: unknown, duracionMs: number): Promise<DespuesRecibo | undefined> {
+async function auditarHistorial(a: AuditoriaHistorial | undefined, journalId: string, r: ResultadoHistorial, errores: ResultadoHistorial['errores'], fallo: unknown, duracionMs: number, cierreFallido = false): Promise<DespuesRecibo | undefined> {
   if (!a) return undefined
-  const despues = reciboHubspot({ journalId, importados: r.importados, consentimientosGuardados: r.consentimientos.guardados, erroresLectura: errores, fallo, duracionMs })
+  const despues = reciboHubspot({ journalId, importados: r.importados, consentimientosGuardados: r.consentimientos.guardados, erroresLectura: errores, fallo, duracionMs, cierreFallido })
   try {
     await (a.registrar || registrarReciboImportacion)(a.db || prisma, { actorId: a.actorId, origen: ORIGEN_RECIBO_HUBSPOT, despues })
   } catch {

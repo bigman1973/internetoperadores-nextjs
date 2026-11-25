@@ -10,7 +10,7 @@ async function main() {
   await t('ISP éxito: conteos reales, hash y journalId', () => {
     const r = reciboIspExito(plan(['NUEVO', 'NUEVO', 'ACTUALIZADO', 'SIN_CAMBIOS'], ['NUEVO'], ['NUEVO', 'NUEVO']), { ...aplicado, propuestasNuevas: 3 }, 1200)
     assert.equal(r.resultado, 'EXITO'); assert.equal(r.conteos.clientes.creados, 2); assert.equal(r.conteos.clientes.actualizados, 1); assert.equal(r.conteos.clientes.omitidos, 1)
-    assert.equal(r.conteos.facturacion.creados, 2); assert.equal(r.conteos.vinculos.creados, 3); assert.ok(r.hash && r.journalId); pii(r)
+    assert.equal(r.conteos.facturacion.creados, 2); assert.equal(r.conteos.propuestas.creados, 3); assert.ok(r.hash && r.journalId); pii(r)
   })
   await t('ISP duplicado solo si nada cambió', () => {
     assert.equal(reciboIspExito(plan(['SIN_CAMBIOS'], ['SIN_CAMBIOS']), aplicado, 5).resultado, 'DUPLICADO')
