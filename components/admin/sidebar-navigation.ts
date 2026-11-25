@@ -76,6 +76,7 @@ export function getSidebarNavigation(
     const availability = match.surface.availability
     if (availability?.stagingOnly && financeEnvironment !== 'staging') return null
     if (availability?.conciliarOnly && !conciliarEnabled) return null
+    if (availability?.replacedByConciliar && conciliarEnabled) return null
     if (availability?.needsFinance && financeEnvironment === null) return null
     return { ...item,
       name: availability?.financeSuffix && financeEnvironment === 'staging' ? `${item.name} · staging` : item.name,

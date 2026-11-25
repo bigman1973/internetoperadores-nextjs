@@ -34,7 +34,7 @@ export type Area4Surface = Readonly<{
     stagingImport?: 'isp-multipart-v1' | 'hubspot-confirm-v1';
     requiredActions?: Readonly<Partial<Record<'GET' | 'HEAD' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS', readonly Area4ActionLetter[]>>> }>;
   baselineDescriptor?: string; menu?: readonly Area4SurfaceMenu[];
-  availability?: Readonly<{ stagingOnly?: boolean; needsFinance?: boolean; conciliarOnly?: boolean; financeSuffix?: boolean }>;
+  availability?: Readonly<{ stagingOnly?: boolean; needsFinance?: boolean; conciliarOnly?: boolean; financeSuffix?: boolean; replacedByConciliar?: boolean }>;
   easy?: 'conciliar' | 'modo-facil' | 'para-pedir';
 }>
 export type Area4UsersRowMetadata = Readonly<{ key: string; label: string; order: number }>
@@ -1061,7 +1061,7 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         path: "/admin/finanzas/modo-facil",
         kind: "page",
         actions: ["V"],
-        availability: {"needsFinance":true,"financeSuffix":true},
+        availability: {"needsFinance":true,"financeSuffix":true,"replacedByConciliar":true},
         easy: "modo-facil",
         menu: [{"id":"conciliacion:3:0","label":"Modo fácil","icon":"clipboardDocumentList","appearances":[{"presentation":"historico","order":5,"parent":"container:finanzas","label":"Modo fácil"}]}],
         baselineDescriptor: "[1,\"conciliacion\",\"admin.finanzas.conciliacion\",\"page\",\"/admin/finanzas/modo-facil\",[\"V\"],[[\"V\",\"lectura\"]],null,null]",
@@ -1070,7 +1070,7 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         path: "/admin/finanzas/para-pedir",
         kind: "page",
         actions: ["V"],
-        availability: {"needsFinance":true,"financeSuffix":true},
+        availability: {"needsFinance":true,"financeSuffix":true,"replacedByConciliar":true},
         easy: "para-pedir",
         menu: [{"id":"conciliacion:4:0","label":"Para pedir","icon":"documentText","appearances":[{"presentation":"agrupado","order":3,"parent":"finanzas:0:0"},{"presentation":"historico","order":6,"parent":"container:finanzas"}]}],
         baselineDescriptor: "[1,\"conciliacion\",\"admin.finanzas.conciliacion\",\"page\",\"/admin/finanzas/para-pedir\",[\"V\"],[[\"V\",\"lectura\"]],null,null]",
@@ -1297,6 +1297,7 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         path: "/admin/finanzas/conciliacion-v2",
         kind: "page",
         actions: ["V"],
+        availability: {"replacedByConciliar":true},
         menu: [{"id":"finanzas:3:0","label":"Conciliación","icon":"link","appearances":[{"presentation":"historico","order":4,"parent":"container:finanzas"}]}],
         baselineDescriptor: "[1,\"finanzas\",\"admin.finanzas\",\"page\",\"/admin/finanzas/conciliacion-v2\",[\"V\"],[[\"V\",\"lectura\"]],null,null]",
       },
@@ -1304,6 +1305,7 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         path: "/admin/finanzas/pendientes",
         kind: "page",
         actions: ["V"],
+        availability: {"replacedByConciliar":true},
         menu: [{"id":"finanzas:4:0","label":"Pendientes","icon":"clipboardDocumentList","appearances":[{"presentation":"agrupado","order":1,"parent":"finanzas:0:0"},{"presentation":"historico","order":2,"parent":"container:finanzas"}]}],
         baselineDescriptor: "[1,\"finanzas\",\"admin.finanzas\",\"page\",\"/admin/finanzas/pendientes\",[\"V\"],[[\"V\",\"lectura\"]],null,null]",
       },
@@ -3948,7 +3950,8 @@ export const AREA4_DRAXTON_TECHNICAL_MENU: readonly Area4MenuLeaf[] = area4Techn
 
 /** Easy navigation shares the same physical pages, labels and availability metadata. */
 export function area4EasyMenu(conciliarEnabled: boolean): readonly Area4MenuLeaf[] {
-  const desired = [conciliarEnabled ? 'conciliar' : 'modo-facil', 'para-pedir']
+  // Encargo J: con Conciliar habilitada, pedir y remesas son vistas de la misma pantalla.
+  const desired = conciliarEnabled ? ['conciliar'] : ['modo-facil', 'para-pedir']
   return desired.flatMap(easy => AREA4_SECTION_REGISTRY.flatMap(section => section.surfaces.filter(surface => surface.easy === easy).map(surface => {
     const menu = surface.menu?.[0]
     return { name: menu?.label || section.label, href: surface.path,

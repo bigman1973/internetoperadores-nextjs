@@ -17,13 +17,13 @@ const leer = (p: string) => readFileSync(resolve(p), 'utf8')
 
 const cuenta = (o: Partial<CuentaCuadre>): CuentaCuadre => ({
   id: 'x', banco: 'B', alias: null, etiqueta: 'Cuenta', ultimos4: null, activa: true, estado: 'OK', cuadra: true, totalMovimientos: 10,
-  ultimoMovimiento: null, fechaCorteExtracto: '2026-11-25', avisos: [], ...o,
+  ultimoMovimiento: null, fechaCorteExtracto: '2026-11-25', avisos: [], diasAmbiguosAceptados: 0, duplicadosIgnorados: 0, saldosDeducidos: 0, huecosTotal: 0, cadenaCorrectaDesde: null, ...o,
 } as CuentaCuadre)
 const CUENTAS: CuentaCuadre[] = [
-  cuenta({ id: 'bbva', etiqueta: 'BBVA Principal', estado: 'ORDEN_AMBIGUO', cuadra: false, fechaCorteExtracto: '2026-11-20' }),
+  cuenta({ id: 'bbva', etiqueta: 'BBVA Principal', estado: 'HUECO', cuadra: false, fechaCorteExtracto: '2026-11-20' }),
   cuenta({ id: 'prest', etiqueta: 'Préstamo', estado: 'ORDEN_AMBIGUO', cuadra: false }),
   cuenta({ id: 'gui', etiqueta: 'Caixa Guissona', fechaCorteExtracto: '2026-11-23' }),
-  cuenta({ id: 'san', etiqueta: 'Santander Principal', estado: 'ORDEN_AMBIGUO', cuadra: false }),
+  cuenta({ id: 'san', etiqueta: 'Santander Principal', estado: 'HUECO', cuadra: false }),
   cuenta({ id: 'viv', etiqueta: 'Vivid' }),
   cuenta({ id: 'wise', etiqueta: 'Wise', activa: false, estado: 'SIN_SALDO', cuadra: false, totalMovimientos: 0, fechaCorteExtracto: null }),
 ]
@@ -51,7 +51,7 @@ t('una cuenta que cuadra deja pasar; las demás bloquean', () => {
   assert.equal(calcularBloqueos(new Map([['f1', 'gui'], ['f2', 'viv']]), ESTADOS).length, 0)
   const b = calcularBloqueos(new Map([['f1', 'gui'], ['f2', 'bbva'], ['f3', 'bbva'], ['f4', 'san']]), ESTADOS)
   assert.deepEqual(b.map(x => x.cuentaId).sort(), ['bbva', 'san'])
-  assert.equal(b.find(x => x.cuentaId === 'bbva')?.estado, 'ORDEN_AMBIGUO')
+  assert.equal(b.find(x => x.cuentaId === 'bbva')?.estado, 'HUECO')
 })
 t('falla cerrado: sin cuenta o cuenta desconocida bloquean', () => {
   assert.equal(calcularBloqueos(new Map([['f1', null]]), ESTADOS)[0].estado, 'SIN_CUENTA')
@@ -190,6 +190,15 @@ t('sólo usa APIs permitidas a perfiles easy-only', () => {
   const rutas = [...todo.matchAll(/\/api\/admin\/finanzas\/[a-z0-9/_-]+/g)].map(m => m[0])
   for (const r of rutas) assert(/^\/api\/admin\/finanzas\/(conciliar|modo-facil)(\/|$)/.test(r), `API fuera del perímetro: ${r}`)
   assert.equal(/estado-cuentas|remesas\/b6/.test(todo), false)
+})
+t('cuentas cerradas: aparte, en gris, sin alerta y fuera del recuento', () => {
+  const c = leer('components/finanzas/conciliar-unificado/ConciliarUnificado.tsx')
+  const v = c.slice(c.indexOf('function CuentasVista('))
+  assert.match(v, /const cerradas = cuentas\.filter\(c => !c\.activa\)/); assert.match(v, /id="chain-cerradas"/)
+  assert.match(v, /opacity: 0\.6/, 'en gris'); assert.match(v, /no entran en el recuento ni bloquean nada/)
+  const bloque = v.slice(v.indexOf('id="chain-cerradas"'))
+  assert.equal(/claseEstadoCadena|textoEstadoCadena|Falta el saldo/.test(bloque.slice(0, bloque.indexOf('Solución habitual'))), false, 'sin alerta ni texto de saldo en las cerradas')
+  assert.match(v, /activas\.map\(c =>/, 'la lista principal sólo pinta activas')
 })
 t('ninguna ruta nueva: el registro del Área 4 sigue igual', () => {
   for (const r of ['/admin/finanzas/conciliar', '/admin/finanzas/modo-facil', '/admin/finanzas/para-pedir', '/admin/finanzas/conciliacion-v2', '/admin/finanzas/pendientes', '/admin/finanzas/conciliacion-remesas']) assert(leer('lib/area4/section-registry.ts').includes(r), `registrada: ${r}`)
