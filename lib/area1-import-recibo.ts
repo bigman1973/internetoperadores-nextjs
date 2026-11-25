@@ -17,6 +17,8 @@ export type DespuesRecibo = {
 }
 export const ORIGEN_RECIBO_ISP = 'crm.isp.aplicar'
 export const ORIGEN_RECIBO_HUBSPOT = 'crm.hubspot.historial'
+/** Confirmación en bloque de vínculos ISP→empresa. Usa la operación CRM_IMPORTACION_ISP (no se añade otra al tipo común del Área 4). */
+export const ORIGEN_RECIBO_VINCULOS_BLOQUE = 'crm.isp.vinculos.bloque'
 export const OPERACION_ISP: Area4AuditOperation = 'CRM_IMPORTACION_ISP'
 export const OPERACION_HUBSPOT: Area4AuditOperation = 'CRM_IMPORTACION_HUBSPOT'
 
@@ -121,12 +123,12 @@ export function validarRecibo(d: DespuesRecibo): void {
 
 type Db = Pick<Prisma.TransactionClient, 'auditoriaPermisosArea4'>
 /** actorId: propietario canónico vivo (requireArea4Owner), nunca el del body ni el heredado de «Actuar como». */
-export async function registrarReciboImportacion(db: Db, input: { actorId: number; origen: typeof ORIGEN_RECIBO_ISP | typeof ORIGEN_RECIBO_HUBSPOT; despues: DespuesRecibo }) {
+export async function registrarReciboImportacion(db: Db, input: { actorId: number; origen: typeof ORIGEN_RECIBO_ISP | typeof ORIGEN_RECIBO_HUBSPOT | typeof ORIGEN_RECIBO_VINCULOS_BLOQUE; despues: DespuesRecibo }) {
   validarRecibo(input.despues)
   await appendArea4Audit(db, {
     actorId: input.actorId,
     objetivoUsuarioId: null,
-    operacion: input.origen === ORIGEN_RECIBO_ISP ? OPERACION_ISP : OPERACION_HUBSPOT,
+    operacion: input.origen === ORIGEN_RECIBO_HUBSPOT ? OPERACION_HUBSPOT : OPERACION_ISP,
     areaCodigo: 'admin.crm',
     antes: null,
     despues: input.despues as unknown as Prisma.InputJsonValue,
