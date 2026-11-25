@@ -156,8 +156,11 @@ export default function AdminSidebar({
       anchor.classList.toggle('text-orange-600', active)
       anchor.classList.toggle('text-gray-700', !active)
       if (active) {
-        const group = anchor.closest('details')
-        if (group) group.open = true
+        let group = anchor.closest('details')
+        while (group) {
+          group.open = true
+          group = group.parentElement?.closest('details') || null
+        }
       }
     }
   }, [pathname, initialMenu, needsLiveMenu])

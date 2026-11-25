@@ -109,7 +109,7 @@ test('ficha denegada: se elimina toda la fila, no solo su enlace',async()=>{
  assert.deepEqual(m.columns.flat().find(b=>b.id==='mi-dia')?.rows,[])
 })
 test('sin V de Contactos o Pipelines: no se lee el resumen amplio CRM',async()=>{
- for(const deny of ['crm.contactos','crm.pipelines']){const r=readers();await loadDashboardModel(context('superadmin',[deny]),r.value);assert.equal(r.calls.includes('crm'),false)}
+ for(const deniedPath of ['/admin/crm/contactos','/admin/crm/pipelines']){const r=readers(),ctx=context('superadmin'),read=ctx.canRead;ctx.canRead=(key,path)=>path!==deniedPath&&read(key,path);await loadDashboardModel(ctx,r.value);assert.equal(r.calls.includes('crm'),false)}
 })
 test('B7 real: factura sin importe conserva null y cuenta identidad y revisión',()=>{
  const result=calculateBankInvoicing({invoices:[{id:'fake-unknown',sourceTotalText:null,b2Economic:true,numFactura:null,cliente:null,fechaVencimientoISO:null,facturaISPId:null,fechaISO:'2026-11-10'}]})

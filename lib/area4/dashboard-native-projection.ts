@@ -5,6 +5,13 @@ import { numeric, noKnownCost, type Row } from '../../app/admin/rentabilidad/vie
 import type { DashboardFinance } from './dashboard-model'
 import type { DashboardPoint } from './dashboard-contract'
 
+/** Last prepared month before the open month; kinds have independent version sequences. */
+export function latestDashboardMarginSnapshot(snapshots: readonly Row[], year: number, month: number): Row | undefined {
+  const through = new Date(Date.UTC(year, month - 2, 1)).toISOString().slice(0, 7)
+  return snapshots.filter(s => typeof s.month === 'string' && /^20\d{2}-(0[1-9]|1[0-2])$/.test(s.month) && s.month <= through)
+    .sort((a, b) => String(b.month).localeCompare(String(a.month)) || Number(b.kind === 'PROYECCION') - Number(a.kind === 'PROYECCION') || Number(b.version) - Number(a.version))[0]
+}
+
 /** Pure projection of the complete, bounded B7 population; never a page aggregate. */
 export function projectDashboardFinance(result: BankInvoicingResult, year: number, month: number, today: string, bankAllowed: boolean): DashboardFinance {
   const throughToday = result.invoices.filter(i => i.fechaISO !== null && i.fechaISO <= today)
@@ -37,9 +44,20 @@ export function projectDashboardFinance(result: BankInvoicingResult, year: numbe
 /** Reuse the current Rentabilidad aggregate only after its inputs are quantifiable. */
 export function projectDashboardMargin(products: Row[], month: string, period: string): DashboardPoint {
   const total = totalsOf(products, 'real')
-  const complete = products.length > 0 && products.every(p =>
-    (numeric(p.rawIncome) ?? numeric(p.income)) !== null &&
-    numeric(p.rawCost ?? p.cost) !== null && !noKnownCost(p))
-  return { month, value: month <= period && complete && total.hasData ? total.marginPct : null,
-    provisional: total.estimated || products.some(p => p.pending || p.incomePending || p.pendingCost) }
+  const complete = products.length > 0 && products.every(p => {
+    const income = numeric(p.rawIncome) ?? numeric(p.income)
+    const cost = numeric(p.rawCost ?? p.cost)
+    const estimatedCost = numeric(p.rawEstimatedCost ?? p.estimatedCost) ?? 0
+    // Empty catalogue rows do not make a known monthly aggregate unknown.
+    // Contracts or pending income still evidence activity even with no amounts.
+    const material = (income ?? 0) !== 0 || (cost ?? 0) !== 0 || estimatedCost !== 0 ||
+      (numeric(p.contracts) ?? 0) > 0 || p.incomePending === true
+    return !material || (income !== null && cost !== null)
+  })
+  // A pending product may have zero cost while other products have documented or
+  // estimated costs. Keep that monthly aggregate provisional, not unavailable.
+  // But a population with no known cost at all must never turn into a fake 100%.
+  const unknownCost = total.costReal === 0 && total.costEst === 0 && products.some(p => noKnownCost(p))
+  return { month, value: month <= period && complete && total.hasData && !unknownCost ? total.marginPct : null,
+    reliability: total.quality, provisional: total.estimated || products.some(p => p.pending || p.incomePending || p.pendingCost) }
 }

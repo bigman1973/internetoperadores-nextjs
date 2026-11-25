@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 import { renderToStaticMarkup } from 'react-dom/server'
+import * as React from 'react'
 import { createElement } from 'react'
+import { readFileSync } from 'node:fs'
+import { runInNewContext } from 'node:vm'
+import ts from 'typescript'
+import { AREA4_DRAXTON_TECHNICAL_MENU, area4SectionByKey } from '../lib/area4/section-registry'
+import * as sidebarNavigation from '../components/admin/sidebar-navigation'
+import * as sidebarIcons from '../components/admin/presentation/AdminSidebarIcon'
 import {
   hasAccess,
   permissionSignature,
@@ -9,6 +16,10 @@ import {
   filterAuthorizedSidebarNavigation,
   getEasyOnlySidebarNavigation,
   isSidebarNavigationGroup,
+  getSidebarNavigation,
+  sidebarItemContainsActivePath,
+  type SidebarNavigationEntry,
+  type SidebarNavigationItem,
 } from '../components/admin/sidebar-navigation'
 import AdminSidebarMenu from '../components/admin/server/AdminSidebarMenu'
 import { AdminSidebarPlaceholder } from '../components/admin/presentation/AdminSidebarPlaceholder'
@@ -220,3 +231,98 @@ for (const explicit of [false, true]) {
 assert.equal(hasAccess({ ...closedManager, section: 'admin.futura', surfacePermissions: [{ id: 'page:/admin/futura', descriptor: 'inventado', actions: 'VECX' }], permisosGranulares: [{ codigo: 'admin.futura', lectura: true, escritura: true }] }), false, 'una semilla inventada no coincide con superficie canónica')
 
 console.log('admin sidebar evaluator, SSR HTML, actuation ACL, Gerente revocations, Lorena and secure placeholder synthetic tests: ok')
+
+// Draxton is registry-driven in both presentations; structure is not a parent grant.
+const draxtonRoot = '/admin/clientes/ggcc/draxton'
+const financeDraxton = '/admin/finanzas/clientes/ggcc-draxton'
+const expectedTechnical = AREA4_DRAXTON_TECHNICAL_MENU.map(item => item.href).sort()
+assert.equal(expectedTechnical.length, 8, 'el catálogo técnico ACL sigue exactamente ocho')
+const technicalGrants = AREA4_DRAXTON_TECHNICAL_MENU.map(item => ({
+  codigo: area4SectionByKey(item.section)!.areaCode, lectura: true, escritura: true,
+}))
+const technicalAccess = (grants = technicalGrants) => (section: string) => hasAccess({
+  ...noPreview, section, effectiveRole: 'VISOR', isSuperAdmin: false, userRoles: ['VISOR'],
+  permisosGranulares: grants, tienePermisosGranulares: true,
+})
+const allNodes = (tree: readonly SidebarNavigationEntry[]): SidebarNavigationItem[] => {
+  const visit = (item: SidebarNavigationItem): SidebarNavigationItem[] => [item, ...(item.subitems || []).flatMap(visit)]
+  return tree.flatMap(entry => isSidebarNavigationGroup(entry) ? entry.children.flatMap(visit) : visit(entry))
+}
+const links = (tree: readonly SidebarNavigationEntry[]) => allNodes(tree).filter(item => !item.containerOnly).map(item => item.href).sort()
+const ssrHtml = (navigation: SidebarNavigationEntry[]) => renderToStaticMarkup(createElement(AdminSidebarMenu, {
+  navigation, user: { name: 'Sintético', email: 'sintetico@example.test', role: 'VISOR' }, financeEnvironment: 'staging',
+}))
+const clientSource = ts.transpileModule(readFileSync('components/admin/lazy/InteractiveAdminSidebarMenu.tsx', 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
+}).outputText
+function clientRender(presentation: 'historico' | 'agrupado', canRead: (section: string) => boolean, opened = true, pathname = financeDraxton) {
+  const navigation = filterAuthorizedSidebarNavigation('staging', canRead, true, presentation)
+  const initialOpen = opened ? [...navigation.map(entry => entry.name), ...allNodes(navigation).map(item => `item:${item.href}`)] : []
+  let autoOpened: string[] = []
+  const exports: Record<string, any> = {}
+  runInNewContext(clientSource, { exports, React, require: (id: string) => {
+    if (id === 'react') return { ...React, useState: () => [initialOpen, (update: (prev: string[]) => string[]) => { autoOpened = update(initialOpen) }], useMemo: (fn: () => unknown) => fn(), useEffect: (fn: () => void) => fn() }
+    if (id === 'next/link') return { default: ({ href, children, className, ...props }: any) => createElement('a', { href, className, 'aria-label': props['aria-label'] }, children) }
+    if (id === 'next/navigation') return { usePathname: () => pathname }
+    if (id === '../RoleContext') return { useRole: () => ({ hasAccess: canRead, hasSurfaceAccess: () => true, effectiveRole: 'VISOR', isViewingAs: false }) }
+    if (id === '../sidebar-navigation') return sidebarNavigation
+    if (id === '../presentation/AdminSidebarIcon') return sidebarIcons
+    throw new Error(`Dependencia cliente inesperada: ${id}`)
+  } })
+  const html = renderToStaticMarkup(createElement(exports.default, { user: { name: 'Sintético', email: 'sintetico@example.test' }, financeEnvironment: 'staging', conciliarEnabled: true, menuPresentation: presentation }))
+  return { html, autoOpened }
+}
+for (const presentation of ['historico', 'agrupado'] as const) {
+  const ownerAccess = (section: string) => hasAccess({ ...noPreview, section, isArea4Owner: true, isSuperAdmin: true, effectiveRole: 'SUPER_ADMIN', userRoles: ['SUPER_ADMIN'], permisosGranulares: [], tienePermisosGranulares: false })
+  const ownerNavigation = filterAuthorizedSidebarNavigation('staging', ownerAccess, true, presentation)
+  const ownerRoot = allNodes(ownerNavigation).filter(item => item.href === draxtonRoot)
+  assert.equal(ownerRoot.length, 1, `${presentation}: único root Draxton`)
+  assert.equal(ownerRoot[0].name, 'GGCC Draxton')
+  assert.equal(ownerRoot[0].collapsible, true)
+  assert.equal(ownerRoot[0].preserveContainer, true)
+  assert.ok(!ownerRoot[0].containerOnly)
+  assert.deepEqual(ownerRoot[0].subitems!.slice(0, 8).map(item => item.name), ['Actualizaciones', 'Contrato de guardias', 'Informes', 'KPIs', 'Organigrama', 'Personal', 'Proyectos', 'Seguimiento'])
+  assert.equal(ownerRoot[0].subitems![8].name, 'Finanzas Draxton')
+  assert.equal(ownerRoot[0].subitems![8].href, financeDraxton)
+  for (const suffix of ['contratos', 'finanzas', 'proyectos-singulares']) assert.ok(ownerRoot[0].subitems!.some(item => item.href === `${draxtonRoot}/${suffix}`), `${presentation}: conserva ${suffix}`)
+  const finance = getSidebarNavigation('staging', true, presentation).find(entry => entry.name === 'Finanzas')!
+  assert.ok(!allNodes([finance]).some(item => item.href === financeDraxton), 'Finanzas Draxton ya no aparece bajo Finanzas')
+  const ownerHtml = ssrHtml(ownerNavigation)
+  assert.equal((ownerHtml.match(/data-admin-sidebar-item="GGCC Draxton"/g) || []).length, 1)
+  assert.match(ownerHtml, /<details data-admin-sidebar-item="GGCC Draxton">/)
+  assert.match(ownerHtml, /aria-label="Desplegar GGCC Draxton"/)
+  assert.equal((ownerHtml.match(/href="\/admin\/clientes\/ggcc\/draxton"/g) || []).length, 1, 'el propietario mantiene exactamente un enlace al root')
+  assert.match(ownerHtml, /href="\/admin\/finanzas\/clientes\/ggcc-draxton"/)
+  const technicalNavigation = filterAuthorizedSidebarNavigation('staging', technicalAccess(), true, presentation)
+  const technicalRoot = allNodes(technicalNavigation).filter(item => item.href === draxtonRoot)
+  assert.equal(technicalRoot.length, 1)
+  assert.equal(technicalRoot[0].containerOnly, true, 'href canónico no implica enlace autorizado')
+  assert.deepEqual(links(technicalNavigation), expectedTechnical, 'técnico: ocho enlaces exactos sin Finanzas ni root')
+  const technicalHtml = ssrHtml(technicalNavigation)
+  assert.match(technicalHtml, /<details data-admin-sidebar-item="GGCC Draxton">/)
+  assert.doesNotMatch(technicalHtml, /href="\/admin\/clientes\/ggcc\/draxton"|href="\/admin\/finanzas\/clientes\/ggcc-draxton"/)
+  const htmlLinks = [...technicalHtml.matchAll(/href="([^"]+)"/g)].map(match => match[1]).filter(href => href !== '/admin').sort()
+  assert.deepEqual(htmlLinks, expectedTechnical)
+  const revoked = technicalGrants.map(grant => ({ ...grant, lectura: grant.codigo.endsWith('.informes') ? false : grant.lectura }))
+  const revokedNavigation = filterAuthorizedSidebarNavigation('staging', technicalAccess(revoked), true, presentation)
+  assert.equal(links(revokedNavigation).length, 7)
+  assert.doesNotMatch(ssrHtml(revokedNavigation), /href="\/admin\/clientes\/ggcc\/draxton\/informes"/)
+  const surfaceRevoked = filterAuthorizedSidebarNavigation('staging', technicalAccess(), true, presentation, href => href !== `${draxtonRoot}/kpis`)
+  assert.equal(links(surfaceRevoked).length, 7)
+  assert.ok(!links(surfaceRevoked).includes(`${draxtonRoot}/kpis`))
+  const empty = filterAuthorizedSidebarNavigation('staging', () => false, true, presentation)
+  assert.deepEqual(empty, [])
+  assert.doesNotMatch(ssrHtml(empty), /GGCC Draxton/, 'root sin V ni hijos desaparece')
+  const crm = filterAuthorizedSidebarNavigation('staging', section => section === 'admin.crm.contactos', true, presentation)
+  assert.deepEqual(links(crm), ['/admin/crm/contactos'])
+  assert.doesNotMatch(ssrHtml(crm), /href="\/admin\/crm"/)
+  assert.equal(sidebarItemContainsActivePath(ownerRoot[0], financeDraxton), true, 'autoapertura recursiva detecta URL Finanzas externa al prefix')
+  const ownerClient = clientRender(presentation, ownerAccess)
+  assert.match(ownerClient.html, /aria-label="Desplegar GGCC Draxton" aria-expanded="true"|aria-expanded="true" aria-label="Desplegar GGCC Draxton"/)
+  assert.match(ownerClient.html, /href="\/admin\/clientes\/ggcc\/draxton"/)
+  const technicalClient = clientRender(presentation, technicalAccess())
+  const clientLinks = [...technicalClient.html.matchAll(/href="([^"]+)"/g)].map(match => match[1]).filter(href => href !== '/admin').sort()
+  assert.deepEqual(clientLinks, expectedTechnical, 'cliente: mismos ocho enlaces exactos, sin ancla al contenedor')
+  assert.ok(clientRender(presentation, ownerAccess, false).autoOpened.includes(`item:${draxtonRoot}`), 'cliente autoabre Draxton para Finanzas, aunque la URL no comparte prefix')
+}
+console.log('Draxton registry tree, SSR/client links, recursive autoopen, exact eight technical ACL and CRM promotion: ok')

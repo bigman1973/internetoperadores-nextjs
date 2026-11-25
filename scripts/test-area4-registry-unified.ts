@@ -26,7 +26,7 @@ import type { ApprovedRole } from '../lib/area4/users-contract'
 const root = process.cwd()
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const leaves = (tree: readonly SidebarNavigationEntry[]): SidebarNavigationItem[] => {
-  const nested = (item: SidebarNavigationItem): SidebarNavigationItem[] => [item, ...(item.subitems || []).flatMap(nested)]
+  const nested = (item: SidebarNavigationItem): SidebarNavigationItem[] => [...(item.containerOnly ? [] : [item]), ...(item.subitems || []).flatMap(nested)]
   return tree.flatMap(entry => isSidebarNavigationGroup(entry) ? entry.children.flatMap(nested) : nested(entry))
 }
 function discoveredPaths(directory: string, filename: RegExp, prefix: string): string[] {

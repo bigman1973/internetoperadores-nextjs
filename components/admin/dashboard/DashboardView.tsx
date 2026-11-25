@@ -65,7 +65,7 @@ function monthLabel(month: string) {
 
 function formatPoint(value: number | null, chart?: DashboardBlock['chart']) {
   if (value == null || !Number.isFinite(value)) return 'sin dato'
-  return chart === 'percent' ? `${value.toLocaleString('es-ES')} %` : `${Math.round(value / 1000).toLocaleString('es-ES')}k`
+  return chart === 'percent' ? `${value.toLocaleString('es-ES', { maximumFractionDigits: 1 })} %` : `${Math.round(value / 1000).toLocaleString('es-ES')}k`
 }
 
 function Bars({ points, chart, title }: { points?: DashboardPoint[]; chart: 'money' | 'percent'; title: string }) {
@@ -89,7 +89,7 @@ function Bars({ points, chart, title }: { points?: DashboardPoint[]; chart: 'mon
         if (value == null || !Number.isFinite(value)) return <g key={`${point.month}-${index}`}><text x={x + barWidth / 2} y={zero - 5} textAnchor="middle">—</text><text x={x + barWidth / 2} y={H - 7} textAnchor="middle">{label}</text></g>
         const valueY = y(value), rectY = value >= 0 ? valueY : zero, height = Math.max(1, Math.abs(zero - valueY))
         return <g key={`${point.month}-${index}`}>
-          <rect className={point.provisional ? 'provisional' : ''} x={x} y={rectY} width={barWidth} height={height} rx="2" fill="var(--accent)"><title>{`${point.month} · ${formatPoint(value, chart)}${point.provisional ? ' · provisional' : ''}`}</title></rect>
+          <rect className={point.provisional ? 'provisional' : ''} x={x} y={rectY} width={barWidth} height={height} rx="2" fill="var(--accent)"><title>{`${point.month} · ${formatPoint(value, chart)}${point.provisional ? ' · provisional' : ''}${point.reliability == null ? '' : ` · fiabilidad ${formatPoint(point.reliability, 'percent')}`}`}</title></rect>
           <text className="dashboard-chart-value" x={x + barWidth / 2} y={value >= 0 ? rectY - 4 : rectY + height + 12} textAnchor="middle">{formatPoint(value, chart)}</text>
           <text x={x + barWidth / 2} y={H - 7} textAnchor="middle">{label}</text>
         </g>
@@ -119,9 +119,9 @@ export function DashboardView({ model, controls }: DashboardViewProps) {
         <div className="wrap">
           <div className="bar">
             <div className="hello"><h1>{emptyValue(model.greeting)}, {emptyValue(model.userName)}</h1><p>{emptyValue(model.roleLabel)} · {emptyValue(model.dateLabel)}</p></div>
-            <div className="scn"><input className="search" type="search" placeholder="Buscar cliente, factura, contrato…" aria-label="Buscar en el panel" disabled title="Próximamente" /><span className="st a">Avisos: sin dato</span></div>
+            <div className="scn"><input className="search" type="search" placeholder="Buscar cliente, factura, contrato…" aria-label="Buscar en el panel" disabled title="Próximamente" /></div>
           </div>
-          {controls && <div className="viewas"><b>Ver como</b><div className="seg" role="group" aria-label="Rol">{controls}</div><span className="small muted">Solo Superadmin. El panel enseña a cada persona lo que su rol puede ver.</span></div>}
+          {controls && <div className="viewas"><b>Ver como</b><div className="seg" role="group" aria-label="Rol">{controls}</div><span className="small muted">Solo Superadmin. Vista de la persona en solo lectura; el menú y «Actuar como» no cambian.</span></div>}
         </div>
         <div className="kpis">{model.kpis.map(kpi => <Kpi key={kpi.id} kpi={kpi} />)}</div>
       </header>

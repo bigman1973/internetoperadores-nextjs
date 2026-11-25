@@ -6,7 +6,7 @@ import type { DashboardBlock, DashboardData, DashboardKpi, DashboardModel, Dashb
 import type { ResumenCrm } from '../area1-crm-resumen'
 export type DashboardContext = { principal: Area4Principal; name: string; profile?: string | null; owner: boolean; acting: boolean; now: Date; canRead: (sectionKey: string, sourcePath: string) => boolean }
 export type DashboardFinance = { points: DashboardPoint[]; yearTotal: number | null; monthTotal: number | null; invoiceCount: number | null; monthCount: number | null; confirmed: number | null; pendingReal: number | null; withoutStatement: number | null; revisionCount: number | null; cutoff: string | null }
-export type DashboardReaders = { finance: () => Promise<DashboardFinance>; clients: () => Promise<{ total: number; empresas: number; particulares: number }>; contracts: () => Promise<{ total: number; tarifas: number | null }>; crm: () => Promise<ResumenCrm>; rentabilidad: () => Promise<DashboardPoint[]> }
+export type DashboardReaders = { finance: () => Promise<DashboardFinance>; clients: () => Promise<{ total: number; empresas: number; particulares: number }>; contracts: () => Promise<{ total: number; tarifas: number | null }>; crm: () => Promise<ResumenCrm>; rentabilidad: () => Promise<DashboardPoint[]>; decisions?: () => Promise<DashboardRow[]> }
 export const dashboardUnavailable = (): DashboardData => ({ state: 'unavailable', message: 'Sin dato. No se ha podido comprobar la fuente.' })
 const fmt = (n: number | null | undefined, unit = '') => n == null || !Number.isFinite(n) ? 'sin dato' : n.toLocaleString('es-ES', { maximumFractionDigits: unit === ' %' ? 1 : 0 }) + unit
 const soon = (): DashboardData => ({ state: 'soon', message: 'Próximamente. Todavía no hay un lector disponible para este apartado.' })
@@ -43,11 +43,12 @@ export async function loadDashboardModel(context: DashboardContext, readers: Das
   // make the commercial/technical/employee dashboard disclose global figures.
   if (['comercial','draxton','empleado'].includes(role)) for (const key of ['finance','clients','contracts','rentabilidad'] as const) needed.delete(key)
   if (!context.owner || context.acting) needed.delete('rentabilidad')
+  if (!context.owner || context.acting) needed.delete('decisions')
   // CRM summary is broad: only run when both CRM and Leads are readable. It never goes to Graph.
-  if (!context.canRead('crm', '/admin/crm') || !context.canRead('leads', '/admin/leads') || !context.canRead('crm.contactos', '/admin/crm/contactos') || !context.canRead('crm.pipelines', '/admin/crm/pipelines')) needed.delete('crm')
-  const data: Partial<{ finance: DashboardFinance; clients: { total: number; empresas: number; particulares: number }; contracts: { total: number; tarifas: number | null }; crm: ResumenCrm; rentabilidad: DashboardPoint[] }> = {}
+  if (!context.canRead('crm', '/admin/crm') || !context.canRead('leads', '/admin/leads') || !context.canRead('crm.contactos', '/admin/crm/contactos') || !context.canRead('crm', '/admin/crm/pipelines')) needed.delete('crm')
+  const data: Partial<{ finance: DashboardFinance; clients: { total: number; empresas: number; particulares: number }; contracts: { total: number; tarifas: number | null }; crm: ResumenCrm; rentabilidad: DashboardPoint[]; decisions: DashboardRow[] }> = {}
   await Promise.all([...needed].filter((key): key is Exclude<Area4DashboardReader,'soon'> => key !== 'soon').map(async key => {
-    try { const value = await readers[key](); Object.assign(data, { [key]: value }) } catch { /* Failure = unknown, never fabricated 0. */ }
+    try { if (readers[key]) { const value = await readers[key](); Object.assign(data, { [key]: value }) } } catch { /* Failure = unknown, never fabricated 0. */ }
   }))
   const w = words(context)
   const financeRows = (): DashboardRow[] => !data.finance ? [] : [
@@ -56,7 +57,8 @@ export async function loadDashboardModel(context: DashboardContext, readers: Das
     { badge: fmt(data.finance.revisionCount), tone: 'w', title: 'Facturas en revisión', detail: 'Cobro no atribuible con certeza.', href: '/admin/facturacion', action: 'Revisar' },
   ]
   const blockData = (id: string): DashboardData => {
-    if (['decisiones','altas','permanencias','cierre','gastos-equipo','objetivo','draxton-facturas','draxton-documentos','mis-gastos','mis-documentos','comunicados'].includes(id)) return soon()
+    if (id === 'decisiones') return data.decisions?.length ? { state: 'ready', rows: data.decisions } : empty('No hay decisiones pendientes comprobadas en las fuentes disponibles.')
+    if (['altas','permanencias','cierre','gastos-equipo','objetivo','draxton-facturas','draxton-documentos','mis-gastos','mis-documentos','comunicados'].includes(id)) return soon()
     if (id === 'facturado') return data.finance ? { state: 'ready', points: data.finance.points } : dashboardUnavailable()
     if (id === 'margen') return data.rentabilidad?.some(p => p.value !== null) ? { state: 'ready', points: data.rentabilidad, message: 'Fuente: último informe preparado de Rentabilidad; no se recalcula ni se confirma nada.' } : dashboardUnavailable()
     if (['avisos','para-hoy'].includes(id)) return data.finance ? { state: 'ready', rows: financeRows() } : dashboardUnavailable()
@@ -99,7 +101,7 @@ export async function loadDashboardModel(context: DashboardContext, readers: Das
       case 'extractos': if (f) { value = f.cutoff ? `${f.cutoff.slice(8,10)}/${f.cutoff.slice(5,7)}` : 'sin dato'; sub = 'Último corte verificado de todas las cuentas' } break
       case 'clientes': if (data.clients) { value = fmt(data.clients.total); sub = `${fmt(data.clients.empresas)} empresas · ${fmt(data.clients.particulares)} particulares` } break
       case 'contratos': if (data.contracts) { value = fmt(data.contracts.total); sub = `${fmt(data.contracts.tarifas)} tarifas activas` } break
-      case 'margen-ultimo': if (lastMargin) { value = fmt(lastMargin.value, ' %'); sub = `${lastMargin.month}${lastMargin.provisional ? ' · provisional' : ''}` } break
+      case 'margen-ultimo': if (lastMargin) { value = fmt(lastMargin.value, ' %'); sub = `${lastMargin.month}${lastMargin.provisional ? ' · provisional' : ''}${lastMargin.reliability == null ? '' : ` · fiabilidad ${fmt(lastMargin.reliability, ' %')}`}` } break
       case 'leads': case 'mis-leads': if (c) { value = fmt(c.kpis.leadsAbiertos); sub = `${fmt(c.kpis.leadsSinContactar)} sin contactar (más de 7 días)` } break
       case 'reuniones': if (c) { value = fmt(c.kpis.reunionesSemana); sub = 'Reuniones ya guardadas en la ficha' } break
       case 'mis-negocios': if (c) { value = fmt(c.pipelines.reduce((s,p) => s + p.total,0)); sub = 'Solo los negocios de esta persona' } break
