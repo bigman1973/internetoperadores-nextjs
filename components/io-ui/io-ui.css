@@ -217,6 +217,37 @@
 .io-ui .drawer .dcheck.warn{border-left-color:var(--warn)}
 .io-ui .drawer .dtable td.concepto{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media (max-width:560px){.io-ui .drawer{padding:12px 10px 24px}.io-ui .drawer .dtable td.concepto{max-width:64px}.io-ui .drawer .dtable th,.io-ui .drawer .dtable td{padding:6px 6px;font-size:12px}.io-ui .drawer .dtable td.n,.io-ui .drawer .dtable th.n{white-space:nowrap}}
+/* ───────── Facturación (maqueta aprobada): bloque propio, acotado a .fac para no tocar otras pantallas ───────── */
+.io-ui .fac .kpi.click{cursor:pointer}.io-ui .fac .kpi.click:hover{background:var(--sunken)}
+.io-ui .fac .kpi .v.g{color:var(--good)}.io-ui .fac .kpi .v.w{color:var(--warn)}.io-ui .fac .kpi .v.o{color:var(--muted)}
+.io-ui .fac .callout{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;padding:14px 16px;border:1px solid var(--warn);border-left:5px solid var(--warn);border-radius:var(--r);background:var(--warn-soft)}
+@media (max-width:700px){.io-ui .fac .callout{grid-template-columns:1fr}}
+.io-ui .fac .callout .big{font-family:var(--f-display);font-size:30px;font-weight:700;color:var(--warn)}
+.io-ui .fac .fmeter{display:flex;height:12px;border-radius:6px;overflow:hidden;background:var(--sunken);margin-top:8px}
+.io-ui .fac .fmeter i{display:block;height:100%}
+.io-ui .fac .cmeter{height:6px;border-radius:3px;overflow:hidden;background:var(--sunken);width:140px;display:flex}
+.io-ui .fac .cmeter i{display:block;height:100%}
+.io-ui .fac .g2{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:18px;align-items:start}
+.io-ui .fac .g2b{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:1000px){.io-ui .fac .g2,.io-ui .fac .g2b{grid-template-columns:minmax(0,1fr)}}
+.io-ui .fac .st{font-size:11px;padding:2px 8px;border-radius:999px;white-space:nowrap;display:inline-block}
+.io-ui .fac .st.g{background:var(--good-soft);color:var(--good)}
+.io-ui .fac .st.w{background:var(--warn-soft);color:var(--warn)}
+.io-ui .fac .st.b{background:var(--bad-soft);color:var(--bad)}
+.io-ui .fac .st.o{background:var(--sunken);color:var(--muted)}
+.io-ui .sync{font-size:12px;color:var(--muted)}
+.io-ui .fac .chk{display:block;color:var(--good);font-size:12px;margin-top:8px}
+.io-ui .fac .chk.warn{color:var(--warn)}
+.io-ui .fac td a,.io-ui .fac td button.lnk{color:var(--fg)}
+.io-ui .fdrawer{position:fixed;top:0;right:0;bottom:0;width:min(520px,100vw);background:var(--surface);color:inherit;border-left:1px solid var(--line);box-shadow:-12px 0 30px rgba(0,0,0,.12);z-index:60;padding:18px;overflow:auto;box-sizing:border-box}
+.io-ui .fdrawer h2{font-family:var(--f-display);margin:0}
+.io-ui .fdrawer .kv{display:grid;grid-template-columns:130px 1fr;gap:6px 10px;font-size:13px;margin:12px 0}
+.io-ui .fdrawer .kv dt{color:var(--muted)}.io-ui .fdrawer .kv dd{margin:0}
+.io-ui .fdrawer .step{display:grid;grid-template-columns:auto 1fr;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
+.io-ui .fdrawer .step .sdot{width:10px;height:10px;border-radius:50%;margin-top:5px;background:var(--sunken)}
+.io-ui .fdrawer .step .sdot.g{background:var(--good)}.io-ui .fdrawer .step .sdot.w{background:var(--warn)}
+.io-ui .fac .look{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start;padding:9px 0;border-bottom:1px solid var(--line)}
+.io-ui .fac .pager{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:10px;font-size:13px;color:var(--muted)}
 
 /* Bloque style propio de maqueta_rentabilidad_aprobada.html (copia literal, prefijada por .io-ui) */
 .io-ui .seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}

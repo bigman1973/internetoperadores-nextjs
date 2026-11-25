@@ -19,7 +19,7 @@ import {
   type B7GetQuery,
   type B7ReadDto,
 } from './bank-invoicing-contract'
-import { buildBankInvoicingAnalytics } from './bank-invoicing-analytics'
+import { buildBankInvoicingAnalytics, classifyInvoice, effectiveCutoff, serieFromInvoiceNumber } from './bank-invoicing-analytics'
 import {
   associationSourceHash,
   facturaSourceFingerprint,
@@ -778,12 +778,33 @@ export async function readBankInvoicing(
 ): Promise<B7ReadResponse> {
   const calculated = await readBankInvoicingPopulation(db, options)
   const query = rawQuery instanceof URLSearchParams ? parseB7GetQuery(rawQuery) : rawQuery
-  const matching = sortInvoicesB7(calculated.invoices.filter((invoice) => invoiceMatchesB7Query(invoice, query)))
+  // Filtros opcionales de la pantalla (serie y estado de cobro): solo seleccionan filas ya calculadas.
+  const serieRowsForFilter = query.serie
+    ? await db.$queryRawUnsafe<Array<{ id: string; serie: string | null }>>(SERIES_SQL)
+    : null
+  if (serieRowsForFilter) assertCompleteBoundedPopulation('SERIES_FACTURAS_EMITIDAS', serieRowsForFilter)
+  const serieForFilter = serieRowsForFilter ? new Map(serieRowsForFilter.map((row) => [row.id, row.serie])) : null
+  const cutoffForFilter = effectiveCutoff(calculated.bankCoverage)
+  const matchesScreenFilters = (invoice: (typeof calculated.invoices)[number]): boolean => {
+    if (query.serie && serieForFilter) {
+      const own = ((serieForFilter.get(invoice.invoiceId) ?? '').trim() || serieFromInvoiceNumber(invoice.numFactura))
+      if (own.toLocaleUpperCase('es-ES') !== query.serie.trim().toLocaleUpperCase('es-ES')) return false
+    }
+    if (query.cobro) {
+      const bucket = classifyInvoice(invoice, cutoffForFilter)
+      if (query.cobro === 'confirmado') return bucket === 'COBRADA'
+      if (query.cobro === 'por_confirmar') return bucket === 'REAL' || bucket === 'REVISION'
+      if (query.cobro === 'sin_extracto') return bucket === 'SIN_EXTRACTO'
+      return bucket === 'REVISION'
+    }
+    return true
+  }
+  const matching = sortInvoicesB7(calculated.invoices.filter((invoice) => invoiceMatchesB7Query(invoice, query) && matchesScreenFilters(invoice)))
   const items = matching.slice(query.offset, query.offset + query.limit)
   // Bank-only differences have no FI filter key. A month/q/state subset cannot
   // claim their total belongs to that subset; publish unknown rather than 0 or a
   // page-derived allocation. The unfiltered whole population keeps its exact value.
-  const isWholePopulation = query.q === null && query.mes === null && query.anio === null && query.estado === null
+  const isWholePopulation = query.q === null && query.mes === null && query.anio === null && query.estado === null && !query.serie && !query.cobro
   const summary = summarizeBankInvoicing(
     matching,
     isWholePopulation ? calculated.summary.diferenciasCaja.sinAtribuir.cents : null,
