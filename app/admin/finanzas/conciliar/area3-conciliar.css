@@ -2,7 +2,7 @@
    con todos los selectores bajo .io-ui.area3-conciliar. Generado con: python3 scripts/area3-conciliar-css.py app/admin/finanzas/conciliar/area3-conciliar.css <maqueta>; no editar a mano.
    Las reglas idénticas a components/io-ui/io-ui.css se quitan al generar: aquí quedan solo las propias de Conciliar
    (.steps, .step, .lay, .side, .mv, .st, .sug, .conf, .acts, .chain, .ex, .chips, .kv, .replaces, .btn.small, .kpi .v.g/.w/.b).
-   Cambios respecto a la maqueta: sin modo oscuro automático y sin body::before. */
+   Cambios respecto a la maqueta: sin modo oscuro automático, sin body::before y .kv con minmax(0,1fr) y chips largos con salto de línea para que no desborde a 400 px. */
 .io-ui.area3-conciliar[data-theme="dark"]{--bg:#171513; --surface:#211F1C; --sunken:#2A2724; --line:#3A3632; --fg:#F1EEEA; --muted:#A8A199;
   --accent:#FF6A24; --accent-soft:#3F2416; --accent-fg:#FF9A66;
   --good:#5FC58A; --good-soft:#17331F; --warn:#E3A93B; --warn-soft:#3A2C10; --bad:#F2857C; --bad-soft:#3E1C19;
@@ -57,3 +57,5 @@
 @media(max-width:520px){.io-ui.area3-conciliar .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:1000px){.io-ui.area3-conciliar .steps{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:1050px){.io-ui.area3-conciliar .lay{grid-template-columns:minmax(0,1fr)}}
+.io-ui.area3-conciliar .kv{grid-template-columns:110px minmax(0,1fr)}
+.io-ui.area3-conciliar .kv .st{white-space:normal;overflow-wrap:anywhere}

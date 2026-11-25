@@ -79,11 +79,12 @@ if os.path.exists(IOUI):
     for m,h,b in propias:
         if m: medias.setdefault(m,[]).append(f'{h}{{{b}}}')
     out='\n'.join(top+[f'{m}{{{"".join(v)}}}' for m,v in medias.items()])
+out+="\n.io-ui.area3-conciliar .kv{grid-template-columns:110px minmax(0,1fr)}\n.io-ui.area3-conciliar .kv .st{white-space:normal;overflow-wrap:anywhere}"  # 400 px: la columna 1fr no encogía con textos largos
 hdr="""/* Área 3 · Conciliar. CSS copiado literal de maqueta_conciliar_aprobada.html (aprobada por Víctor),
    con todos los selectores bajo .io-ui.area3-conciliar. Generado con: python3 scripts/area3-conciliar-css.py app/admin/finanzas/conciliar/area3-conciliar.css <maqueta>; no editar a mano.
    Las reglas idénticas a components/io-ui/io-ui.css se quitan al generar: aquí quedan solo las propias de Conciliar
    (.steps, .step, .lay, .side, .mv, .st, .sug, .conf, .acts, .chain, .ex, .chips, .kv, .replaces, .btn.small, .kpi .v.g/.w/.b).
-   Cambios respecto a la maqueta: sin modo oscuro automático y sin body::before. */
+   Cambios respecto a la maqueta: sin modo oscuro automático, sin body::before y .kv con minmax(0,1fr) y chips largos con salto de línea para que no desborde a 400 px. */
 """
 open(sys.argv[1],'w').write(hdr+out+"\n")
 print(f"reglas quitadas por repetidas con io-ui.css: {quitadas}")
