@@ -90,9 +90,9 @@ test('baseline-only no añade ni una consulta auditada y GET/snapshot no escribe
 test('catálogo real: dos M365, dos contratos de importación y resumen IA de la ficha pendientes, cuatro lecturas auditadas y cero escrituras', async () => {
   const current = area4RegistrySurfaceMatches()
   const added = current.filter(m => !m.baseline)
-  assert.equal(added.length, 5)
+  assert.equal(added.length, 6)
   assert.deepEqual(added.map(m => m.surface.path).sort(), [
-    '/api/admin/crm/contactos/[id]/actividades/[actividadId]/m365', '/api/admin/crm/contactos/[id]/m365/borrador', '/api/admin/crm/empresas/[id]/resumen-ia',
+    '/api/admin/crm/contactos/[id]/actividades/[actividadId]/m365', '/api/admin/crm/contactos/[id]/m365/borrador', '/api/admin/crm/empresas/[id]/correos-recibidos', '/api/admin/crm/empresas/[id]/resumen-ia',
     '/api/admin/crm/hubspot/historial', '/api/admin/crm/isp/importar',
   ])
   const stub = createProposalStub(fixtureState())
