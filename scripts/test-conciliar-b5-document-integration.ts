@@ -8,6 +8,7 @@ const read = (file: string) => readFileSync(resolve(root, file), 'utf8')
 const contract = read('lib/finanzas/conciliar-contract.ts')
 const db = read('lib/finanzas/conciliar-db.ts')
 const actions = read('lib/finanzas/conciliar-actions.ts')
+const validators = read('lib/finanzas/conciliar-confirm-validators.ts')
 
 assert.match(contract, /'PAGO_TICKET_B5'/)
 for (const field of ['adjuntoB5Id?: string', 'gastoId?: string', 'documentoConciliableId?: string', 'versionB4?: number']) {
@@ -35,19 +36,27 @@ assert.doesNotMatch(reviewBlock!, /PAGO_SOPORTE_B5/)
 
 const b5Action = actions.match(/async function confirmB5Ticket[\s\S]*?\n}\n\nasync function confirmPayroll/)?.[0]
 assert(b5Action, 'la rama explícita de confirmación B5 debe existir')
-assert.match(b5Action!, /inspectEasyCandidatesTx\(tx, movimientoId\)/)
-assert.match(b5Action!, /liveB5TicketSourceTx\(tx, row\.source, movimientoId\)/)
-assert.match(b5Action!, /suggestion\.tipo === 'TICKET'/)
-assert.match(b5Action!, /suggestion\.sourceId === live\.gastoId/)
-assert.match(b5Action!, /suggestion\.documentoConciliableId === live\.documentoConciliableId/)
-assert.match(b5Action!, /suggestion\.exacta === true/)
-assert.match(b5Action!, /suggestion\.archivoDisponible === true/)
-assert.match(b5Action!, /suggestion\.importeCentimos === row\.importeCentimos/)
+assert.match(b5Action!, /preflightConciliarB5TicketTx\(tx,row,true\)/)
+assert.match(b5Action!, /sugerenciaId: current\.suggestion\.id/)
 assert.match(b5Action!, /confirmEasyReconciliationTx\(tx, actorId/)
 assert.match(b5Action!, /confirmacion: true/)
 assert.doesNotMatch(b5Action!, /createDocumentoB4Tx|\.gasto\.create|documentoConciliable\.create/)
 
-const liveSource = actions.match(/async function liveB5TicketSourceTx[\s\S]*?\n}\n\n\/\*\* PAGO_TICKET_B5/)?.[0]
+const b5Preflight = validators.match(/export async function preflightConciliarB5TicketTx[\s\S]*?\n}\n/)?.[0]
+assert(b5Preflight, 'el preflight B5 compartido debe revalidar antes de confirmar')
+assert.match(b5Preflight!, /preflightConciliarLifecycleTx\(tx, row\.source, lock\)/)
+assert.match(b5Preflight!, /inspectEasyCandidatesTx\(tx, movimientoId, lock\)/)
+assert.match(b5Preflight!, /liveB5TicketSourceTx\(tx, row\.source, movimientoId, lock\)/)
+assert.match(b5Preflight!, /suggestion\.tipo === 'TICKET'/)
+assert.match(b5Preflight!, /suggestion\.sourceId === live\.gastoId/)
+assert.match(b5Preflight!, /suggestion\.documentoConciliableId === live\.documentoConciliableId/)
+assert.match(b5Preflight!, /suggestion\.exacta === true/)
+assert.match(b5Preflight!, /suggestion\.archivoDisponible === true/)
+assert.match(b5Preflight!, /suggestion\.importeCentimos === row\.importeCentimos/)
+assert.match(b5Preflight!, /fail\(409, 'DECISION_CAMBIADA'/)
+assert.doesNotMatch(b5Preflight!, /candidates\s*\[\s*0\s*\]/)
+
+const liveSource = validators.match(/async function liveB5TicketSourceTx[\s\S]*?(?=\nexport async function preflightConciliarBankFeeTx)/)?.[0]
 assert(liveSource, 'la revalidación viva de adjunto B5 debe existir')
 assert.match(liveSource!, /a\.movimiento_id=\$\{movimientoId}/)
 assert.match(liveSource!, /a\.estado='UPLOAD_COMPLETO'/)

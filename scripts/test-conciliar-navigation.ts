@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import test from 'node:test'
+import { createConciliarSearchMachineState, readConciliarSearchHistory } from '../components/finanzas/conciliar/conciliar-global-search'
 const read=(path:string)=>readFileSync(resolve(process.cwd(),path),'utf8')
 test('los enlaces conservan tab/q validados por servidor sin aceptar importes',()=>{
  const page=read('app/admin/finanzas/conciliar/page.tsx')
@@ -13,10 +14,14 @@ test('los enlaces conservan tab/q validados por servidor sin aceptar importes',(
  assert.match(page,/const requestedOrden = query\.orden === 'FECHA'/)
  assert.match(page,/const requestedDireccion = query\.direccion === 'ASC'/)
  assert.match(page,/initialOrden=\{initialOrden\} initialDireccion=\{initialDireccion\} initialGlobalOrder=\{initialGlobalOrder\}/)
- assert.match(ui,/useState<ConciliarTab>\(initialTab\)/)
- assert.match(ui,/useState\(initialQuery\)/)
- assert.match(ui,/useState<ConciliarSortField>\(initialOrden\)/)
- assert.match(ui,/initialRequestKey\.current === buildQuery\(requestInput\)\.toString\(\)/)
+ assert.match(ui,/import \{ useConciliarGlobalSearch \} from '\.\/conciliar-global-search';/)
+ assert.match(ui,/useConciliarGlobalSearch\(\{ initialTab, initialQuery, initialOffset: 0, initialData: initialParsed, read: readGlobal, cache: searchCache \}\)/)
+ assert.match(ui,/const \{ tab, query, queryBox, offset, data \} = search;/)
+ assert.doesNotMatch(page,/query\.(?:importe|amount|importeCentimos)\b/)
+ const initial=createConciliarSearchMachineState('COBROS','  factura  ',0,true)
+ assert.deepEqual(initial.view,{tab:'COBROS',query:'factura',offset:0})
+ assert.deepEqual(readConciliarSearchHistory('?tab=PAGOS&q=%20factura%20&offset=20&importe=999',initial.view),{tab:'PAGOS',query:'factura',offset:20})
+ assert.deepEqual(readConciliarSearchHistory('?tab=INYECTADA&q=segura&offset=-1&importe=999',initial.view),{tab:'COBROS',query:'segura',offset:0})
 })
 test('el lector mantiene céntimos enteros y no importa motores pesados de mutación',()=>{
  const reader=read('lib/finanzas/conciliar-projection-read.ts')

@@ -1,5 +1,6 @@
 import { analizarCadenaSaldo } from '@/lib/finanzas/bank-balance-chain'
 import { proveLocalBalanceNeighborhoods, type EasyAutoBalanceRow } from '@/lib/finanzas/easy-auto-core'
+import { ordenarDiaPorSaldo } from '@/lib/finanzas/bank-order-by-balance'
 
 /**
  * Diagnóstico de lectura para explicar por qué no se puede certificar una cadena.
@@ -200,6 +201,26 @@ export function diagnoseBankChainGaps(rows: readonly BankChainGapRow[]): BankCha
       }
     }
     if (group.length !== 1) {
+      // Varios apuntes el mismo día: el saldo de cada fila fija el orden solo si es único.
+      // Si es único, el día queda encadenado (o se informa el salto con el día anterior).
+      // Si es ambiguo, imposible o inconcluso, no se deduce nada y se avisa como antes.
+      const validas = !hasInvalidEvidence && group.every(row => validCents(row.importeCentimos) && validCents(row.saldoCentimos))
+      if (validas) {
+        const filas = group.map((row, k) => ({ importe: row.importeCentimos! / 100, saldo: row.saldoCentimos! / 100, pref: k }))
+        const prevSaldo: number | null = previousVerified && validCents(previousVerified.saldoCentimos) ? previousVerified.saldoCentimos : null
+        const conPuente = prevSaldo === null ? null : ordenarDiaPorSaldo(filas, prevSaldo)
+        if (conPuente && conPuente.ok && conPuente.estado === 'UNICO') {
+          previousVerified = group[conPuente.orden[conPuente.orden.length - 1]!]!
+          continue
+        }
+        const solo = ordenarDiaPorSaldo(filas, null)
+        if (solo.ok && solo.estado === 'UNICO') {
+          const primero = group[solo.orden[0]!]!
+          if (prevSaldo !== null && previousVerified) gaps.push(jumpGap(previousVerified, primero, prevSaldo + primero.importeCentimos!))
+          previousVerified = group[solo.orden[solo.orden.length - 1]!]!
+          continue
+        }
+      }
       gaps.push(ambiguousDayGap(day, group.length, previousDay, nextDay))
       previousVerified = null
       continue

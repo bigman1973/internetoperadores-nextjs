@@ -13,6 +13,8 @@ import {
   parseCaixaBankXLS,
   parseCaixaGuissonaCSV,
   parseBBVACSV,
+  parseBBVAXLSX,
+  esExtractoBBVAXLSX,
   parseVividCSV,
   parseWiseXLSX,
   parseNorma43,
@@ -25,6 +27,7 @@ import {
   fechaCorteExtracto,
   type AnalisisCadenaSaldo,
 } from '@/lib/finanzas/bank-balance-chain'
+import { cierreDiaPorSaldo, derivarOrdenBancarioPorSaldo } from '@/lib/finanzas/bank-order-by-balance'
 import {
   detectarComisionEnConcepto,
   presentarCategoriaHistorica,
@@ -198,7 +201,16 @@ async function leerFormularioImportacion(req: NextRequest): Promise<
 }
 
 function parsearMovimientos(filename: string, buffer: Buffer, bancoManual: string | null): { formato: string; movimientos: MovimientoParsed[] } | { error: string; codigo?: string } {
-  const formato = (bancoManual || detectarFormato(filename, buffer.toString('utf-8').substring(0, 500))).toLowerCase()
+  const esExcel = /\.xlsx?$/i.test(filename)
+  let formato = (bancoManual || detectarFormato(filename, buffer.toString('utf-8').substring(0, 500))).toLowerCase()
+  if (!bancoManual && formato === 'desconocido' && esExcel) {
+    // Los Excel no se leen como texto: se mira la cabecera de la primera hoja (p. ej. BBVA sin «bbva» en el nombre).
+    try {
+      const libro = XLSX.read(buffer, { type: 'buffer' })
+      const filas = XLSX.utils.sheet_to_json(libro.Sheets[libro.SheetNames[0]], { header: 1 }) as any[][]
+      formato = detectarFormato(filename, filas.slice(0, 30).map((fila) => (Array.isArray(fila) ? fila.join(' ') : '')).join('\n')).toLowerCase()
+    } catch { /* se informa como formato no reconocido */ }
+  }
   if (!FORMATOS_ADMITIDOS.has(formato)) return { error: `Formato no reconocido: ${formato}` }
 
   switch (formato) {
@@ -220,6 +232,9 @@ function parsearMovimientos(filename: string, buffer: Buffer, bancoManual: strin
       if (filename.toLowerCase().endsWith('.xlsx') || filename.toLowerCase().endsWith('.xls')) {
         const workbook = XLSX.read(buffer, { type: 'buffer' })
         const sheet = workbook.Sheets[workbook.SheetNames[0]]
+        const filas = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][]
+        // Formato actual de la banca online (cabecera «F. CONTABLE»); si no, el CSV antiguo de Caixa/BBVA.
+        if (esExtractoBBVAXLSX(filas)) return { formato, movimientos: parseBBVAXLSX(filas) }
         return { formato, movimientos: parseBBVACSV(XLSX.utils.sheet_to_csv(sheet)) }
       }
       return { formato, movimientos: parseBBVACSV(buffer.toString('utf-8')) }
@@ -360,15 +375,30 @@ export async function POST(req: NextRequest) {
       }),
     ])
 
-    // Dos saldos posibles del último día anterior no proporcionan secuencia intradía.
-    const puente = puentes.length > 1 && mismoDiaUtc(puentes[0].fechaOperacion, puentes[1].fechaOperacion)
-      ? null
-      : puentes[0] ?? null
+    // Si el último día anterior tiene varios apuntes, su cierre solo vale cuando el saldo de cada
+    // fila fija un orden único; si no, no hay puente (no se elige uno al azar).
+    let puente: { fechaOperacion: Date; saldo: number | null } | null = puentes[0] ?? null
+    if (puentes.length > 1 && mismoDiaUtc(puentes[0].fechaOperacion, puentes[1].fechaOperacion)) {
+      const diaPuente = puentes[0].fechaOperacion
+      const inicioDia = new Date(Date.UTC(diaPuente.getUTCFullYear(), diaPuente.getUTCMonth(), diaPuente.getUTCDate()))
+      const finDia = new Date(inicioDia.getTime() + 86_400_000)
+      const delDia = await prisma.movimientoBancario.findMany({
+        where: { cuentaId: cuenta.id, fechaOperacion: { gte: inicioDia, lt: finDia } },
+        select: { fechaOperacion: true, importe: true, saldo: true },
+      })
+      const cierre = cierreDiaPorSaldo(delDia)
+      puente = cierre === null ? null : { fechaOperacion: diaPuente, saldo: cierre }
+    }
 
-    // Los parsers actuales no exponen una secuencia intradía fiable: no se inventa con el id o el concepto.
-    const cadenaEntrada = parseado.movimientos.map((movimiento) => ({
+    // Los parsers no exponen secuencia intradía: se deduce del saldo de cada fila, solo donde el orden
+    // es único (nunca con el id o el concepto). Los días ambiguos o imposibles siguen avisando.
+    const ordenPorSaldo = derivarOrdenBancarioPorSaldo(
+      parseado.movimientos,
+      puente?.saldo === null || puente?.saldo === undefined ? null : puente.saldo,
+    )
+    const cadenaEntrada = parseado.movimientos.map((movimiento, indice) => ({
       ...movimiento,
-      ordenBancario: typeof (movimiento as any).ordenBancario === 'number' ? (movimiento as any).ordenBancario : null,
+      ordenBancario: typeof (movimiento as any).ordenBancario === 'number' ? (movimiento as any).ordenBancario : ordenPorSaldo[indice],
     }))
     const continuidad = analizarCadenaSaldo(
       cadenaEntrada,

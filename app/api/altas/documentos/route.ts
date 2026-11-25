@@ -1,9 +1,11 @@
+import { getBrevoApiKey } from '@/lib/brevo-config'
+import { brevoFetch } from '@/lib/brevo-fetch'
 import { NextRequest, NextResponse } from 'next/server'
 import { put } from '@vercel/blob'
 import prisma from '@/lib/prisma'
 import { TipoDocumento } from '@prisma/client'
 
-const BREVO_API_KEY = (process.env.BREVO_API_KEY || '').trim()
+const BREVO_API_KEY = getBrevoApiKey()
 
 const DOC_LABELS: Record<string, string> = {
   CONTRATO_FIRMADO: 'Contrato firmado',
@@ -80,7 +82,7 @@ async function sendEmailToCliente({
   `
 
   try {
-    await fetch('https://api.brevo.com/v3/smtp/email', {
+    await brevoFetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
         'api-key': BREVO_API_KEY,

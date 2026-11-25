@@ -7,6 +7,8 @@ import { getDefaultEmailSender, sendCrmEmail } from '@/lib/email'
 import { createOutlookUserCalendarEvent } from '@/lib/outlook-calendar'
 import { getOutlookConnectionStatus, getOutlookUserAccessToken } from '@/lib/outlook-user-connection'
 import prisma from '@/lib/prisma'
+import { aislarAsistentes, aislarCorreo, bloqueoActuacion, calendarioBloqueadoEnPruebas, RESULTADO_CALENDARIO_AISLADO, m365Habilitado } from '@/lib/area1-m365'
+import { enviarCorreoComoUsuario } from '@/lib/area1-m365-graph'
 import { verificarPermisoServer } from '@/lib/permisos'
 
 const ACTIVITY_TYPES = new Set(['LLAMADA', 'CORREO', 'REUNION', 'NOTA', 'TAREA', 'WHATSAPP', 'LINKEDIN', 'SMS', 'CORREO_POSTAL'])
@@ -133,10 +135,19 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const authorName = session.user.name || session.user.email || 'Administrador'
   const authorEmail = session.user.email?.trim().toLowerCase() || ''
   const requestedOutlook = type === 'REUNION' && body.syncOutlook === true
-  const outlookStatus = requestedOutlook ? await getOutlookConnectionStatus(authorId) : null
-  const syncOutlook = Boolean(requestedOutlook && outlookStatus?.enabled && outlookStatus.connected)
+  const actuacion = (type === 'CORREO' || requestedOutlook) ? bloqueoActuacion(session) : null
+  if (actuacion) return NextResponse.json({ error: actuacion }, { status: 403 })
+  // Opción C: en pruebas (modo aislado sin M365_STAGING_CALENDARIO=1) la reunión solo se guarda en la ficha.
+  const calendarioAislado = requestedOutlook && calendarioBloqueadoEnPruebas()
+  const outlookStatus = requestedOutlook && !calendarioAislado ? await getOutlookConnectionStatus(authorId) : null
+  const syncOutlook = Boolean(requestedOutlook && !calendarioAislado && outlookStatus?.enabled && outlookStatus.connected)
   const onlineMeeting = syncOutlook && body.onlineMeeting === true
   const inviteAttendees = syncOutlook && body.inviteAttendees === true
+  // Área 1 · M365: correo desde el buzón del usuario (delegado). Si no, buzón corporativo de la app (lib/email.ts).
+  const viaOutlookMail = type === 'CORREO' && body.viaOutlook === true
+  if (viaOutlookMail && !m365Habilitado()) return NextResponse.json({ error: 'El envío desde tu Outlook no está disponible: elige «Buzón corporativo».' }, { status: 409 })
+  const mailStatus = viaOutlookMail ? await getOutlookConnectionStatus(authorId) : null
+  const borradorIa = type === 'CORREO' && body.borradorIa === true
   const preparedExternalChannel = ['WHATSAPP', 'LINKEDIN', 'SMS'].includes(type) && direction === 'SALIENTE' && body.prepareExternalChannel === true
 
   if (!ACTIVITY_TYPES.has(type)) return NextResponse.json({ error: 'El tipo de actividad no es válido.' }, { status: 400 })
@@ -158,8 +169,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (activityDate.getTime() < Date.now() - 5 * 60 * 1000) return NextResponse.json({ error: 'La reunión de Outlook debe programarse en el futuro.' }, { status: 400 })
     if (!durationMinutes || durationMinutes < 5) return NextResponse.json({ error: 'Indica una duración mínima de 5 minutos.' }, { status: 400 })
   }
-  if (requestedOutlook && !outlookStatus?.enabled) return NextResponse.json({ error: 'Outlook individual aún está pendiente de activación en Microsoft 365.' }, { status: 503 })
-  if (requestedOutlook && !outlookStatus?.connected) return NextResponse.json({ error: 'Conecta tu cuenta de Outlook antes de crear la reunión en tu agenda.' }, { status: 428 })
+  if (requestedOutlook && !calendarioAislado && !outlookStatus?.enabled) return NextResponse.json({ error: 'Outlook individual aún está pendiente de activación en Microsoft 365.' }, { status: 503 })
+  if (requestedOutlook && !calendarioAislado && !outlookStatus?.connected) return NextResponse.json({ error: 'Conecta tu cuenta de Outlook antes de crear la reunión en tu agenda.' }, { status: 428 })
+  if (viaOutlookMail && !mailStatus?.enabled) return NextResponse.json({ error: 'Outlook individual aún está pendiente de activación en Microsoft 365.' }, { status: 503 })
+  if (viaOutlookMail && !mailStatus?.connected) return NextResponse.json({ error: 'Conecta tu cuenta de Outlook antes de enviar desde tu buzón.' }, { status: 428 })
+  if (viaOutlookMail && !mailStatus?.mail) return NextResponse.json({ error: 'Tu conexión de Outlook aún no incluye el permiso de correo. Pulsa «Conceder permiso de correo».' }, { status: 428 })
 
   let followUpDate: Date | null = null
   let followUpTitle: string | null = null
@@ -173,7 +187,16 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
   if (type === 'TAREA' && !followUpDate) return NextResponse.json({ error: 'Indica la fecha límite de la tarea.' }, { status: 400 })
 
-  const sender = getDefaultEmailSender()
+  let mailAuthorization: Awaited<ReturnType<typeof getOutlookUserAccessToken>> | null = null
+  if (viaOutlookMail) {
+    try {
+      mailAuthorization = await getOutlookUserAccessToken(authorId, authorEmail, 'correo')
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : 'Vuelve a conectar tu cuenta de Outlook.' }, { status: 401 })
+    }
+  }
+  const sender = viaOutlookMail ? mailAuthorization!.mailbox : getDefaultEmailSender()
+  const emailIsolation = type === 'CORREO' ? aislarCorreo({ to, cc, bcc, subject: title || '' }) : null
   let calendarAuthorization: Awaited<ReturnType<typeof getOutlookUserAccessToken>> | null = null
   if (syncOutlook) {
     try {
@@ -258,6 +281,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         if (bcc.length) metadata.cantidadCco = bcc.length
         metadata.huellaOperacion = emailFingerprint
         metadata.guardadoEnEnviados = false
+        metadata.canal = viaOutlookMail ? 'OUTLOOK_USUARIO' : 'BUZON_CORPORATIVO'
+        if (borradorIa) metadata.borradorIa = true
+        if (emailIsolation && emailIsolation.modo === 'aislado') metadata.aislamiento = { modo: emailIsolation.modo, accion: emailIsolation.accion, destinatariosOriginales: emailIsolation.destinatariosOriginales }
       }
       if (syncOutlook) {
         metadata.buzonCalendario = calendarMailbox
@@ -265,6 +291,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         metadata.huellaCalendario = calendarFingerprint
         metadata.estadoCalendario = 'PENDIENTE'
         metadata.reunionTeams = onlineMeeting
+      }
+      if (calendarioAislado) {
+        metadata.estadoCalendario = 'NO_CREADO_AISLADO'
+        metadata.aislamiento = { modo: 'aislado', accion: 'calendario_no_creado', motivo: 'Pruebas: no creada en Outlook' }
       }
       if (preparedExternalChannel) {
         metadata.modoAsistido = true
@@ -280,7 +310,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
           metadatos: Object.keys(metadata).length ? metadata : undefined,
           fechaActividad: type === 'CORREO' ? new Date() : activityDate,
           direccion: type === 'CORREO' ? 'SALIENTE' : direction,
-          resultado: type === 'CORREO' ? 'ENVIO_PENDIENTE' : syncOutlook ? 'CALENDARIO_PENDIENTE' : preparedExternalChannel ? 'CANAL_PREPARADO' : result || (type === 'TAREA' ? 'PENDIENTE' : 'REGISTRADA'),
+          resultado: type === 'CORREO' ? 'ENVIO_PENDIENTE' : syncOutlook ? 'CALENDARIO_PENDIENTE' : calendarioAislado ? RESULTADO_CALENDARIO_AISLADO : preparedExternalChannel ? 'CANAL_PREPARADO' : result || (type === 'TAREA' ? 'PENDIENTE' : 'REGISTRADA'),
           duracionSegundos: durationMinutes == null ? null : durationMinutes * 60,
           origen: 'LOCAL',
           clientRequestId,
@@ -347,11 +377,15 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         where: { id: { in: contactIds }, objectTypeId: '0-1' },
         select: { id: true, nombre: true, email: true, propiedades: true, propiedadesLocales: true },
       })
-      const attendees = inviteAttendees ? [...meetingContacts.reduce((unique, contact) => {
+      const requestedAttendees = inviteAttendees ? [...meetingContacts.reduce((unique, contact) => {
         const email = contactEmail(contact).trim().toLowerCase()
         if (EMAIL_PATTERN.test(email) && !unique.has(email)) unique.set(email, { email, name: contact.nombre })
         return unique
       }, new Map<string, { email: string; name: string | null }>()).values()] : []
+      // Área 1 · staging: invitaciones desviadas a la dirección de prueba o suprimidas (evento solo en tu agenda).
+      const attendeeIsolation = aislarAsistentes(requestedAttendees)
+      const attendees = attendeeIsolation.asistentes.map((attendee) => ({ email: attendee.email, name: attendee.name ?? null }))
+      const isolationMetadata = attendeeIsolation.modo === 'aislado' ? { aislamiento: { modo: attendeeIsolation.modo, accion: attendeeIsolation.accion, invitadosOriginales: attendeeIsolation.originales } } : {}
       const eventResult = await createOutlookUserCalendarEvent({
         accessToken: calendarAuthorization!.accessToken,
         mailbox: calendarMailbox,
@@ -380,6 +414,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
               reunionTeams: onlineMeeting,
               asistentes: attendees.map((attendee) => attendee.email),
               ...(location ? { ubicacion: location } : {}),
+              ...isolationMetadata,
             },
           },
         })
@@ -404,6 +439,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         reunionTeams: onlineMeeting,
         asistentes: attendees.map((attendee) => attendee.email),
         ...(location ? { ubicacion: location } : {}),
+        ...isolationMetadata,
       }
       try {
         await prisma.crmActividad.update({
@@ -418,7 +454,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         }).catch((recoveryError) => console.error('No se pudo marcar la reunión como incierta:', recoveryError))
         return NextResponse.json({ error: 'Outlook ha podido crear la reunión, pero el CRM no ha confirmado el registro. Revisa el calendario antes de repetirla.' }, { status: 502 })
       }
-      return NextResponse.json({ success: true, activityId: activity.id, linkedToOutlook: true, teamsMeeting: Boolean(eventResult.event!.joinUrl) })
+      return NextResponse.json({ success: true, activityId: activity.id, linkedToOutlook: true, teamsMeeting: Boolean(eventResult.event!.joinUrl), isolation: attendeeIsolation.modo === 'aislado' ? attendeeIsolation.accion : undefined })
     }
 
     if (type !== 'CORREO') {
@@ -426,7 +462,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     }
 
     if (activity.tipo !== 'CORREO') return NextResponse.json({ error: 'El identificador de operación ya está en uso.' }, { status: 409 })
-    if (activity.resultado === 'ACEPTADO_GRAPH' || activity.resultado === 'ENVIADO') return NextResponse.json({ success: true, activityId: activity.id, unchanged: true, sentFrom: sender })
+    if (activity.resultado === 'ACEPTADO_GRAPH' || activity.resultado === 'ENVIADO' || activity.resultado === 'NO_ENVIADO_AISLADO') return NextResponse.json({ success: true, activityId: activity.id, unchanged: true, sentFrom: sender })
     if (activity.resultado === 'ENVIO_INCIERTO') return NextResponse.json({ error: 'Microsoft aceptó la conexión pero no confirmó el resultado. Revisa Elementos enviados antes de reintentar para evitar duplicados.' }, { status: 409 })
     if (setup.kind === 'existing' && activity.resultado === 'ENVIO_PENDIENTE') return NextResponse.json({ error: 'Este correo ya se está procesando. Revisa la cronología antes de volver a intentarlo.' }, { status: 409 })
 
@@ -438,15 +474,41 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       if (claimed.count !== 1) return NextResponse.json({ error: 'Este correo ya se está procesando. Revisa la cronología antes de volver a intentarlo.' }, { status: 409 })
     }
 
-    const emailResult = await sendCrmEmail({
-      from: sender,
-      replyTo,
-      to,
-      cc,
-      bcc,
-      subject: title!,
-      html: textToEmailHtml(description, authorName),
-    })
+    const baseEmailMetadata = {
+      remitente: sender,
+      para: to,
+      ...(cc.length ? { cc } : {}),
+      ...(bcc.length ? { cantidadCco: bcc.length } : {}),
+      huellaOperacion: emailFingerprint,
+      canal: viaOutlookMail ? 'OUTLOOK_USUARIO' : 'BUZON_CORPORATIVO',
+      ...(borradorIa ? { borradorIa: true } : {}),
+      ...(emailIsolation!.modo === 'aislado' ? { aislamiento: { modo: emailIsolation!.modo, accion: emailIsolation!.accion, destinatariosOriginales: emailIsolation!.destinatariosOriginales } } : {}),
+    }
+
+    // Área 1 · staging sin dirección de prueba: no se envía nada; queda registrado en la ficha.
+    if (emailIsolation!.accion === 'no_enviado') {
+      await prisma.crmActividad.update({
+        where: { id: activity.id },
+        data: { resultado: 'NO_ENVIADO_AISLADO', fechaActividad: new Date(), metadatos: { ...baseEmailMetadata, guardadoEnEnviados: false, estadoGraph: 'NO_LLAMADO' } },
+      })
+      return NextResponse.json({ success: true, activityId: activity.id, sent: false, isolation: 'no_enviado' })
+    }
+
+    const emailHtml = textToEmailHtml(description, authorName)
+    const outlookResult = viaOutlookMail
+      ? await enviarCorreoComoUsuario({ accessToken: mailAuthorization!.accessToken, subject: emailIsolation!.subject, html: emailHtml, to: emailIsolation!.to, cc: emailIsolation!.cc, bcc: emailIsolation!.bcc })
+      : null
+    const emailResult = outlookResult
+      ? { success: outlookResult.success, status: outlookResult.status, uncertain: outlookResult.uncertain, sender }
+      : await sendCrmEmail({
+        from: sender,
+        replyTo,
+        to: emailIsolation!.to,
+        cc: emailIsolation!.cc,
+        bcc: emailIsolation!.bcc,
+        subject: emailIsolation!.subject,
+        html: emailHtml,
+      })
 
     if (!emailResult.success) {
       const uncertain = Boolean(emailResult.uncertain)
@@ -455,11 +517,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         data: {
           resultado: uncertain ? 'ENVIO_INCIERTO' : 'ERROR_ENVIO',
           metadatos: {
-            remitente: sender,
-            para: to,
-            ...(cc.length ? { cc } : {}),
-            ...(bcc.length ? { cantidadCco: bcc.length } : {}),
-            huellaOperacion: emailFingerprint,
+            ...baseEmailMetadata,
             guardadoEnEnviados: false,
             estadoGraph: uncertain ? 'INCIERTO' : 'RECHAZADO',
             codigoGraph: emailResult.status,
@@ -480,22 +538,23 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         resultado: 'ACEPTADO_GRAPH',
         fechaActividad: new Date(),
         metadatos: {
+          ...baseEmailMetadata,
           remitente: emailResult.sender,
-          para: to,
-          ...(cc.length ? { cc } : {}),
-          ...(bcc.length ? { cantidadCco: bcc.length } : {}),
-          huellaOperacion: emailFingerprint,
-          guardadoEnEnviados: 'SOLICITADO',
+          guardadoEnEnviados: viaOutlookMail ? true : 'SOLICITADO',
           estadoGraph: 'ACEPTADO',
           codigoGraph: emailResult.status,
+          ...(outlookResult?.messageId ? { outlookMessageId: outlookResult.messageId } : {}),
+          ...(outlookResult?.conversationId ? { outlookConversationId: outlookResult.conversationId } : {}),
+          ...(outlookResult?.internetMessageId ? { outlookInternetMessageId: outlookResult.internetMessageId } : {}),
+          ...(emailIsolation!.correoPrueba ? { desviadoAPrueba: true } : {}),
         },
       },
     })
-    return NextResponse.json({ success: true, activityId: activity.id, sentFrom: emailResult.sender, acceptedByMicrosoft: true })
+    return NextResponse.json({ success: true, activityId: activity.id, sentFrom: emailResult.sender, acceptedByMicrosoft: true, savedInOutlookSent: viaOutlookMail, isolation: emailIsolation!.modo === 'aislado' ? emailIsolation!.accion : undefined })
   } catch (error: any) {
     if (error?.code === 'P2002') {
       const existing = await prisma.crmActividad.findUnique({ where: { clientRequestId }, select: { id: true, tipo: true, resultado: true, creadoPorId: true } })
-      const completedEmail = type === 'CORREO' && (existing?.resultado === 'ACEPTADO_GRAPH' || existing?.resultado === 'ENVIADO')
+      const completedEmail = type === 'CORREO' && (existing?.resultado === 'ACEPTADO_GRAPH' || existing?.resultado === 'ENVIADO' || existing?.resultado === 'NO_ENVIADO_AISLADO')
       const completedCalendar = syncOutlook && existing?.resultado === 'CALENDARIO_CREADO'
       const completedLocalActivity = type !== 'CORREO' && !syncOutlook
       if (existing?.creadoPorId === authorId && existing.tipo === type && (completedEmail || completedCalendar || completedLocalActivity)) {

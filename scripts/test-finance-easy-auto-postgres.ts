@@ -135,16 +135,16 @@ async function main() {
       const activePolicies = await tx.$queryRaw(Prisma.sql`
         SELECT id::text FROM politicas_auto_modo_facil
         WHERE politica_key='MODO_FACIL_AUTO_RESTRINGIDA_STAGING_20261024' AND entorno='STAGING' AND estado='ACTIVA'
-          AND datos_desde=DATE '2026-01-01' AND datos_hasta=DATE '2026-10-08'
+          AND datos_desde=DATE '2026-01-01' AND datos_hasta=DATE '2026-11-25'
         ORDER BY autorizada_en DESC,created_at DESC,id DESC LIMIT 1 FOR KEY SHARE
       `) as Array<{ id: string }>
       const policyId = activePolicies[0]?.id ?? randomUUID()
       if (!activePolicies.length) await tx.$executeRaw(Prisma.sql`
         INSERT INTO politicas_auto_modo_facil (id,politica_key,entorno,estado,datos_desde,datos_hasta,autorizada_en,referencia_autorizacion,creada_por_id,created_at)
-        VALUES (CAST(${policyId} AS uuid),'MODO_FACIL_AUTO_RESTRINGIDA_STAGING_20261024','STAGING','ACTIVA',DATE '2026-01-01',DATE '2026-10-08',CURRENT_DATE,${`${TAG} autorización Víctor 24/10/2026`},${actor},CURRENT_TIMESTAMP)
+        VALUES (CAST(${policyId} AS uuid),'MODO_FACIL_AUTO_RESTRINGIDA_STAGING_20261024','STAGING','ACTIVA',DATE '2026-01-01',DATE '2026-11-25',CURRENT_DATE,${`${TAG} autorización Víctor 24/10/2026`},${actor},CURRENT_TIMESTAMP)
       `)
 
-      const baseline = await previewEasyAutomationTx(tx, { action: 'previsualizar', desde: '2026-01-01', hasta: '2026-10-08', limite: 100 })
+      const baseline = await previewEasyAutomationTx(tx, { action: 'previsualizar', desde: '2026-01-01', hasta: '2026-11-25', limite: 100 })
       const account = async (id: string, bank: string, suffix: string) => tx.cuentaBancaria.create({ data: {
         id, banco: bank, iban: `ES00${TAG.replaceAll('-', '').replaceAll('_', '').slice(0, 18)}${suffix}`.slice(0, 34),
         alias: `${TAG}-${suffix}`, activa: true, fechaCorteExtracto: new Date('2026-10-08T00:00:00.000Z'),
@@ -181,7 +181,7 @@ async function main() {
         `)
       }
 
-      const preview = await previewEasyAutomationTx(tx, { action: 'previsualizar', desde: '2026-01-01', hasta: '2026-10-08', limite: FIXTURE_LIMIT })
+      const preview = await previewEasyAutomationTx(tx, { action: 'previsualizar', desde: '2026-01-01', hasta: '2026-11-25', limite: FIXTURE_LIMIT })
       const selectedFixtureMovementIds = preview.candidates.flatMap(candidate => candidate.movimientos.map(movement => movement.id)).sort()
       assert.deepEqual(selectedFixtureMovementIds, [...fixtureMovementIds].sort(), 'El límite cerrado debe seleccionar sólo los tres movimientos fixture, no población staging')
       assert.equal(preview.candidates.filter(candidate => candidate.clase === 'TRASPASO_PROPIO').length, 1, 'El traspaso local exacto debe sobrevivir al saldo lejano ausente')
@@ -190,12 +190,12 @@ async function main() {
 
       // Simulate an application failure after the first selected fixture. The
       // savepoint rollback must erase its B4, P1 and receipt legs atomically.
-      const midPreview = await previewEasyAutomationTx(tx, { action: 'previsualizar', desde: '2026-01-01', hasta: '2026-10-08', limite: 1 })
+      const midPreview = await previewEasyAutomationTx(tx, { action: 'previsualizar', desde: '2026-01-01', hasta: '2026-11-25', limite: 1 })
       await tx.$executeRawUnsafe('SAVEPOINT easy_auto_mid_package')
       try {
         phase = 'fallo_intermedio_aplicar_una'
         const midApplied = await executeEasyAutomationTx(tx, actor, {
-          action: 'ejecutar', desde: '2026-01-01', hasta: '2026-10-08', limite: 1,
+          action: 'ejecutar', desde: '2026-01-01', hasta: '2026-11-25', limite: 1,
           idempotencyKey: randomUUID(), reviewHash: midPreview.reviewHash, confirmacion: true as const,
         })
         assert.equal(midApplied.counts.aplicados, 1, 'La simulación debe alcanzar la primera unidad antes del fallo')
@@ -208,7 +208,7 @@ async function main() {
       assert.deepEqual(await fixtureOutputCounts(tx, fixtureMovementIds), { receipt_legs: 0, b4_operations: 0, p1_decisions: 0 }, 'El fallo intermedio no puede dejar media aplicación B4/P1/recibo')
 
       const execution = {
-        action: 'ejecutar' as const, desde: '2026-01-01', hasta: '2026-10-08', limite: FIXTURE_LIMIT,
+        action: 'ejecutar' as const, desde: '2026-01-01', hasta: '2026-11-25', limite: FIXTURE_LIMIT,
         idempotencyKey: randomUUID(), reviewHash: preview.reviewHash, confirmacion: true as const,
       }
       phase = 'lote_fixture_aplicar_dos'

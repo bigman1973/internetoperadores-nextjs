@@ -1,0 +1,41 @@
+/* Área 1 · Resumen del CRM. CSS copiado literal de maqueta_crm_resumen_aprobada.html (aprobada por Víctor),
+   con todos los selectores bajo .io-ui.area1-resumen. Generado con: python3 scripts/area1-resumen-css.py app/admin/crm/area1-resumen.css (lee la maqueta); no editar a mano.
+   Las reglas idénticas a components/io-ui/io-ui.css se quitan al generar: aquí quedan solo las propias
+   del Resumen o las que la maqueta define distinto (p. ej. .g2, .g3, .item, .due, .pipe, .prow, .pbar, .stages, .q, .seg3, .ex, .searchbig, .subnav).
+   Cambios respecto a la maqueta: sin modo oscuro automático (el panel es claro) y sin body::before. */
+.io-ui.area1-resumen[data-theme="dark"]{--bg:#171513; --surface:#211F1C; --sunken:#2A2724; --line:#3A3632; --fg:#F1EEEA; --muted:#A8A199;
+  --accent:#FF6A24; --accent-soft:#3F2416; --accent-fg:#FF9A66;
+  --good:#5FC58A; --good-soft:#17331F; --warn:#E3A93B; --warn-soft:#3A2C10; --bad:#F2857C; --bad-soft:#3E1C19;
+  --before:#5E5852; --after:#FF6A24; color-scheme:dark}
+.io-ui.area1-resumen *, .io-ui.area1-resumen{box-sizing:border-box}
+.io-ui.area1-resumen .searchbig{flex:1 1 320px;min-width:0;padding:9px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);font-size:14px}
+.io-ui.area1-resumen .subnav{display:flex;gap:6px;flex-wrap:wrap;padding-block:10px;border-top:1px solid var(--line)}
+.io-ui.area1-resumen .subnav a{padding:5px 11px;border-radius:999px;background:var(--sunken);color:var(--fg);text-decoration:none;font-size:13px}
+.io-ui.area1-resumen .subnav a b{font-weight:500;color:var(--muted);margin-left:4px}
+.io-ui.area1-resumen .g2{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:18px;align-items:start}
+.io-ui.area1-resumen .g3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;align-items:start}
+.io-ui.area1-resumen .item{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
+.io-ui.area1-resumen .item:last-child{border-bottom:0}
+.io-ui.area1-resumen .time{font-family:var(--f-mono);font-size:12px;color:var(--muted);min-width:46px}
+.io-ui.area1-resumen .item .t{font-weight:500}
+.io-ui.area1-resumen .item .w{font-size:12px;color:var(--muted)}
+.io-ui.area1-resumen .due{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--bad-soft);color:var(--bad);white-space:nowrap}
+.io-ui.area1-resumen .due.today{background:var(--warn-soft);color:var(--warn)}
+.io-ui.area1-resumen .due.ok{background:var(--sunken);color:var(--muted)}
+.io-ui.area1-resumen .pipe{display:grid;gap:10px}
+.io-ui.area1-resumen .prow{display:grid;grid-template-columns:150px 1fr 90px;gap:10px;align-items:center;font-size:13px}
+.io-ui.area1-resumen .pbar{display:flex;height:18px;border-radius:4px;overflow:hidden;background:var(--sunken)}
+.io-ui.area1-resumen .pbar span{display:block;height:100%}
+.io-ui.area1-resumen .prow .n{text-align:right;font-variant-numeric:tabular-nums}
+.io-ui.area1-resumen .stages{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:8px}
+.io-ui.area1-resumen .stages i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.io-ui.area1-resumen .q{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.io-ui.area1-resumen .q:last-child{border-bottom:0}
+.io-ui.area1-resumen .q .big{font-family:var(--f-display);font-size:20px;font-weight:700;min-width:64px}
+.io-ui.area1-resumen .ex{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--warn-soft);color:var(--warn);margin-left:8px;vertical-align:2px}
+.io-ui.area1-resumen .seg3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:6px}
+.io-ui.area1-resumen .seg3 div{padding:10px;border-radius:var(--r);background:var(--sunken)}
+.io-ui.area1-resumen .seg3 b{display:block;font-family:var(--f-display);font-size:22px}
+@media(prefers-reduced-motion:reduce){.io-ui.area1-resumen *, .io-ui.area1-resumen{transition:none!important;animation:none!important}}
+@media(max-width:1000px){.io-ui.area1-resumen .g2, .io-ui.area1-resumen .g3{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:700px){.io-ui.area1-resumen .prow{grid-template-columns:100px 1fr 70px}}

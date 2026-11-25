@@ -61,6 +61,7 @@ vm.runInNewContext(code, {
     if (name === '@/lib/prisma') return { prisma }
     if (name === '@/lib/api-admin-area-read') return { checkAdminAreaWrite: async () => { writeChecks++; return denied } }
     if (name === '@/lib/finanzas/staging-safety') return { assertFinanceStagingIsolated: async () => { isolationCalls++ } }
+    if (name === '@/lib/finanzas/finance-runtime-safety') return { assertFinanceRuntimeReady: async () => { isolationCalls++ } }
     if (name === '@/lib/finanzas/movement-catalog') return {
       validarCategoriaNueva: (value: unknown) => value === 'IMPUESTOS' ? { ok: true, valor: 'Impuestos', fueAlias: true } : value === 'Impuestos' ? { ok: true, valor: value } : { ok: false, codigo: 'CATEGORIA_NO_PERMITIDA', mensaje: 'Categoría no permitida' },
       validarTipoMovimientoNuevo: (value: unknown) => value === 'Nomina' ? { ok: true, valor: 'Nómina', fueAlias: true } : value === 'Débito' ? { ok: true, valor: value } : { ok: false, codigo: 'TIPO_NO_PERMITIDO', mensaje: 'Tipo no permitido' },
@@ -92,7 +93,7 @@ async function main() {
   // Contratos fuente: importación protegida y sin Blob/outbound/conciliación heredada.
   const importSource = fs.readFileSync('app/api/admin/finanzas/importar-movimientos/route.ts', 'utf8')
   assert.match(importSource, /checkAdminAreaWrite\(AREA_IMPORTAR/)
-  assert.match(importSource, /assertFinanceStagingIsolated\(\)/)
+  assert.match(importSource, /assertFinanceRuntimeReady\(\)/)
   assert.match(importSource, /req\.headers\.get\('origin'\) !== req\.nextUrl\.origin/)
   assert.match(importSource, /MAX_ARCHIVO_BYTES/)
   assert.match(importSource, /avisosSaldo/)

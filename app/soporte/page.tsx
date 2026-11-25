@@ -38,7 +38,8 @@ export default function SoportePage() {
           tipo: ticketData.tipo,
           prioridad: ticketData.prioridad,
           descripcion: ticketData.descripcion,
-          newsletter: ticketData.newsletter
+          newsletter: ticketData.newsletter,
+          acepta: ticketData.acepta
         })
       });
       if (!response.ok) throw new Error('Error al enviar');

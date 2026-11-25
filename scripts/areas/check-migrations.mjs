@@ -8,7 +8,9 @@ import { ROOT } from './run-batteries.mjs';
 export function migrationNameValid(name) { return /^\d{8}(?:_\d{6})?_area[1-9]_[a-z0-9]+(?:_[a-z0-9]+)*$/.test(name); }
 export function additiveSqlCheck(sql) {
   const text = sql.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '');
-  const destructive = /\b(DROP\s+(TABLE|COLUMN|INDEX|CONSTRAINT|SCHEMA|TYPE|TRIGGER|FUNCTION)|TRUNCATE|DELETE\s+FROM|UPDATE\s+[\w".]|RENAME\s+(TO|COLUMN)|ALTER\s+COLUMN\s+\w+\s+TYPE)\b/i;
+  // Preserve staging's conservative executable-SQL check. BEFORE TRUNCATE
+  // is a trigger declaration, not execution; no destructive SQL is allowed.
+  const destructive = /\b(?:DROP\b|TRUNCATE(?:\s+TABLE)?\s+(?!ON\b)(?:ONLY\s+)?[\w".]+|DELETE\s+FROM|UPDATE\s+[\w".]|RENAME\s+(?:TO|COLUMN)|ALTER\s+COLUMN\s+\w+\s+TYPE)\b/i;
   return !destructive.test(text);
 }
 export function main() {

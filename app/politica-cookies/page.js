@@ -69,6 +69,13 @@ export default function PoliticaCookies() {
           </section>
 
           <section className="mb-8">
+            <h2 className="text-2xl font-bold mb-4 text-gray-900">Medición de visitas sin cookies</h2>
+            <p className="text-gray-700 mb-4">
+              Usamos Metricool (Metricool Software, S.L.) para medir de forma anónima y agregada las visitas, sin cookies ni identificadores. Actúa como encargado del tratamiento.
+            </p>
+          </section>
+
+          <section className="mb-8">
             <h2 className="text-2xl font-bold mb-4 text-gray-900">Gestión de cookies</h2>
             <p className="text-gray-700 mb-4">
               Puede gestionar sus preferencias de cookies en cualquier momento haciendo clic en el botón de configuración de cookies que aparece en la parte inferior de la página, o puede configurar su navegador para rechazar cookies.

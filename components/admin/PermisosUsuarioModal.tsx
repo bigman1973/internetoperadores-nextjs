@@ -16,6 +16,8 @@ interface PermisoUsuario {
   codigo: string
   lectura: boolean
   escritura: boolean
+  confirmar: boolean
+  exportar: boolean
 }
 
 interface Props {
@@ -29,8 +31,17 @@ interface Perfil {
   nombre: string
   descripcion: string | null
   color: string
-  permisos: Array<{ areaCodigo: string; lectura: boolean; escritura: boolean }>
+  permisos: Array<{ areaCodigo: string; lectura: boolean; escritura: boolean; confirmar: boolean; exportar: boolean }>
 }
+
+type Capacidad = 'lectura' | 'escritura' | 'confirmar' | 'exportar'
+
+const CAPACIDADES: ReadonlyArray<Readonly<{ key: Capacidad; label: string; activeClass: string }>> = [
+  { key: 'lectura', label: 'Ver', activeClass: 'bg-blue-100 text-blue-700' },
+  { key: 'escritura', label: 'Editar', activeClass: 'bg-green-100 text-green-700' },
+  { key: 'confirmar', label: 'Confirmar', activeClass: 'bg-amber-100 text-amber-800' },
+  { key: 'exportar', label: 'Exportar', activeClass: 'bg-violet-100 text-violet-700' },
+]
 
 export default function PermisosUsuarioModal({ usuarioId, usuarioNombre, onClose }: Props) {
   const [areas, setAreas] = useState<Area[]>([])
@@ -64,6 +75,8 @@ export default function PermisosUsuarioModal({ usuarioId, usuarioNombre, onClose
         codigo: p.area.codigo,
         lectura: p.lectura,
         escritura: p.escritura,
+        confirmar: p.confirmar === true,
+        exportar: p.exportar === true,
       })))
       setPerfiles(perfilesData.perfiles || [])
     } catch (err) {
@@ -74,7 +87,7 @@ export default function PermisosUsuarioModal({ usuarioId, usuarioNombre, onClose
   }
 
   async function aplicarPerfil(perfil: Perfil) {
-    if (!confirm(`¿Aplicar perfil "${perfil.nombre}" a ${usuarioNombre}? Esto reemplazará todos los permisos actuales.`)) return
+    if (!confirm(`¿Sustituir los permisos individuales actuales de ${usuarioNombre} por la plantilla "${perfil.nombre}"? El rol principal no cambia.`)) return
     setSaving(true)
     try {
       await fetch('/api/admin/permisos', {
@@ -93,8 +106,8 @@ export default function PermisosUsuarioModal({ usuarioId, usuarioNombre, onClose
   async function guardarComoPerfil() {
     if (!newPerfilNombre.trim()) return
     const perfilPermisos = permisos
-      .filter(p => p.lectura || p.escritura)
-      .map(p => ({ areaCodigo: p.codigo, lectura: p.lectura, escritura: p.escritura }))
+      .filter(p => p.lectura || p.escritura || p.confirmar || p.exportar)
+      .map(p => ({ areaCodigo: p.codigo, lectura: p.lectura, escritura: p.escritura, confirmar: p.confirmar, exportar: p.exportar }))
 
     try {
       await fetch('/api/admin/permisos', {
@@ -118,48 +131,53 @@ export default function PermisosUsuarioModal({ usuarioId, usuarioNombre, onClose
     }
   }
 
-  function getPermiso(areaId: string): { lectura: boolean; escritura: boolean } {
+  function getPermiso(areaId: string): Omit<PermisoUsuario, 'areaId' | 'codigo'> {
     const p = permisos.find(p => p.areaId === areaId)
-    return p ? { lectura: p.lectura, escritura: p.escritura } : { lectura: false, escritura: false }
+    return p
+      ? { lectura: p.lectura, escritura: p.escritura, confirmar: p.confirmar, exportar: p.exportar }
+      : { lectura: false, escritura: false, confirmar: false, exportar: false }
   }
 
-  function togglePermiso(area: Area, tipo: 'lectura' | 'escritura') {
+  function togglePermiso(area: Area, tipo: Capacidad) {
     setPermisos(prev => {
       const existing = prev.find(p => p.areaId === area.id)
       if (existing) {
         const newVal = !existing[tipo]
-        if (tipo === 'escritura' && newVal) {
-          return prev.map(p => p.areaId === area.id ? { ...p, escritura: true, lectura: true } : p)
-        }
         if (tipo === 'lectura' && !newVal) {
-          return prev.map(p => p.areaId === area.id ? { ...p, lectura: false, escritura: false } : p)
+          return prev.map(p => p.areaId === area.id ? { ...p, lectura: false, escritura: false, confirmar: false, exportar: false } : p)
         }
-        return prev.map(p => p.areaId === area.id ? { ...p, [tipo]: newVal } : p)
+        return prev.map(p => p.areaId === area.id ? { ...p, [tipo]: newVal, ...(tipo !== 'lectura' && newVal ? { lectura: true } : {}) } : p)
       } else {
         return [...prev, {
           areaId: area.id,
           codigo: area.codigo,
           lectura: true,
           escritura: tipo === 'escritura',
+          confirmar: tipo === 'confirmar',
+          exportar: tipo === 'exportar',
         }]
       }
     })
   }
 
-  function toggleGrupo(parentCodigo: string, tipo: 'lectura' | 'escritura', value: boolean) {
+  function toggleGrupo(parentCodigo: string, tipo: Capacidad, value: boolean) {
     const areasGrupo = areas.filter(a => a.codigo === parentCodigo || a.codigo.startsWith(parentCodigo + '.'))
     setPermisos(prev => {
       let updated = [...prev]
       for (const area of areasGrupo) {
         const existing = updated.find(p => p.areaId === area.id)
         if (existing) {
-          if (tipo === 'escritura') {
-            updated = updated.map(p => p.areaId === area.id ? { ...p, escritura: value, lectura: value ? true : p.lectura } : p)
-          } else {
-            updated = updated.map(p => p.areaId === area.id ? { ...p, lectura: value, escritura: value ? p.escritura : false } : p)
-          }
+          updated = updated.map(p => p.areaId === area.id ? {
+            ...p,
+            [tipo]: value,
+            ...(tipo === 'lectura' && !value ? { escritura: false, confirmar: false, exportar: false } : {}),
+            ...(tipo !== 'lectura' && value ? { lectura: true } : {}),
+          } : p)
         } else if (value) {
-          updated.push({ areaId: area.id, codigo: area.codigo, lectura: true, escritura: tipo === 'escritura' })
+          updated.push({
+            areaId: area.id, codigo: area.codigo, lectura: true,
+            escritura: tipo === 'escritura', confirmar: tipo === 'confirmar', exportar: tipo === 'exportar',
+          })
         }
       }
       return updated
@@ -171,7 +189,10 @@ export default function PermisosUsuarioModal({ usuarioId, usuarioNombre, onClose
     try {
       const allPermisos = areas.map(area => {
         const p = permisos.find(pe => pe.areaId === area.id)
-        return { areaId: area.id, lectura: p?.lectura || false, escritura: p?.escritura || false }
+        return {
+          areaId: area.id, lectura: p?.lectura || false, escritura: p?.escritura || false,
+          confirmar: p?.confirmar || false, exportar: p?.exportar || false,
+        }
       })
       await fetch('/api/admin/permisos', {
         method: 'POST',
@@ -248,33 +269,27 @@ export default function PermisosUsuarioModal({ usuarioId, usuarioNombre, onClose
             )}
           </div>
 
-          {/* Botones de permiso */}
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => togglePermiso(area, 'lectura')}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
-                permiso.lectura
-                  ? 'bg-blue-100 text-blue-700 shadow-sm'
-                  : 'bg-gray-100 text-gray-400 hover:bg-blue-50 hover:text-blue-600'
-              }`}
-            >
-              Ver
-            </button>
-            <button
-              onClick={() => togglePermiso(area, 'escritura')}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
-                permiso.escritura
-                  ? 'bg-green-100 text-green-700 shadow-sm'
-                  : 'bg-gray-100 text-gray-400 hover:bg-green-50 hover:text-green-600'
-              }`}
-            >
-              Editar
-            </button>
+          {/* Las cuatro acciones son independientes: Editar no concede Confirmar ni Exportar. */}
+          <div className="flex flex-wrap justify-end gap-1.5">
+            {CAPACIDADES.map(capacidad => (
+              <button
+                key={capacidad.key}
+                type="button"
+                onClick={() => togglePermiso(area, capacidad.key)}
+                aria-pressed={permiso[capacidad.key]}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                  permiso[capacidad.key] ? `${capacidad.activeClass} shadow-sm` : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                }`}
+              >
+                {capacidad.label}
+              </button>
+            ))}
             {tieneHijos && (
               <button
-                onClick={() => toggleGrupo(area.codigo, 'escritura', true)}
+                type="button"
+                onClick={() => toggleGrupo(area.codigo, 'lectura', true)}
                 className="p-1 rounded-md bg-indigo-50 text-indigo-400 hover:text-indigo-600 hover:bg-indigo-100 transition-colors"
-                title="Dar acceso completo a este grupo y subapartados"
+                title="Dar acceso de lectura a este grupo y subapartados"
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
@@ -351,10 +366,11 @@ export default function PermisosUsuarioModal({ usuarioId, usuarioNombre, onClose
             </span>
             <span className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-green-500"></span>
-              Editar = crear, modificar y eliminar
+              Editar = crear o modificar
             </span>
+            <span>Confirmar y Exportar son acciones separadas.</span>
           </div>
-          <span className="text-[10px] text-gray-400">Los subapartados heredan del padre</span>
+          <span className="text-[10px] text-gray-400">El permiso del padre alcanza sus subapartados; aquí se muestran de forma explícita.</span>
         </div>
 
         {/* Árbol de permisos */}
@@ -373,6 +389,12 @@ export default function PermisosUsuarioModal({ usuarioId, usuarioNombre, onClose
               </span>
               <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-50 text-green-700 text-xs font-medium">
                 {permisos.filter(p => p.escritura).length} editables
+              </span>
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-50 text-amber-800 text-xs font-medium">
+                {permisos.filter(p => p.confirmar).length} confirmables
+              </span>
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-violet-50 text-violet-700 text-xs font-medium">
+                {permisos.filter(p => p.exportar).length} exportables
               </span>
             </div>
             {!showSavePerfil ? (

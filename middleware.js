@@ -87,34 +87,70 @@ async function targetHasLiveMatrixPermission(policy, targetId, requirement) {
 }
 
 /** Reads at most 16 KiB from a clone. It never consumes the handler body. */
-async function impersonationAction(request) {
+async function impersonationAction(request, area4Strict = false) {
   if (SAFE_API_METHODS.has(request.method)) return null;
   const type = request.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
   if (type === 'multipart/form-data') return '__multipart__';
   if (type !== 'application/json') return null;
   const declared = request.headers.get('content-length');
-  if (declared && (!/^\d+$/.test(declared) || Number(declared) > 16 * 1024)) return null;
+  if (declared && (!/^\d+$/.test(declared) || Number(declared) > 16 * 1024)) return area4Strict ? '__area4_unverifiable__' : null;
   try {
     const trace = process.env.FINANCE_STAGING_SANDBOX === '1' && request.nextUrl.pathname === '/api/admin/finanzas/conciliar';
     if (trace) console.info('CONCILIAR_BODY_PHASE', 'clone-start');
     const reader = request.clone().body?.getReader();
-    if (!reader) return null;
+    if (!reader) return area4Strict ? '__area4_unverifiable__' : null;
     const decoder = new TextDecoder('utf-8', { fatal: true });
     let bytes = 0; let text = '';
     for (;;) {
       const part = await reader.read();
       if (part.done) break;
       bytes += part.value.byteLength;
-      if (bytes > 16 * 1024) { await reader.cancel().catch(() => undefined); return null; }
+      if (bytes > 16 * 1024) { void reader.cancel().catch(() => undefined); return area4Strict ? '__area4_unverifiable__' : null; }
       text += decoder.decode(part.value, { stream: true });
     }
     text += decoder.decode();
     if (trace) console.info('CONCILIAR_BODY_PHASE', 'clone-finished');
     const value = JSON.parse(text);
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-    const action = value.action;
-    return typeof action === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(action) ? action : null;
-  } catch { return null; }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return area4Strict ? '__area4_unverifiable__' : null;
+    const action = area4Strict ? (value.action ?? value.accion) : value.action;
+    if (area4Strict && action === undefined) return null;
+    return typeof action === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(action) ? action : (area4Strict ? '__area4_unverifiable__' : null);
+  } catch { return area4Strict ? '__area4_unverifiable__' : null; }
+}
+
+/** Inspect only registered JSON command handlers. Non-command batch/upload
+ * bodies retain their own limits; an unverifiable command never becomes E-only.
+ */
+async function area4JsonCommand(request, maximumBytes) {
+  const type = request.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
+  if (type !== 'application/json') return { errorStatus: 415 };
+  const declared = request.headers.get('content-length');
+  if (declared && (!/^\d+$/.test(declared) || Number(declared) > maximumBytes)) return { errorStatus: 400 };
+  try {
+    const reader = request.clone().body?.getReader();
+    if (!reader) return { errorStatus: 400 };
+    const decoder = new TextDecoder('utf-8', { fatal: true });
+    let bytes = 0; let text = '';
+    for (;;) {
+      const part = await reader.read();
+      if (part.done) break;
+      bytes += part.value.byteLength;
+      if (bytes > maximumBytes) {
+        // A cancelled tee branch can await consumption of the untouched handler
+        // branch. Do not await that promise before returning the rejection.
+        void reader.cancel().catch(() => undefined);
+        return { errorStatus: 400 };
+      }
+      text += decoder.decode(part.value, { stream: true });
+    }
+    text += decoder.decode();
+    const body = JSON.parse(text);
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return { errorStatus: 400 };
+    if (body.action !== undefined && body.accion !== undefined && body.action !== body.accion) return { errorStatus: 400 };
+    const action = body.action ?? body.accion;
+    if (action !== undefined && (typeof action !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(action))) return { errorStatus: 400 };
+    return { action: action ?? null, body };
+  } catch { return { errorStatus: 400 }; }
 }
 
 /**
@@ -366,6 +402,9 @@ function financeAreas(pathname) {
     nominas: ['admin.finanzas.conciliacion'],
     'nominas-propuestas': ['admin.finanzas.conciliacion'],
     tickets: ['admin.finanzas.tickets'],
+    // E (24/11): la autorización real (rol, edición, aprobación) la hace cada handler con lib/impuestos/auth.ts.
+    impuestos: ['admin.finanzas.impuestos'],
+    presupuesto: ['admin.finanzas.presupuesto'],
   };
   return aliases[section] || [];
 }
@@ -427,6 +466,159 @@ async function highRiskApiBoundary(request) {
   }
 }
 
+/** Area4 is an additional live boundary. Legacy guards below remain intact.
+ * Unadopted accounts retain their historical ACL; adoption is persisted and a
+ * zero-grant adopted account never falls back to a role/JWT privilege.
+ */
+async function area4RegisteredAdminApiBoundary(request) {
+  const pathname = request.nextUrl.pathname;
+  const isAdminPage = pathname === '/admin' || pathname.startsWith('/admin/');
+  const isAdminApi = pathname.startsWith('/api/admin/');
+  const isPage = isAdminPage || pathname === '/empleado' || pathname.startsWith('/empleado/') || pathname === '/peticiones' || pathname.startsWith('/peticiones/');
+  const isApi = isAdminApi || pathname.startsWith('/api/empleado/') || pathname === '/api/empleado' || pathname === '/api/peticiones' || pathname.startsWith('/api/peticiones/');
+  if ((!isPage && !isApi) || request.method === 'OPTIONS') return null;
+  // Recovery/state of acting has its own closed policy and must remain reachable.
+  if (pathname === '/api/admin/actuar-como') return null;
+  try {
+    if (!isAdminPage && !isAdminApi) {
+      const catalogue = await import('@/lib/area4/section-registry');
+      const portalSurface = catalogue.area4RegisteredSurface(pathname, isApi ? 'api' : 'page');
+      if (!portalSurface) return privateBoundary({ error: 'Superficie propia no registrada' }, 403);
+      if (portalSurface.baseline) return null; // Existing own-data guards retain their exact semantics and zero SQL overhead.
+    }
+    const [registry, { getToken }, { default: prisma }, policy, requestPolicy] = await Promise.all([
+      import('@/lib/area4/section-registry'), import('next-auth/jwt'), import('@/lib/prisma'),
+      import('@/lib/area4/policy'), import('@/lib/area4/request-policy'),
+    ]);
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET, cookieName: configuredSessionCookieName() });
+    if (token?.userType !== 'admin') return isApi ? privateBoundary({ error: 'No autorizado' }, 401) : isAdminPage ? null : privateBoundary({ error: 'Apartado nuevo sin asignación confirmada' }, 403);
+    const userId = Number(token.id);
+    if (!Number.isSafeInteger(userId) || userId <= 0) return privateBoundary({ error: 'No autorizado' }, 401);
+    // Minimal projection remains readable before migration; absence of the new
+    // schema is NOT allowed to bypass identity administration or a marked ACL.
+    const principal = await prisma.usuarioAdmin.findUnique({ where: { id: userId }, select: { id: true, activo: true, rol: true, roles: true } });
+    if (!principal?.activo) return privateBoundary({ error: 'No autorizado' }, 401);
+    const query = request.nextUrl.searchParams;
+    const ownAcl = requestPolicy.area4CanReadOwnPermissionSnapshot({ path: pathname, method: request.method,
+      action: query.get('action'), usuarioId: query.get('usuarioId'), uid: query.get('uid'), effectiveId: userId });
+    const codigoArea = registry.area4RegisteredSurfaceArea(pathname, isApi ? 'api' : 'page');
+    if (!codigoArea) return privateBoundary({ error: 'Superficie administrativa no registrada' }, 403);
+    const surfaceMatch = registry.area4RegisteredSurface(pathname, isApi ? 'api' : 'page');
+    if (!surfaceMatch) return privateBoundary({ error: 'Superficie administrativa no registrada' }, 403);
+    const isImpersonating = token.impersonation !== undefined && token.impersonation !== null;
+    // Claude 25/11: exact registered imports, ONLY the isolated staging branch.
+    // This precedes every adoption/legacy/owner escape hatch. The handler repeats
+    // the live owner check and owns the transactional RESULT, not this attempt.
+    if (isApi && request.method === 'POST' && surfaceMatch.surface.request?.stagingImport) {
+      const imports = await import('@/lib/area4/crm-staging-import');
+      const contract = imports.area4CrmStagingImportContract(pathname, request.method);
+      if (!contract || !imports.area4CrmStagingImportEnabled(process.env)) {
+        return privateBoundary({ error: 'Esta importación solo está habilitada en el staging aislado.' }, 403);
+      }
+      if (isImpersonating || !policy.isArea4Owner(principal)) {
+        return privateBoundary({ error: 'Solo el propietario real puede importar, sin actuación.' }, 403);
+      }
+      if (!imports.area4CrmStagingImportOriginAllowed(request)) {
+        return privateBoundary({ error: 'La importación debe confirmarse desde esta misma página.', codigo: 'ORIGIN_NOT_ALLOWED' }, 403);
+      }
+      const maximumBytes = contract === 'isp-multipart-v1'
+        ? surfaceMatch.surface.request.multipartBodyLimit : surfaceMatch.surface.request.commandBodyLimit;
+      if (!Number.isSafeInteger(maximumBytes) || maximumBytes <= 0) return privateBoundary({ error: 'No se pudo verificar el límite de importación.' }, 503);
+      const command = contract === 'isp-multipart-v1'
+        ? await imports.readArea4IspStagingCommand(request, maximumBytes)
+        : await imports.readArea4HubspotStagingCommand(request, maximumBytes);
+      if (command.errorStatus) return privateBoundary({ error: 'No se pudo verificar la confirmación de importación.' }, command.errorStatus);
+      if (contract === 'hubspot-confirm-v1' && (command.body?.confirmar !== true || Object.keys(command.body).length !== 1)) {
+        return privateBoundary({ error: 'Confirma expresamente la importación del historial.' }, 400);
+      }
+      const capabilities = requestPolicy.area4RequestCapabilities({ path: pathname, method: request.method, body: command.body });
+      for (const capability of capabilities) {
+        if (!policy.evaluateArea4Capability({ principal, grants: [], codigoArea, capability, isImpersonating })) {
+          return privateBoundary({ error: `Sin permiso de ${capability}` }, 403);
+        }
+      }
+      if (capabilities.includes('confirmar')) {
+        const { appendArea4Audit } = await import('@/lib/area4/audit');
+        await prisma.$transaction(tx => appendArea4Audit(tx, { actorId: principal.id, objetivoUsuarioId: null,
+          operacion: 'CONFIRMACION_SOLICITADA', areaCodigo: codigoArea,
+          despues: { fase: 'ANTES_DEL_HANDLER', resultado: 'INTENTO', metodo: request.method, capacidad: 'confirmar' }, origen: pathname }));
+      }
+      return null;
+    }
+    if (policy.isArea4OwnerOnlyArea(codigoArea)) {
+      return ownAcl || (!isImpersonating && policy.isArea4Owner(principal)) ? null : privateBoundary({ error: 'Solo Víctor puede acceder a esta sección' }, 403);
+    }
+    if (principal.rol === 'SUPER_ADMIN' && !policy.isArea4Owner(principal)) return privateBoundary({ error: 'Esta cuenta no es el propietario autorizado' }, 403);
+    const moduleCapabilities = requestPolicy.area4RequestCapabilities({ path: pathname, method: request.method,
+      queryAction: query.get('action') || query.get('accion') });
+    for (const capability of moduleCapabilities) {
+      if (!policy.area4FinanceModuleAllows({ principal, codigoArea, capability, isImpersonating })) {
+        return privateBoundary({ error: 'Tu perfil no permite esta operación en el módulo' }, 403);
+      }
+    }
+    // Gate BEFORE both legacy escape hatches. An old parent/CRM grant does not
+    // authorize a future handler, even when its area code already existed.
+    let surfaceUser = null;
+    let surfaceAccess = null;
+    if (!surfaceMatch.baseline) {
+      if (!isImpersonating && policy.isArea4Owner(principal)) return null;
+      if (principal.rol === 'SUPER_ADMIN') return privateBoundary({ error: 'La actuación no hereda el acceso del propietario' }, 403);
+      surfaceAccess = await import('@/lib/area4/surface-access');
+      surfaceUser = await surfaceAccess.readArea4SurfaceAccessUser(prisma, userId);
+      if (!surfaceUser?.permisosArea4Vivos) return privateBoundary({ error: 'Apartado nuevo sin asignación personal confirmada' }, 403);
+    }
+    let marker;
+    try {
+      marker = await prisma.usuarioAdmin.findUnique({ where: { id: userId }, select: { permisosArea4Vivos: true } });
+    } catch (error) {
+      // Only the exact absent adoption column permits historical compatibility.
+      if (policy.isArea4MissingAdoptionColumn(error)) return surfaceMatch.baseline ? null : privateBoundary({ error: 'Apartado nuevo sin adopción verificable' }, 403);
+      throw error;
+    }
+    if (!marker?.permisosArea4Vivos) return surfaceMatch.baseline ? null : privateBoundary({ error: 'Apartado nuevo sin adopción verificable' }, 403);
+    const user = surfaceUser || await prisma.usuarioAdmin.findUnique({ where: { id: userId }, select: {
+      id: true, activo: true, rol: true, roles: true, permisosArea4Vivos: true,
+      permisos: { where: { area: { activo: true } }, select: { lectura: true, escritura: true, confirmar: true, exportar: true, area: { select: { codigo: true } } } },
+    } });
+    if (!user?.activo) return privateBoundary({ error: 'No autorizado' }, 401);
+    if (request.headers.has('next-action')) return privateBoundary({ error: 'Acción de servidor no registrada en la matriz' }, 403);
+    const grants = surfaceUser ? surfaceUser.grants : user.permisos.map(p => ({ codigo: p.area.codigo, lectura: p.lectura, escritura: p.escritura, confirmar: p.confirmar, exportar: p.exportar }));
+    // The dashboard shell is readable only for a principal with an admin grant.
+    if (isPage && pathname === '/admin' && !policy.isArea4Owner(user)) {
+      return grants.some(p => p.codigo.startsWith('admin.') && p.lectura) ? null : privateBoundary({ error: 'Usa tu Portal del empleado' }, 403);
+    }
+    const maximumBytes = isApi ? requestPolicy.area4CommandBodyLimit(pathname, request.method) : null;
+    const command = maximumBytes === null ? { action: null } : await area4JsonCommand(request, maximumBytes);
+    if (command.errorStatus) return privateBoundary({ error: 'No se pudo verificar el comando JSON solicitado' }, command.errorStatus);
+    const capabilities = requestPolicy.area4RequestCapabilities({ path: pathname, method: request.method, action: command.action,
+      body: command.body, queryAction: query.get('action') || query.get('accion') });
+    for (const capability of capabilities) {
+      const consent = surfaceMatch.baseline || await surfaceAccess.validateArea4NewSurfaceConsent(prisma, surfaceUser, surfaceMatch, capability, policy.configuredArea4OwnerId());
+      if (!consent || !policy.evaluateArea4Capability({ principal: user, grants, codigoArea, capability, isImpersonating, permissionsAdopted: true,
+        newSurfaceConsent: consent, requireExactGrant: !surfaceMatch.baseline })) {
+        return privateBoundary({ error: `Sin permiso de ${capability}` }, 403);
+      }
+    }
+    // Durable PRE-DISPATCH attempts, not evidence of a completed business action.
+    // Completion auditing remains the responsibility of the module transaction.
+    if (capabilities.includes('confirmar') || capabilities.includes('exportar')) {
+      const [audit, acting] = await Promise.all([import('@/lib/area4/audit'), import('@/lib/impersonation')]);
+      const claims = acting.readImpersonationClaims(token);
+      const actorId = claims ? Number(claims.actorId) : user.id;
+      const operations = capabilities.filter(c => c === 'confirmar' || c === 'exportar');
+      await prisma.$transaction(async tx => {
+        for (const c of operations) await audit.appendArea4Audit(tx, { actorId, objetivoUsuarioId: user.id,
+          operacion: c === 'confirmar' ? 'CONFIRMACION_SOLICITADA' : 'EXPORTACION_SOLICITADA', areaCodigo: codigoArea,
+          despues: { fase: 'ANTES_DEL_HANDLER', resultado: 'INTENTO', metodo: request.method, capacidad: c }, origen: pathname });
+      });
+    }
+    return null;
+  } catch (error) {
+    console.error('Error verificando acceso vivo de Área 4:', error?.code || 'AREA4_BOUNDARY_FAILURE');
+    return privateBoundary({ error: 'No se pudo verificar el acceso' }, 503);
+  }
+}
+
 export async function middleware(request) {
   const timingStart = performance.now();
   const traceTiming = phase => {
@@ -447,11 +639,23 @@ export async function middleware(request) {
   if (process.env.FINANCE_STAGING_SANDBOX === '1' && request.nextUrl.pathname.startsWith('/api/')) {
     const path = request.nextUrl.pathname;
     const mutating = !['GET', 'HEAD', 'OPTIONS'].includes(request.method);
+    const imports = request.method === 'POST' && path.startsWith('/api/admin/crm/')
+      ? await import('@/lib/area4/crm-staging-import') : null;
+    const crmImportAllowed = imports !== null && imports.area4CrmStagingImportEnabled(process.env)
+      && imports.area4CrmStagingImportContract(path, request.method) !== null;
     // Se amplía por bloques validados, nunca por toda el área financiera.
     const allowed = path === '/api/admin/finanzas/sincronizar-onedrive'
+      // Only these registered POSTs pass the sandbox; live owner, V/E/C,
+      // confirmation and durable audit are mandatory below, before dispatch.
+      || crmImportAllowed
       // El control valida su propia sesión real, CSRF/origen y entorno; esta
       // excepción no habilita ninguna API de negocio durante actuación.
       || path === '/api/admin/actuar-como'
+      // Área 4: contrato cerrado de revisión/aplicación. El handler vuelve a
+      // exigir propietario vivo sin actuación, origen y revisión; aplicar
+      // exige además destino aislado y flag explícito. No abre rutas vecinas.
+      || (path === '/api/admin/usuarios/propuestas' && request.method === 'POST')
+      || (path === '/api/admin/usuarios/menu-presentacion' && request.method === 'PUT')
       || (/^\/api\/admin\/finanzas\/facturas\/calidad\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
       || (path === '/api/admin/finanzas/importar-movimientos' && request.method === 'POST')
       || (/^\/api\/admin\/finanzas\/movimientos\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
@@ -470,6 +674,10 @@ export async function middleware(request) {
       || (['/api/admin/finanzas/modo-facil/terceros', '/api/admin/finanzas/modo-facil/automaticas', '/api/admin/finanzas/reparto-clientes'].includes(path) && request.method === 'POST')
       || (['/api/admin/finanzas/modo-facil/terceros/bloque', '/api/admin/finanzas/modo-facil/cobros'].includes(path) && request.method === 'POST')
       || (path === '/api/admin/finanzas/conciliar' && request.method === 'POST')
+      || (['/api/admin/rentabilidad/recalculate', '/api/admin/rentabilidad/rules', '/api/admin/rentabilidad/exceptions', '/api/admin/rentabilidad/external-costs', '/api/admin/rentabilidad/sync'].includes(path) && request.method === 'POST')
+      || (path === '/api/cron/rentabilidad-daily' && request.method === 'GET')
+      || (path === '/api/admin/finanzas/impuestos/presentados' && ['POST', 'DELETE'].includes(request.method))
+      || (/^\/api\/admin\/finanzas\/presupuesto\/versiones(\/[^/]{1,100}(\/(lineas|aprobar))?)?$/.test(path) && ['POST', 'PATCH', 'DELETE'].includes(request.method))
       || (['/api/asistente/chat', '/api/asistente/valoracion', '/api/asistente/escalado', '/api/asistente/lead'].includes(path) && request.method === 'POST')
       || (['/api/admin/asistente/chat', '/api/admin/asistente/conocimiento', '/api/admin/asistente/conocimiento/web-publica'].includes(path) && request.method === 'POST')
       || (/^\/api\/admin\/asistente\/conocimiento\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
@@ -478,7 +686,7 @@ export async function middleware(request) {
       || (['/api/admin/asistente/derechos', '/api/admin/asistente/retencion'].includes(path) && request.method === 'POST')
       || (/^\/api\/admin\/asistente\/(leads|escalados|aprendizaje|huecos|informes\/propuestas)\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
       || path.startsWith('/api/auth/');
-    if (path.startsWith('/api/cron/') || (mutating && !allowed)) {
+    if ((path.startsWith('/api/cron/') && !(path === '/api/cron/rentabilidad-daily' && request.method === 'GET')) || (mutating && !allowed)) {
       return NextResponse.json({ error: 'Sandbox de Finanzas: esta acción está bloqueada en staging; no se envían comunicaciones ni se ejecutan sincronizaciones ajenas a los bloques autorizados.' }, { status: 403, headers: { 'Cache-Control': 'private, no-store' } });
     }
   }
@@ -538,7 +746,15 @@ export async function middleware(request) {
       && process.env.VERCEL_ENV === 'production'
       && process.env.FINANCE_STAGING_SANDBOX !== '1'
       && process.env.FINANCE_DEPLOYMENT_READ_ONLY !== '1';
-    if (externalPath && !isAuthorizedP2Path(path) && !assistantReportCronAllowed) return blockedBoundary(
+    // Rentabilidad is analytically isolated in staging; its own handler requires
+    // the living superadmin/Bearer, feature gate and approved external origin.
+    const rentabilidadAnalyticAllowed = process.env.FINANCE_STAGING_SANDBOX === '1'
+      && process.env.RENTABILIDAD_ENABLED === '1'
+      && process.env.RENTABILIDAD_STAGING_ONLY === '1'
+      && process.env.VERCEL_ENV !== 'production'
+      && ((path === '/api/cron/rentabilidad-daily' && request.method === 'GET')
+        || (path === '/api/admin/rentabilidad/sync' && request.method === 'POST'));
+    if (externalPath && !isAuthorizedP2Path(path) && !assistantReportCronAllowed && !rentabilidadAnalyticAllowed) return blockedBoundary(
       'Sincronizaciones y comunicaciones externas desactivadas en este lanzamiento; las acciones financieras manuales siguen disponibles.',
       'FINANCE_EXTERNAL_ACTIONS_DISABLED',
     );
@@ -584,6 +800,9 @@ export async function middleware(request) {
   // Rutas internas de alto riesgo fuera de Finanzas: una única verificación
   // viva antes de cualquier Route Handler. OPTIONS queda fuera como preflight
   // sin cuerpo ni datos; GET/HEAD y todas las escrituras se comprueban.
+  const area4RegisteredDenied = await area4RegisteredAdminApiBoundary(request);
+  if (area4RegisteredDenied) return area4RegisteredDenied;
+
   const highRiskDenied = await highRiskApiBoundary(request);
   if (highRiskDenied) return highRiskDenied;
 

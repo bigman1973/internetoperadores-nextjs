@@ -1,7 +1,9 @@
+import { getBrevoApiKey } from '@/lib/brevo-config'
+import { brevoFetch } from '@/lib/brevo-fetch'
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 
-const BREVO_API_KEY = (process.env.BREVO_API_KEY || '').trim()
+const BREVO_API_KEY = getBrevoApiKey()
 const BASE_URL = process.env.NEXTAUTH_URL || 'https://www.internetoperadores.com'
 
 const DOC_LABELS: Record<string, string> = {
@@ -17,7 +19,7 @@ const DOC_LABELS: Record<string, string> = {
 
 async function sendEmail({ to, toName, subject, htmlContent }: { to: string; toName: string; subject: string; htmlContent: string }) {
   try {
-    await fetch('https://api.brevo.com/v3/smtp/email', {
+    await brevoFetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
         'api-key': BREVO_API_KEY,

@@ -6,7 +6,8 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useRole } from './RoleContext'
 import { useSidebar } from './AdminSidebarContext'
 import { permissionSignature } from './sidebar-access-evaluator'
-import type { FinanceEnvironment } from './sidebar-navigation'
+import { area4SurfacePermissionSignature } from '@/lib/area4/surface-access-contract'
+import type { FinanceEnvironment, SidebarPresentation } from './sidebar-navigation'
 import type { AdminSidebarUser } from './server/AdminSidebarMenu'
 import { AdminSidebarPlaceholder } from './presentation/AdminSidebarPlaceholder'
 
@@ -29,11 +30,14 @@ interface AdminSidebarProps {
   financeEnvironment?: FinanceEnvironment
   /** Render hint derived by the current server response, never API authority. */
   conciliarEnabled?: boolean
+  rentabilidadReadonlyEnabled?: boolean
   user: AdminSidebarUser
   /** Árbol ya autorizado de la respuesta SSR actual, formado por el layout. */
   initialMenu: ReactNode
   initialMenuMode: InitialMenuMode
   initialPermissionSignature?: string
+  /** Sólo presentación; los permisos efectivos se recalculan dentro del menú. */
+  menuPresentation?: SidebarPresentation
 }
 
 /**
@@ -46,9 +50,11 @@ export default function AdminSidebar({
   easyOnly = false,
   financeEnvironment = null,
   conciliarEnabled = false,
+  rentabilidadReadonlyEnabled = false,
   initialMenu,
   initialMenuMode,
   initialPermissionSignature = '',
+  menuPresentation = 'historico',
 }: AdminSidebarProps) {
   const { isOpen, setIsOpen } = useSidebar()
   const pathname = usePathname()
@@ -59,10 +65,11 @@ export default function AdminSidebar({
     isViewingAs,
     isViewingAsUser,
     permisosGranulares,
+    surfacePermissions,
     permisosLoaded,
     effectiveUserId,
   } = useRole()
-  const livePermissionSignature = permissionSignature(permisosGranulares)
+  const livePermissionSignature = `${permissionSignature(permisosGranulares)}::${area4SurfacePermissionSignature(surfacePermissions)}`
   const previewSync = useRef({
     wasViewingAs: false,
     wasViewingAsUser: false,
@@ -108,7 +115,7 @@ export default function AdminSidebar({
     previewSync.current.restoringInitialActor = false
   }
 
-  const hasLiveSeedChange = initialMenuMode === 'seed' && livePermissionSignature !== initialPermissionSignature
+  const hasLiveSeedChange = ['seed', 'privileged'].includes(initialMenuMode) && livePermissionSignature !== initialPermissionSignature
   const needsLiveMenu = !easyOnly && (
     initialMenuMode === 'unavailable' ||
     isViewingAs ||
@@ -151,8 +158,11 @@ export default function AdminSidebar({
       anchor.classList.toggle('text-orange-600', active)
       anchor.classList.toggle('text-gray-700', !active)
       if (active) {
-        const group = anchor.closest('details')
-        if (group) group.open = true
+        let group = anchor.closest('details')
+        while (group) {
+          group.open = true
+          group = group.parentElement?.closest('details') || null
+        }
       }
     }
   }, [pathname, initialMenu, needsLiveMenu])
@@ -191,6 +201,8 @@ export default function AdminSidebar({
         easyOnly={easyOnly}
         financeEnvironment={financeEnvironment}
         conciliarEnabled={conciliarEnabled}
+        rentabilidadReadonlyEnabled={rentabilidadReadonlyEnabled}
+        menuPresentation={menuPresentation}
         onNavigate={onNavigate}
       />
     )

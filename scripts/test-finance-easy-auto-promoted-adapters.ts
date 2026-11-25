@@ -84,4 +84,13 @@ requires(undo, /originalActors\.length !== 1/, 'undo debe conservar la defensa f
 requires(undo, /originalActorId !== actorId && !await canReverseAnotherActorTx\(work, actorId\)/, 'undo debe rechazar reversión ajena sin gestor vivo')
 requires(reverse, /leg\.actorId !== actorId && !await canReverseAnotherActorTx\(work, actorId\)/, 'reverse debe rechazar reversión ajena sin gestor vivo')
 
+const autoSource = readFileSync(new URL('../lib/finanzas/easy-auto-db.ts', import.meta.url), 'utf8')
+requires(autoSource, /runtime\.runtime === 'production'\s*\? \{[^}]*dataUntil: EASY_AUTO_LEGACY_DATA_UNTIL/, 'producción debe conservar la ventana original 08/10')
+requires(autoSource, /environment: 'STAGING', stagingOnly: true, dataUntil: EASY_AUTO_DATA_UNTIL/, 'staging usa la ventana ampliada 25/11')
+assert.equal((autoSource.match(/input\.hasta !== scope\.dataUntil/g) ?? []).length, 2, 'previsualizar y ejecutar nueva exigen la ventana del entorno')
+assert.ok(autoSource.indexOf('executionReplayTx(work, actorId, input, scope)') < autoSource.lastIndexOf('input.hasta !== scope.dataUntil'), 'el replay histórico se resuelve antes de exigir la ventana')
+
+requires(autoSource, /recibos: await appliedReceipts\(work, scope\) \}/, 'sin política vigente los recibos históricos del entorno siguen visibles')
+requires(autoSource, /sibling\.politica_key=\$\{scope\.key\} AND sibling\.entorno=\$\{scope\.environment\}/, 'recibos se filtran por clave y entorno, no por la política vigente')
+
 console.log('Easy Auto promoted adapters: sourceguard y clasificación runtime verificados sin PostgreSQL.')

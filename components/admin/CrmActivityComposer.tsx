@@ -15,6 +15,8 @@ import {
   UserPlusIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline'
+import { Area1M365Aviso, Area1M365Correo } from './Area1M365'
+import { bloqueoCanalCorreo, canalCorreoInicial } from '@/lib/area1-m365'
 
 export type CrmActivityType = 'CORREO' | 'REUNION' | 'NOTA' | 'TAREA' | 'WHATSAPP' | 'LINKEDIN' | 'SMS' | 'CORREO_POSTAL'
 
@@ -36,7 +38,11 @@ type Props = {
     email: string | null
     connectedAt: string | null
     lastError: string | null
+    mail?: boolean
+    m365?: boolean
   }
+  /** Área 1 · aviso de aislamiento de Microsoft 365 (staging); null en producción */
+  m365Aviso?: string | null
   deals: DealOption[]
   onClose: () => void
   onCreated: (type: CrmActivityType, details?: { outlook: boolean }) => void
@@ -61,7 +67,7 @@ function isValidEmail(value: string | null | undefined) {
   return Boolean(value && EMAIL_PATTERN.test(value.trim()))
 }
 
-export default function CrmActivityComposer({ open, type, contactId, contactName, contactEmail, contactPhone, contactLinkedIn, senderEmail, outlookConnection, deals, onClose, onCreated }: Props) {
+export default function CrmActivityComposer({ open, type, contactId, contactName, contactEmail, contactPhone, contactLinkedIn, senderEmail, outlookConnection, m365Aviso = null, deals, onClose, onCreated }: Props) {
   const config = CONFIG[type]
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -91,6 +97,9 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
   const [disconnectingOutlook, setDisconnectingOutlook] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [requestId, setRequestId] = useState(() => createRequestId())
+  const outlookMailReady = outlookConnection.enabled && outlookConnection.connected && Boolean(outlookConnection.mail)
+  const [viaOutlook, setViaOutlook] = useState(() => canalCorreoInicial(outlookConnection) === 'outlook')
+  const [aiDraft, setAiDraft] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -121,7 +130,9 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
     setSaving(false)
     setError(null)
     setRequestId(createRequestId())
-  }, [contactEmail, contactName, open, outlookConnection.connected, outlookConnection.enabled, type])
+    setViaOutlook(canalCorreoInicial(outlookConnection) === 'outlook')
+    setAiDraft(false)
+  }, [contactEmail, contactName, open, outlookConnection.connected, outlookConnection.enabled, outlookMailReady, type])
 
   useEffect(() => {
     if (!open || !showContacts || contactQuery.trim().length < 2) {
@@ -181,6 +192,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
     if (!description.trim()) return setError(type === 'CORREO' ? 'Escribe el contenido del correo.' : 'Añade una descripción útil.')
     if ((type === 'CORREO' || type === 'TAREA') && !title.trim()) return setError(type === 'CORREO' ? 'Escribe el asunto del correo.' : 'Escribe el título de la tarea.')
     if (type === 'CORREO' && !to.trim()) return setError('Añade al menos un destinatario.')
+    if (type === 'CORREO') { const bloqueo = bloqueoCanalCorreo(viaOutlook, outlookConnection); if (bloqueo) return setError(bloqueo) }
     if (type === 'REUNION' && syncOutlook && !title.trim()) return setError('Escribe el título de la reunión.')
     if (type === 'REUNION' && syncOutlook && Number(durationMinutes) < 5) return setError('Indica una duración mínima de 5 minutos.')
     const assistedUrl = direction === 'SALIENTE' ? channelUrl(type, contactPhone, contactLinkedIn, contactName, description) : null
@@ -202,6 +214,8 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
           to: type === 'CORREO' ? splitEmails(to) : undefined,
           cc: type === 'CORREO' ? splitEmails(cc) : undefined,
           bcc: type === 'CORREO' ? splitEmails(bcc) : undefined,
+          viaOutlook: type === 'CORREO' ? viaOutlook && outlookMailReady : undefined,
+          borradorIa: type === 'CORREO' ? aiDraft : undefined,
           syncOutlook: type === 'REUNION' ? syncOutlook : undefined,
           onlineMeeting: type === 'REUNION' ? onlineMeeting : undefined,
           inviteAttendees: type === 'REUNION' ? inviteAttendees : undefined,
@@ -276,10 +290,8 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
             </div>
 
             {type === 'CORREO' && <>
-              <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-950">
-                <p><strong>De:</strong> {senderEmail}</p>
-                <p className="text-xs text-blue-800">Microsoft Graph solicitará guardar una copia en Elementos enviados de este buzón. El CRM conservará destinatarios, asunto, contenido y estado del intento.</p>
-              </div>
+              <Area1M365Aviso aviso={m365Aviso} />
+              {outlookConnection.m365 !== false && <Area1M365Correo contactId={contactId} conexion={outlookConnection} corporativo={senderEmail} viaOutlook={viaOutlook} onCanal={setViaOutlook} onBorrador={({ asunto, cuerpo }) => { setTitle(asunto); setDescription(cuerpo); setAiDraft(true) }} />}
               <div className="space-y-3">
                 <label className="block text-sm font-semibold text-slate-900">Para<input type="text" value={to} onChange={(event) => setTo(event.target.value)} required placeholder="correo@empresa.com" className="mt-2 block min-h-11 w-full rounded-xl border-slate-300 text-sm text-slate-900 focus:border-blue-500 focus:ring-blue-500" /></label>
                 <button type="button" onClick={() => setShowCopies((current) => !current)} className="text-xs font-semibold text-blue-700 hover:text-blue-900">{showCopies ? 'Ocultar CC y CCO' : 'Añadir CC o CCO'}</button>
@@ -287,6 +299,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
               </div>
             </>}
 
+            {type === 'REUNION' && syncOutlook && <Area1M365Aviso aviso={m365Aviso} />}
             {type === 'REUNION' && <div className="space-y-3 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-950">
               <label className={`flex items-start gap-3 ${outlookConnection.enabled && outlookConnection.connected ? 'cursor-pointer' : 'cursor-not-allowed opacity-75'}`}><input type="checkbox" checked={syncOutlook} onChange={(event) => setSyncOutlook(event.target.checked)} disabled={!outlookConnection.enabled || !outlookConnection.connected} className="mt-1 rounded border-violet-300 text-violet-600 focus:ring-violet-500" /><span><span className="block font-bold">Crear en mi agenda de Outlook</span><span className="mt-0.5 block text-xs leading-5 text-violet-800">{outlookConnection.enabled && outlookConnection.connected ? <>Organizador: {outlookConnection.email}. El CRM guardará el enlace y el identificador del evento.</> : outlookConnection.enabled ? 'Conecta tu cuenta corporativa para que tú figures como organizador.' : 'La integración individual está pendiente de habilitarse en Microsoft 365. Mientras tanto, puedes registrar la reunión solo en el CRM.'}</span></span></label>
               {outlookConnection.enabled && !outlookConnection.connected && <a href={`/api/admin/integraciones/outlook/connect?returnTo=${encodeURIComponent(`/admin/crm/contactos/${contactId}`)}`} className="inline-flex min-h-10 items-center justify-center rounded-xl bg-violet-700 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-violet-800 active:scale-[0.97]">Conectar mi Outlook</a>}

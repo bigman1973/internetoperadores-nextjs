@@ -35,6 +35,8 @@ import CrmContactoDataEditor, {
 } from './CrmContactoDataEditor'
 import type { CrmActivityType } from './CrmActivityComposer'
 import { useRole } from './RoleContext'
+import { Area1M365Acciones } from './Area1M365'
+import CrmWebCaptures, { type CrmWebCapture, type CrmOriginalDetail } from '@/components/crm/CrmWebCaptures'
 
 const CrmContactoSettings = dynamic(() => import('./CrmContactoSettings'), { loading: () => <PanelLoading label="Cargando ajustes…" /> })
 const CrmActivityComposer = dynamic(() => import('./CrmActivityComposer'), { loading: () => <PanelLoading label="Cargando formulario de actividad…" /> })
@@ -91,7 +93,7 @@ type ContactActivity = {
 type Props = {
   contact: {
     id: string
-    hubspotId: string
+    hubspotId: string | null
     name: string
     email: string
     phone: string
@@ -120,6 +122,8 @@ type Props = {
   deals: Deal[]
   lists: ListMembership[]
   activities?: ContactActivity[]
+  webCaptures?: CrmWebCapture[]
+  originalDetails?: CrmOriginalDetail[]
   emailSender: string
   outlookConnection: {
     enabled: boolean
@@ -127,7 +131,11 @@ type Props = {
     email: string | null
     connectedAt: string | null
     lastError: string | null
+    mail?: boolean
+    m365?: boolean
   }
+  /** Área 1 · aviso de aislamiento M365 (staging) */
+  m365Aviso?: string | null
   qualityIssues: string[]
   history: HistoryEntry[]
   dataEditor: CrmContactDataEditorProps
@@ -146,7 +154,7 @@ const QUICK_FIELDS = [
   { name: 'hs_lead_status', icon: <CheckBadgeIcon className="h-4 w-4" /> },
 ]
 
-export default function CrmContactoWorkspace({ contact, statusNotice, customer, companies, deals, lists, activities = [], emailSender, outlookConnection, qualityIssues, history, dataEditor, settings }: Props) {
+export default function CrmContactoWorkspace({ contact, statusNotice, customer, companies, deals, lists, activities = [], webCaptures = [], originalDetails = [], emailSender, outlookConnection, m365Aviso = null, qualityIssues, history, dataEditor, settings }: Props) {
   const router = useRouter()
   const { hasAreaAccess, isSuperAdmin, isViewingAs } = useRole()
   const canWrite = !isViewingAs && (isSuperAdmin || hasAreaAccess('admin.crm.contactos', 'escritura'))
@@ -307,7 +315,7 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
               <div className="mt-3 flex flex-wrap gap-2">
                 {contact.units.length > 0 ? contact.units.map((unit) => <span key={unit} className="rounded-full border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-800">{unit}</span>) : <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">Sin unidad de negocio</span>}
               </div>
-              <p className="mt-3 text-xs text-slate-400">{contact.hubspotId.startsWith('local:') ? 'Origen: CRM local' : `Referencia #${contact.hubspotId}`} · {openDeals.length.toLocaleString('es-ES')} {openDeals.length === 1 ? 'negocio abierto' : 'negocios abiertos'} · {lists.length.toLocaleString('es-ES')} {lists.length === 1 ? 'lista' : 'listas'}</p>
+              <p className="mt-3 text-xs text-slate-400">{!contact.hubspotId || contact.hubspotId.startsWith('local:') ? 'Origen: CRM local (sin HubSpot)' : `Referencia #${contact.hubspotId}`} · {openDeals.length.toLocaleString('es-ES')} {openDeals.length === 1 ? 'negocio abierto' : 'negocios abiertos'} · {lists.length.toLocaleString('es-ES')} {lists.length === 1 ? 'lista' : 'listas'}</p>
             </div>
           </div>
 
@@ -354,6 +362,8 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
                   <Highlight label="Última actualización" value={contact.sourceUpdatedAt || 'Sin fecha'} />
                 </div>
               </Panel>
+
+              <CrmWebCaptures captures={webCaptures} originalDetails={originalDetails} />
 
               <Panel>
                 <div className="flex items-center justify-between gap-3">
@@ -410,7 +420,7 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
                   {canWrite && <ActivityMenu open={activitySectionMenuOpen} setOpen={setActivitySectionMenuOpen} onSelect={openActivityComposer} compact />}
                 </div>
                 <div className="mt-6 space-y-4">
-                  {activities.length === 0 ? <EmptyState text="Todavía no hay actividad registrada. Usa “Registrar actividad” para crear la primera." /> : activities.map((activity) => <ActivityCard key={activity.id} activity={activity} canWrite={canWrite} updating={taskUpdating === activity.followUp?.id} onTaskState={updateTask} />)}
+                  {activities.length === 0 ? <EmptyState text="Todavía no hay actividad registrada. Usa “Registrar actividad” para crear la primera." /> : activities.map((activity) => <ActivityCard key={activity.id} activity={activity} canWrite={canWrite} m365Activo={outlookConnection.m365 !== false} updating={taskUpdating === activity.followUp?.id} onTaskState={updateTask} />)}
                 </div>
               </Panel>
               <Panel>
@@ -434,7 +444,7 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
         </section>}
       </div>
       <CrmCallComposer open={callComposerOpen} contactId={contact.id} contactName={contact.name} contactPhone={contact.phone === 'Sin informar' ? '' : contact.phone} deals={deals} onClose={() => setCallComposerOpen(false)} onCreated={() => handleActivityCreated('LLAMADA')} />
-      {activityComposerType && <CrmActivityComposer open type={activityComposerType} contactId={contact.id} contactName={contact.name} contactEmail={contact.email === 'Sin informar' ? '' : contact.email} contactPhone={contact.phone === 'Sin informar' ? '' : contact.phone} contactLinkedIn={contact.linkedIn} senderEmail={emailSender} outlookConnection={outlookConnection} deals={deals} onClose={() => setActivityComposerType(null)} onCreated={handleActivityCreated} />}
+      {activityComposerType && <CrmActivityComposer open type={activityComposerType} contactId={contact.id} contactName={contact.name} contactEmail={contact.email === 'Sin informar' ? '' : contact.email} contactPhone={contact.phone === 'Sin informar' ? '' : contact.phone} contactLinkedIn={contact.linkedIn} senderEmail={emailSender} outlookConnection={outlookConnection} m365Aviso={m365Aviso} deals={deals} onClose={() => setActivityComposerType(null)} onCreated={handleActivityCreated} />}
     </main>
   )
 }
@@ -471,7 +481,7 @@ function ActivityItem({ title, date, text, first = false, last = false }: { titl
   return <article className="relative grid grid-cols-[28px_minmax(0,1fr)] gap-3 pb-5 last:pb-0"><div className="relative flex justify-center">{!first && <span className="absolute -top-5 bottom-1/2 w-px bg-slate-200" />}{!last && <span className="absolute top-1/2 -bottom-5 w-px bg-slate-200" />}<span className="relative z-10 mt-1 flex h-7 w-7 items-center justify-center rounded-full border border-orange-200 bg-orange-50 text-orange-700"><ClockIcon className="h-4 w-4" /></span></div><div className="rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3"><div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between"><p className="font-semibold text-slate-900">{title}</p><time className="text-xs text-slate-400">{date}</time></div><p className="mt-1 text-sm leading-6 text-slate-600">{text}</p></div></article>
 }
 
-function ActivityCard({ activity, canWrite, updating, onTaskState }: { activity: ContactActivity; canWrite: boolean; updating: boolean; onTaskState: (id: string, state: 'PENDIENTE' | 'COMPLETADA', expectedState: 'PENDIENTE' | 'COMPLETADA') => void }) {
+function ActivityCard({ activity, canWrite, m365Activo, updating, onTaskState }: { activity: ContactActivity; canWrite: boolean; m365Activo: boolean; updating: boolean; onTaskState: (id: string, state: 'PENDIENTE' | 'COMPLETADA', expectedState: 'PENDIENTE' | 'COMPLETADA') => void }) {
   const visual = activityVisual(activity)
   const Icon = visual.icon
   const emailTo = stringArray(activity.metadata.para)
@@ -488,7 +498,8 @@ function ActivityCard({ activity, canWrite, updating, onTaskState }: { activity:
           <div className="flex shrink-0 flex-wrap gap-1.5"><span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${resultStyle(activity.type === 'TAREA' && activity.followUp?.state === 'COMPLETADA' ? 'COMPLETADA' : activity.result)}`}>{activityResultLabel(activity)}</span>{activity.origin === 'HUBSPOT' && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">Importada</span>}</div>
         </div>
         {activity.type === 'CORREO' && <div className="mt-3 rounded-xl bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-900"><p><strong>De:</strong> {sender || 'Remitente no disponible'}</p><p><strong>Para:</strong> {emailTo.join(', ') || 'Destinatario no disponible'}</p>{(activity.result === 'ACEPTADO_GRAPH' || activity.result === 'ENVIADO') && <p className="font-semibold text-blue-700">Microsoft 365 aceptó el envío; se solicitó guardar copia en Elementos enviados.</p>}{(activity.result === 'ENVIO_INCIERTO' || activity.result === 'ENVIO_PENDIENTE') && <p className="font-semibold text-red-700">Requiere revisión en Elementos enviados antes de repetirlo.</p>}</div>}
-        {activity.type === 'REUNION' && (activity.result?.startsWith('CALENDARIO_') || activity.result === 'ERROR_CALENDARIO') && <div className="mt-3 rounded-xl bg-violet-50 px-3 py-2 text-xs leading-5 text-violet-950">{activity.result === 'CALENDARIO_CREADO' && <p className="font-semibold text-violet-700">Evento creado y vinculado con la agenda individual de Outlook.</p>}{(activity.result === 'CALENDARIO_INCIERTO' || activity.result === 'CALENDARIO_PENDIENTE') && <p className="font-semibold text-red-700">Requiere revisión en la agenda antes de repetirlo.</p>}<div className="mt-1 flex flex-wrap gap-3">{outlookWebLink && <a href={outlookWebLink} target="_blank" rel="noopener noreferrer" className="font-bold text-violet-700 underline decoration-violet-300 underline-offset-2">Abrir en Outlook</a>}{teamsJoinUrl && <a href={teamsJoinUrl} target="_blank" rel="noopener noreferrer" className="font-bold text-violet-700 underline decoration-violet-300 underline-offset-2">Unirse por Teams</a>}</div></div>}
+        {activity.type === 'REUNION' && (activity.result?.startsWith('CALENDARIO_') || activity.result === 'ERROR_CALENDARIO') && <div className="mt-3 rounded-xl bg-violet-50 px-3 py-2 text-xs leading-5 text-violet-950">{activity.result === 'CALENDARIO_CREADO' && <p className="font-semibold text-violet-700">Evento creado y vinculado con la agenda individual de Outlook.</p>}{activity.result === 'CALENDARIO_NO_CREADO_AISLADO' && <p className="font-semibold text-violet-700">Pruebas: no creada en Outlook. En staging la reunión solo se guarda en la ficha.</p>}{(activity.result === 'CALENDARIO_INCIERTO' || activity.result === 'CALENDARIO_PENDIENTE') && <p className="font-semibold text-red-700">Requiere revisión en la agenda antes de repetirlo.</p>}<div className="mt-1 flex flex-wrap gap-3">{outlookWebLink && <a href={outlookWebLink} target="_blank" rel="noopener noreferrer" className="font-bold text-violet-700 underline decoration-violet-300 underline-offset-2">Abrir en Outlook</a>}{teamsJoinUrl && <a href={teamsJoinUrl} target="_blank" rel="noopener noreferrer" className="font-bold text-violet-700 underline decoration-violet-300 underline-offset-2">Unirse por Teams</a>}</div></div>}
+        {canWrite && m365Activo && (activity.type === 'CORREO' || activity.type === 'REUNION') && <div className="mt-3"><Area1M365Acciones contactId={activity.contactId} activityId={activity.id} sincronizable={activity.metadata.outlookSincronizable === true} hilo={activity.metadata.hiloOutlook === true} aislamiento={typeof activity.metadata.aislamientoAccion === 'string' ? activity.metadata.aislamientoAccion : null} borradorIa={activity.metadata.borradorIa === true} /></div>}
         {activity.result === 'CANAL_PREPARADO' && <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-700"><strong>Contenido preparado desde el CRM.</strong> La plataforma externa no ha confirmado apertura ni entrega.</div>}
         {location && <p className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600"><MapPinIcon className="h-4 w-4" />{location}</p>}
         <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-700">{activity.description}</p>
@@ -528,15 +539,19 @@ function activityResultLabel(activity: ContactActivity) {
     REGISTRADA: 'Registrada',
     CANAL_PREPARADO: 'Preparada',
     CALENDARIO_CREADO: 'Creada en Outlook',
+    CALENDARIO_NO_CREADO_AISLADO: 'Pruebas: no creada en Outlook',
     CALENDARIO_PENDIENTE: 'Creando en Outlook',
     CALENDARIO_INCIERTO: 'Revisar calendario',
     ERROR_CALENDARIO: 'No creada en Outlook',
+    NO_ENVIADO_AISLADO: 'No enviado (pruebas)',
+    CALENDARIO_CANCELADO: 'Cancelada en Outlook',
   }
   return activity.result ? labels[activity.result] || humanizeActivity(activity.result) : 'Registrada'
 }
 
 function resultStyle(result: string | null) {
   if (result === 'ERROR_ENVIO' || result === 'ENVIO_INCIERTO' || result === 'ERROR_CALENDARIO' || result === 'CALENDARIO_INCIERTO') return 'bg-red-100 text-red-800'
+  if (result === 'NO_ENVIADO_AISLADO' || result === 'CALENDARIO_CANCELADO') return 'bg-slate-200 text-slate-700'
   if (result === 'PENDIENTE' || result === 'ENVIO_PENDIENTE' || result === 'CALENDARIO_PENDIENTE' || result === 'CANAL_PREPARADO') return 'bg-amber-100 text-amber-800'
   if (result === 'ACEPTADO_GRAPH') return 'bg-blue-100 text-blue-800'
   if (result === 'ENVIADO' || result === 'CONTACTADO' || result === 'REGISTRADA' || result === 'COMPLETADA' || result === 'CALENDARIO_CREADO') return 'bg-emerald-100 text-emerald-800'

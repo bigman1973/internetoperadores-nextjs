@@ -1,10 +1,12 @@
+import { getBrevoApiKey } from '@/lib/brevo-config'
+import { brevoFetch } from '@/lib/brevo-fetch'
 import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
 
-const BREVO_API_KEY = process.env.BREVO_API_KEY || ''
+const BREVO_API_KEY = getBrevoApiKey()
 
 // Máximo de emails por lote (Brevo permite hasta 50 destinatarios por llamada transaccional)
 const BATCH_SIZE = 50
@@ -70,7 +72,7 @@ async function enviarLoteBrevo(
   // Brevo transaccional permite enviar a múltiples destinatarios en BCC
   // Pero para personalización futura y mejor tracking, enviamos en lotes de 50 con BCC
   try {
-    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    const res = await brevoFetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
         'accept': 'application/json',
@@ -128,7 +130,7 @@ export async function POST(request: Request) {
   }
 
   if (!BREVO_API_KEY) {
-    return NextResponse.json({ error: 'BREVO_API_KEY no configurada' }, { status: 500 })
+    return NextResponse.json({ error: 'Clave de Brevo no configurada (BREVO_API_KEY_STAGING o BREVO_API_KEY)' }, { status: 500 })
   }
 
   // Reconstruir filtros desde el comunicado (guardados en JSON)

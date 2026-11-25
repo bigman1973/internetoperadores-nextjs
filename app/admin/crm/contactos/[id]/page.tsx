@@ -3,9 +3,12 @@ import { requireAdminAreaRead } from '@/lib/admin-area-auth'
 import { registrarArea } from '@/lib/permisos'
 import prisma from '@/lib/prisma'
 import CrmContactoWorkspace from '@/components/admin/CrmContactoWorkspace'
+import CrmIspFichaResumen from '@/components/admin/CrmIspFichaResumen'
+import { canAccessCrmRelated } from '@/lib/crm-empresas-auth'
 import { CRM_BUSINESS_UNIT_PROPERTY, crmBusinessUnitLabel, getCrmBusinessUnitOptions } from '@/lib/crm-unidades-negocio'
 import { getDefaultEmailSender } from '@/lib/email'
 import { getOutlookConnectionStatus } from '@/lib/outlook-user-connection'
+import { avisoAislamiento } from '@/lib/area1-m365'
 import {
   formatCrmContactPropertyValue,
   friendlyPropertyLabel,
@@ -41,6 +44,11 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
       where: { id, objectTypeId: '0-1' },
       include: {
         clienteWeb: true,
+        captacionesWeb: { orderBy: [{ fechaEnvio: 'desc' }, { id: 'desc' }] },
+        leadsMigracionWeb: { select: { id: true } },
+        leadsSoluciones: { select: { id: true, tipo: true } },
+        leadsPartners: { select: { id: true } },
+        altasServicio: { select: { id: true } },
         empresasCrm: {
           where: { activo: true, empresa: { activo: true } },
           include: { empresa: { select: { id: true, nombre: true, tipo: true, clientes: { select: { clienteId: true }, take: 1 } } } },
@@ -104,7 +112,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
   const jobTitle = effectiveProperties.jobtitle || ''
   const website = effectiveProperties.website || ''
   const city = effectiveProperties.city || ''
-  const contactName = [effectiveProperties.firstname, effectiveProperties.lastname].filter(Boolean).join(' ').trim() || contact.nombre || email || `Contacto #${contact.hubspotId}`
+  const contactName = [effectiveProperties.firstname, effectiveProperties.lastname].filter(Boolean).join(' ').trim() || contact.nombre || email || `Contacto #${contact.hubspotId || contact.id}`
   const units = contact.unidadesNegocio.map((unit) => crmBusinessUnitLabel(unit, businessUnitOptions))
   const lifecycle = formatCrmContactPropertyValue(effectiveProperties.lifecyclestage, definitionsByName.get('lifecyclestage'))
   const leadStatus = formatCrmContactPropertyValue(effectiveProperties.hs_lead_status, definitionsByName.get('hs_lead_status'))
@@ -120,14 +128,23 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
   if (contact.propiedadesCompletasError) qualityIssues.push('La última importación de origen no pudo recuperar toda la información del contacto.')
 
   const statusNotice = isCustomer
-    ? { tone: 'green' as const, title: 'Contacto convertido en cliente.', text: 'Su correo coincide con una persona o empresa que ya ha comprado. Conserva sus listas y su histórico de origen.' }
+    ? { tone: 'green' as const, title: 'Contacto con cliente asociado.', text: 'Conserva la asociación de cliente existente, sus listas y su histórico de origen. Una nueva captación no cambia esa asociación.' }
     : ambiguousMatches > 1
-      ? { tone: 'amber' as const, title: 'Lead pendiente de revisión.', text: `Este correo aparece en ${ambiguousMatches.toLocaleString('es-ES')} clientes distintos. No se ha convertido automáticamente para evitar una asociación equivocada.` }
-      : { tone: 'blue' as const, title: 'Lead.', text: 'Todavía no existe una compra asociada a este correo. Pasará automáticamente a cliente cuando aparezca en la cartera del panel.' }
+      ? { tone: 'amber' as const, title: 'Lead pendiente de revisión.', text: `Este correo aparece en ${ambiguousMatches.toLocaleString('es-ES')} clientes distintos. Recibir una captación no fusiona fichas ni vincula clientes automáticamente.` }
+      : { tone: 'blue' as const, title: 'Lead.', text: 'No hay cliente asociado a esta ficha. Recibir un formulario no acredita una compra ni provoca una asociación por correo o CIF.' }
 
   const definitions = serializeCrmContactPropertyDefinitions(propertyDefinitions)
+  const originalDetails = [
+    ...contact.leadsMigracionWeb.map((lead) => ({ id: lead.id, label: 'Migración web', href: `/admin/leads/${encodeURIComponent(lead.id)}` })),
+    ...contact.leadsSoluciones.map((lead) => ({ id: lead.id, label: lead.tipo === 'MANTENIMIENTO_IT' ? 'Mantenimiento IT' : 'Solución empresarial', href: `/admin/${lead.tipo === 'MANTENIMIENTO_IT' ? 'leads-mantenimiento' : 'leads-soluciones'}/${encodeURIComponent(lead.id)}` })),
+    ...contact.leadsPartners.map((lead) => ({ id: lead.id, label: 'Solicitud Partner', href: `/admin/crm/partners#solicitud-${encodeURIComponent(lead.id)}` })),
+    ...contact.altasServicio.map((alta) => ({ id: alta.id, label: 'Alta de servicio', href: `/admin/altas-pendientes/${encodeURIComponent(alta.id)}` })),
+  ]
 
+  const relatedUser = { id: Number(session.user.id), name: session.user.name || '', role: session.user.role }
+  const canReadIspClients = await canAccessCrmRelated(relatedUser, 'admin.clientes')
   return (
+    <>
     <CrmContactoWorkspace
       contact={{
         id: contact.id,
@@ -146,7 +163,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
         lifecycle,
         leadStatus,
         owner,
-        createdAt: formatDateTime(contact.hubspotCreadoAt),
+        createdAt: formatDateTime(contact.hubspotCreadoAt || contact.createdAt),
         sourceUpdatedAt: formatDateTime(contact.hubspotActualizadoAt || contact.sincronizadoAt),
         fullPropertiesAt: formatDateTime(contact.propiedadesCompletasAt),
         localUpdatedAt: formatDateTime(contact.datosActualizadoAt),
@@ -155,6 +172,22 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
         notes: contact.notasInternas || '',
       }}
       statusNotice={statusNotice}
+      webCaptures={contact.captacionesWeb.map((capture) => ({
+        id: capture.id,
+        formulario: capture.formulario,
+        webOrigen: capture.webOrigen,
+        paginaOrigen: capture.paginaOrigen,
+        fechaEnvio: capture.fechaEnvio.toISOString(),
+        segmentoCrm: capture.segmentoCrm,
+        consentimientoPrivacidad: capture.consentimientoPrivacidad,
+        consentimientoNewsletter: capture.consentimientoNewsletter,
+        consentimientoVersion: capture.consentimientoVersion,
+        referenciaTipo: capture.referenciaTipo,
+        referenciaId: capture.referenciaId,
+        datos: capture.datos,
+        originalHref: originalDetails.find((detail) => detail.id === capture.referenciaId)?.href || null,
+      }))}
+      originalDetails={originalDetails}
       customer={contact.clienteWeb ? {
         id: contact.clienteWeb.id,
         name: contact.clienteWeb.nombre,
@@ -213,6 +246,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
       }))}
       emailSender={getDefaultEmailSender()}
       outlookConnection={outlookConnection}
+      m365Aviso={avisoAislamiento()}
       qualityIssues={qualityIssues}
       history={asHistory(contact.historialCambios).reverse().map((entry) => ({
         date: entry.fecha ? formatDateTime(new Date(entry.fecha)) : null,
@@ -242,6 +276,8 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
       }}
       settings={{ initialSegment: contact.segmentoCrm, customerSegment: segment ? SEGMENT_LABELS[segment] || segment : null }}
     />
+    {canReadIspClients && <CrmIspFichaResumen crmContactoId={contact.id} clienteWebIds={contact.clienteWebId ? [contact.clienteWebId] : []} />}
+    </>
   )
 }
 
@@ -268,11 +304,16 @@ function asStringRecord(value: unknown): Record<string, string | null> {
 function asActivityMetadata(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   const metadata = value as Record<string, unknown>
-  const publicMetadata = Object.fromEntries(['remitente', 'para', 'cc', 'ubicacion', 'guardadoEnEnviados', 'estadoGraph', 'codigoGraph', 'estadoCalendario', 'reunionTeams', 'modoAsistido', 'canalPreparado']
+  const publicMetadata = Object.fromEntries(['remitente', 'para', 'cc', 'ubicacion', 'guardadoEnEnviados', 'estadoGraph', 'codigoGraph', 'estadoCalendario', 'reunionTeams', 'modoAsistido', 'canalPreparado', 'canal', 'borradorIa']
     .filter((key) => metadata[key] !== undefined)
     .map((key) => [key, metadata[key]]))
   if (typeof metadata.outlookWebLink === 'string') publicMetadata.outlookDisponible = true
   if (typeof metadata.teamsJoinUrl === 'string') publicMetadata.teamsDisponible = true
+  // Área 1 · M365: solo indicadores, nunca identificadores de Graph en el cliente
+  if (typeof metadata.outlookEventId === 'string') publicMetadata.outlookSincronizable = true
+  if (typeof metadata.outlookConversationId === 'string') publicMetadata.hiloOutlook = true
+  const aislamiento = metadata.aislamiento as { accion?: unknown } | undefined
+  if (aislamiento && typeof aislamiento.accion === 'string') publicMetadata.aislamientoAccion = aislamiento.accion
   return publicMetadata
 }
 

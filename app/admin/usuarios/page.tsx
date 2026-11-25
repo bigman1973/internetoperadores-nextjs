@@ -1,26 +1,17 @@
-export const dynamic = "force-dynamic";
-import { requireAdminAreaRead } from '@/lib/admin-area-auth'
-import prisma from '../../../lib/prisma'
-import UsuariosAdminClient from '../../../components/admin/UsuariosAdminClient'
-import { serializeUsuariosInitiales } from '../../../components/admin/usuariosInitialData'
+export const dynamic = 'force-dynamic'
+
+import { redirect } from 'next/navigation'
+import prisma from '@/lib/prisma'
+import UsuariosAdminClient from '@/components/admin/UsuariosAdminClient'
+import { requireArea4Owner } from '@/lib/area4/live-admin'
+import { loadUsersSnapshot } from '@/lib/area4/users-proposals'
 
 export default async function UsuariosPage() {
-  await requireAdminAreaRead('admin.usuarios')
+  const auth = await requireArea4Owner(prisma)
+  if (auth.ok === false) redirect('/admin')
+  const session = auth.session as { impersonation?: unknown } | null
+  if (session?.impersonation) redirect('/admin')
 
-  const usuarios = await prisma.usuarioAdmin.findMany({
-    select: {
-      id: true,
-      email: true,
-      nombre: true,
-      rol: true,
-      roles: true,
-      activo: true,
-      ultimoAcceso: true,
-      createdAt: true,
-      perfilAsignado: true,
-    },
-    orderBy: { createdAt: 'asc' },
-  })
-
-  return <UsuariosAdminClient initialUsuarios={serializeUsuariosInitiales(usuarios)} />
+  const snapshot = await loadUsersSnapshot(prisma, auth.principal.id)
+  return <UsuariosAdminClient initialSnapshot={snapshot} />
 }

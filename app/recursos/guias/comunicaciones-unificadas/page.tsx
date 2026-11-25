@@ -12,6 +12,7 @@ export default function GuiaComunicacionesUnificadas() {
     empresa: '',
     telefono: '',
     cargo: '',
+    newsletter: false,
     acepta: false
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -33,6 +34,8 @@ export default function GuiaComunicacionesUnificadas() {
           empresa: formData.empresa,
           telefono: formData.telefono,
           cargo: formData.cargo,
+          acepta: formData.acepta,
+          newsletter: formData.newsletter,
           guia: 'Guía de Comunicaciones Unificadas'
         })
       });
@@ -149,6 +152,20 @@ export default function GuiaComunicacionesUnificadas() {
                     <div className="flex items-start gap-3">
                       <input
                         type="checkbox"
+                        id="newsletter"
+                        name="newsletter"
+                        checked={formData.newsletter}
+                        onChange={handleChange}
+                        className="h-4 w-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded mt-1"
+                      />
+                      <label htmlFor="newsletter" className="text-sm text-gray-600">
+                        Quiero suscribirme al newsletter de empresas y recibir novedades y ofertas (opcional).
+                      </label>
+                    </div>
+
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="checkbox"
                         id="acepta"
                         name="acepta"
                         required
@@ -156,9 +173,9 @@ export default function GuiaComunicacionesUnificadas() {
                         onChange={handleChange}
                         className="h-4 w-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded mt-1"
                       />
-                      <p className="text-sm text-gray-600">
-                        Acepto la <Link href="/politica-privacidad" className="underline hover:text-orange-600">política de privacidad</Link> y suscribirme al newsletter de empresas para descargar esta guía. *
-                      </p>
+                      <label htmlFor="acepta" className="text-sm text-gray-600">
+                        Acepto la <Link href="/politica-privacidad" className="underline hover:text-orange-600">política de privacidad</Link> y consiento el tratamiento de mis datos para gestionar la descarga. *
+                      </label>
                     </div>
 
                     <button 

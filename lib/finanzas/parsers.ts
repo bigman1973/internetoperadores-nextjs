@@ -358,6 +358,84 @@ export function parseBBVACSV(content: string): MovimientoParsed[] {
 }
 
 // =============================================
+// PARSER BBVA (XLSX descargado de la banca online, 2026)
+// =============================================
+// Cabecera en la fila «F. CONTABLE | F. VALOR | CÓDIGO | CONCEPTO | BENEFICIARIO/ORDENANTE |
+// OBSERVACIONES | IMPORTE | SALDO | DIVISA | OFICINA | REMESA». Las columnas se localizan por
+// el nombre de la cabecera, no por posición. El hash conserva la fórmula de los movimientos ya
+// cargados, de modo que un extracto repetido se detecta como duplicado.
+function normalizarCabeceraBBVA(valor: unknown): string {
+  return String(valor ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toUpperCase();
+}
+
+function numeroBBVA(valor: unknown): number {
+  if (typeof valor === 'number') return valor;
+  const texto = String(valor ?? '').trim();
+  if (!texto) return NaN;
+  // «1.234,56» (formato español) o «1234.56»; cualquier otra cosa no es un importe válido.
+  if (/^-?\d{1,3}(\.\d{3})*,\d+$/.test(texto)) return Number(texto.replace(/\./g, '').replace(',', '.'));
+  if (/^-?\d+,\d+$/.test(texto)) return Number(texto.replace(',', '.'));
+  if (/^-?\d+(\.\d+)?$/.test(texto)) return Number(texto);
+  return NaN;
+}
+
+export function esExtractoBBVAXLSX(rows: any[][]): boolean {
+  return rows.slice(0, 60).some((fila) => Array.isArray(fila)
+    && fila.some((celda) => normalizarCabeceraBBVA(celda) === 'F. CONTABLE')
+    && fila.some((celda) => normalizarCabeceraBBVA(celda) === 'IMPORTE'));
+}
+
+export function ibanExtractoBBVAXLSX(rows: any[][]): string | null {
+  for (const fila of rows.slice(0, 30)) {
+    if (!Array.isArray(fila)) continue;
+    const i = fila.findIndex((celda) => normalizarCabeceraBBVA(celda) === 'CUENTA');
+    if (i < 0) continue;
+    const valor = fila.slice(i + 1).map((celda) => String(celda ?? '').replace(/\s/g, '').toUpperCase()).find((celda) => /^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(celda));
+    if (valor) return valor;
+  }
+  return null;
+}
+
+export function parseBBVAXLSX(rows: any[][]): MovimientoParsed[] {
+  const filaCabecera = rows.findIndex((fila) => Array.isArray(fila) && fila.some((celda) => normalizarCabeceraBBVA(celda) === 'F. CONTABLE'));
+  if (filaCabecera < 0) return [];
+  const cabecera = rows[filaCabecera].map(normalizarCabeceraBBVA);
+  const col = (nombre: string) => cabecera.indexOf(nombre);
+  const cFecha = col('F. CONTABLE'), cValor = col('F. VALOR'), cCodigo = col('CODIGO'), cConcepto = col('CONCEPTO');
+  const cBenef = col('BENEFICIARIO/ORDENANTE'), cObs = col('OBSERVACIONES'), cImporte = col('IMPORTE'), cSaldo = col('SALDO'), cRemesa = col('REMESA');
+  if (cFecha < 0 || cImporte < 0 || cConcepto < 0) return [];
+  const texto = (fila: any[], i: number) => (i < 0 ? '' : String(fila[i] ?? '').trim());
+  const movimientos: MovimientoParsed[] = [];
+  for (const fila of rows.slice(filaCabecera + 1)) {
+    if (!Array.isArray(fila)) continue;
+    const fechaOp = parseFechaES(texto(fila, cFecha));
+    if (!fechaOp) continue; // filas de pie o vacías
+    const fechaVal = parseFechaES(texto(fila, cValor)) ?? fechaOp;
+    const base = texto(fila, cConcepto);
+    const observaciones = texto(fila, cObs);
+    const concepto = observaciones && observaciones !== '-' ? `${base} - ${observaciones}` : base;
+    // Un importe ilegible llega como NaN y el importador rechaza el fichero entero: nunca se pasa a 0.
+    const importe = numeroBBVA(fila[cImporte]);
+    const celdaSaldo = cSaldo < 0 ? '' : fila[cSaldo];
+    const saldo = celdaSaldo === undefined || celdaSaldo === null || String(celdaSaldo).trim() === '' ? null : numeroBBVA(celdaSaldo);
+    const beneficiario = texto(fila, cBenef);
+    movimientos.push({
+      fechaOperacion: fechaOp,
+      fechaValor: fechaVal,
+      concepto,
+      importe,
+      saldo,
+      referencia: texto(fila, cRemesa) || null,
+      codigoOperacion: texto(fila, cCodigo) || null,
+      infoAdicional: null,
+      tercero: beneficiario || null,
+      hashUnico: generarHash('bbva', fechaOp.toISOString(), concepto, importe, saldo),
+    });
+  }
+  return movimientos;
+}
+
+// =============================================
 // PARSER VIVID (CSV con ;)
 // =============================================
 export function parseVividCSV(content: string): MovimientoParsed[] {
@@ -790,6 +868,8 @@ export function detectarFormato(filename: string, content?: string): string {
     if (content.startsWith('Data;Valor;Concepte')) return 'guissona';
     if (content.includes('Data Procés,Data Valor')) return 'bbva';
     if (content.includes('Completed date;Counterparty')) return 'vivid';
+    // Hoja Excel pasada como texto (primeras filas): extracto de BBVA aunque el fichero no se llame «bbva».
+    if (/F\. ?CONTABLE/i.test(content) && /BANCO BILBAO VIZCAYA|F\. ?VALOR/i.test(content) && /BENEFICIARIO\/ORDENANTE/i.test(content)) return 'bbva';
     if (content.substring(0, 2) === '11') return 'norma43'; // Registro cabecera N43
   }
   

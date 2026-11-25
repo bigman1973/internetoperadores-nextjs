@@ -3,7 +3,7 @@ import Link from 'next/link';
 import EmpresaNav from '../../../components/EmpresaNav';
 import EmpresaFooter from '../../../components/EmpresaFooter';
 import ProductosSolucionDynamic from '../../../components/public/ProductosSolucionDynamic';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 
 const soluciones = [
   {
@@ -64,6 +64,7 @@ export default function MovilesPage() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const envioRef = useRef<{ payload: string; key: string } | null>(null);
   const [error, setError] = useState('');
 
   const handleNecesidadChange = (necesidad: string) => {
@@ -80,23 +81,28 @@ export default function MovilesPage() {
     setIsSubmitting(true);
     setError('');
     try {
+      const payload = JSON.stringify({
+        nombre: formData.nombre,
+        email: formData.email,
+        empresa: formData.empresa,
+        telefono: formData.telefono,
+        numLineas: formData.numLineas,
+        operadorActual: formData.operadorActual,
+        consumoDatos: formData.consumoDatos,
+        permanenciaActual: formData.permanenciaActual,
+        tipoDispositivos: formData.tipoDispositivos,
+        necesidades: formData.necesidades,
+        perfilUsuarios: formData.perfilUsuarios,
+        comentarios: formData.comentarios,
+        newsletter: formData.newsletter,
+      });
+      if (!envioRef.current || envioRef.current.payload !== payload) {
+        envioRef.current = { payload, key: crypto.randomUUID() };
+      }
       const response = await fetch('/api/contrata/moviles', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          nombre: formData.nombre,
-          email: formData.email,
-          empresa: formData.empresa,
-          telefono: formData.telefono,
-          numLineas: formData.numLineas,
-          operadorActual: formData.operadorActual,
-          consumoDatos: formData.consumoDatos,
-          permanenciaActual: formData.permanenciaActual,
-          tipoDispositivos: formData.tipoDispositivos,
-          necesidades: formData.necesidades,
-          perfilUsuarios: formData.perfilUsuarios,
-          comentarios: formData.comentarios,
-        }),
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': envioRef.current.key },
+        body: payload,
       });
       if (response.ok) {
         setIsSubmitted(true);
@@ -358,8 +364,8 @@ export default function MovilesPage() {
 
                     <div className="mb-6">
                       <label className="flex items-start gap-2 cursor-pointer">
-                        <input type="checkbox" required checked={formData.newsletter} onChange={e => setFormData({...formData, newsletter: e.target.checked})} className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500 mt-0.5" />
-                        <span className="text-xs text-gray-600">Acepto recibir la propuesta de movilidad y suscribirme al newsletter de Internet Operadores con novedades y consejos para empresas. Puedo darme de baja en cualquier momento.</span>
+                        <input type="checkbox" checked={formData.newsletter} onChange={e => setFormData({...formData, newsletter: e.target.checked})} className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500 mt-0.5" />
+                        <span className="text-xs text-gray-600">Quiero suscribirme al newsletter de Internet Operadores con novedades y consejos para empresas. Puedo darme de baja en cualquier momento.</span>
                       </label>
                     </div>
 

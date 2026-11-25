@@ -1,10 +1,12 @@
+import { getBrevoApiKey } from '@/lib/brevo-config'
+import { brevoFetch } from '@/lib/brevo-fetch'
 import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import { randomBytes } from 'crypto'
 
-const BREVO_API_KEY = process.env.BREVO_API_KEY
+const BREVO_API_KEY = getBrevoApiKey()
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.internetoperadores.com'
 
 function generateToken(): string {
@@ -203,7 +205,7 @@ export async function POST(request: Request) {
 
   // Enviar email via Brevo
   try {
-    const brevoRes = await fetch('https://api.brevo.com/v3/smtp/email', {
+    const brevoRes = await brevoFetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
         'accept': 'application/json',

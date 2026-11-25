@@ -4,6 +4,7 @@ import type { Clock, FinanceSyncRepository } from './repository'
 import { systemClock } from './repository'
 import type { JobSummary, SyncJobRecord, SyncProviderFactory, SyncSource } from './types'
 import { FinanceSyncWorker, type Logger, type WorkerOptions, type WorkerResult } from './worker'
+import { requireIspScope, parseIspSyncIntent } from './isp-sync-scope'
 
 export const FINANCE_SYNC_PERMISSION: Record<SyncSource, string> = {
   ONEDRIVE: 'admin.finanzas.facturas',
@@ -22,7 +23,7 @@ export type FinanceSyncServiceDependencies<Tx> = {
   clock?: Clock
   logger?: Logger
   /** Live permission/state revalidation inside create/cancel/apply DB transactions. */
-  authorizeInTx?: (input: { actorId: number | null; source: SyncSource; operation: 'create' | 'cancel' | 'apply' }, tx: Tx) => Promise<void>
+  authorizeInTx?: (input: { actorId: number | null; source: SyncSource; operation: 'create' | 'cancel' | 'apply'; scope?: Prisma.InputJsonValue; trigger?: string }, tx: Tx) => Promise<void>
 }
 
 function canonical(value: unknown): string {
@@ -40,14 +41,20 @@ export class FinanceSyncService<Tx> {
   private readonly clock: Clock
   constructor(private readonly deps: FinanceSyncServiceDependencies<Tx>) { this.clock = deps.clock ?? systemClock }
 
-  async createManualJob(input: { actorId: number; source: SyncSource; idempotencyKey: string; scope?: Prisma.InputJsonValue }): Promise<{ job: JobSummary; replay: boolean }> {
+  async createManualJob(input: { actorId: number; source: SyncSource; idempotencyKey: string; scope?: Prisma.InputJsonValue; requestIntent?: Prisma.InputJsonValue }): Promise<{ job: JobSummary; replay: boolean }> {
     validateIdempotencyKey(input.idempotencyKey)
     if (!Number.isSafeInteger(input.actorId) || input.actorId <= 0) throw new Error('UNAUTHENTICATED')
     const scope = input.scope ?? {}
+    if (input.source === 'ISP' && typeof scope === 'object' && !Array.isArray(scope) && (scope as Record<string,unknown>).mode === 'YEAR') {
+      const frozen = requireIspScope(scope, this.clock.now())
+      const intent = parseIspSyncIntent(input.requestIntent, this.clock.now())
+      if (frozen.mode !== 'YEAR' || intent.mode !== 'YEAR' || frozen.year !== intent.year) throw new Error('ISP_YEAR_CONFIRMATION_REQUIRED')
+    }
     const outcome = await this.deps.repository.createManual({
       source: input.source, actorId: input.actorId, idempotencyKey: input.idempotencyKey,
-      requestHash: digest({ source: input.source, actorId: input.actorId, scope }), scope,
-    }, this.deps.authorizeInTx ? (tx) => this.deps.authorizeInTx!({ actorId: input.actorId, source: input.source, operation: 'create' }, tx) : undefined)
+      requestHash: digest({ source: input.source, actorId: input.actorId, scope: input.requestIntent ?? scope }), scope,
+      ...(input.source === 'ISP' && input.requestIntent ? {requestIntent: input.requestIntent} : {}),
+    }, this.deps.authorizeInTx ? (tx) => this.deps.authorizeInTx!({ actorId: input.actorId, source: input.source, operation: 'create', scope, trigger: 'MANUAL' }, tx) : undefined)
     if (outcome.kind === 'idempotency_collision') throw new SyncServiceError('IDEMPOTENCY_COLLISION')
     if (outcome.kind === 'active_job') throw new SyncServiceError('ACTIVE_JOB', this.deps.repository.toSummary(outcome.activeJob))
     return { job: this.deps.repository.toSummary(outcome.job), replay: outcome.kind === 'replay' }

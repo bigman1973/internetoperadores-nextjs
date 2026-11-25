@@ -1,0 +1,63 @@
+{
+  "estadoAplicacion": "PENDIENTE_INTEGRADOR_NO_INSERTADO",
+  "destinoAutorizadoPosterior": "Historial de staging tras integración aprobada por WEB INTERNET OPERADORES",
+  "baseStaging": "33ef7235164d0f9fd60e7f8efeabbca098606102",
+  "instrucciones": "No ejecutar contra producción. Completar commitHash con el SHA integrado y verificar duplicados del GitHub Action antes de insertar desarrollos faltantes. Esta rama no dispara el Action de staging. Objetivo general en progreso, NO READY. Registros de primera entrega y actualización E se conservan separados.",
+  "buildActualizacionE": { "comando": "pnpm build", "exitCode": 0, "fechaFin": "2026-11-24T20:33:17+01:00", "baseStaging": "33ef7235", "bdAisladaSoloLectura": true, "credencialesExternasRetiradas": true, "sqlAplicado": false },
+  "registros": [
+    {
+      "titulo": "Área 4: candidato de menú en siete grupos y registro de páginas actualizado",
+      "descripcion": "Primera entrega19:33 sobre staging46bf9a61: conserva CRM, Rentabilidad, Subida y Sistemas, URLs y guardias financieras; registro113 páginas/295 APIs, interruptor persistente y visibilidad efectiva. Código/pruebas locales; aceptación HTTP y publicación pendientes.",
+      "tipo": "ui",
+      "estado": "en_progreso",
+      "autor": "Área 4",
+      "commitHash": null,
+      "rama": "area4-usuarios-permisos"
+    },
+    {
+      "titulo": "Área 4: permisos vivos y revocaciones explícitas en servidor y cliente",
+      "descripcion": "Candidato con propietario canónico, V/E/C/X adicionales en el borde, ACL propia exacta y negativa hija prevalente. Sin asignar usuarios ni aplicar migración; mapa funcional y equivalencia pendientes.",
+      "tipo": "fix",
+      "estado": "en_progreso",
+      "autor": "Área 4",
+      "commitHash": null,
+      "rama": "area4-usuarios-permisos"
+    },
+    {
+      "titulo": "Área 4: regresiones de comandos C y preview de Conciliar",
+      "descripcion": "Cierres conservados: Content-Type no elude C, parejas manuales requieren C, REVIEW_PREVIEW cerrado solo V y clon grande sin esperar cancelación. Lotes/uploads mantienen handler. Probado con dobles, no operaciones reales.",
+      "tipo": "fix",
+      "estado": "en_progreso",
+      "autor": "Área 4",
+      "commitHash": null,
+      "rama": "area4-usuarios-permisos"
+    },
+    {
+      "titulo": "Área 4: primera batería ligera ampliada y runner HTTP con pendiente explícito",
+      "descripcion": "Primera entrega sobre Sistemas:573 comprobaciones middleware y21 cliente/SSR, más SSR existente; build19:30verde. Runner exige sesiones/fixtures autorizados, no simula éxito. Auditoría de éxito y aceptación real pendientes.",
+      "tipo": "feat",
+      "estado": "en_progreso",
+      "autor": "Área 4",
+      "commitHash": null,
+      "rama": "area4-usuarios-permisos"
+    },
+    {
+      "titulo": "Área 4: incorpora CRM pipelines, Impuestos y Presupuesto al registro y menú",
+      "descripcion": "Actualización sobre33ef7235:116 páginas/307 APIs/79 secciones, dos hijos en Finanzas y pipelines bajo admin.crm. Reutiliza permisosFin como límite adicional; Conta principal/secundaria solo V en Impuestos, no Presupuesto; aprobar solo propietario real, sin actuación. Grants generales no eluden rol/negativas. Módulos propietarios y migraciones intactos; sin nuevos códigos/grants en BD.",
+      "tipo": "feat",
+      "estado": "en_progreso",
+      "autor": "Área 4",
+      "commitHash": null,
+      "rama": "area4-usuarios-permisos"
+    },
+    {
+      "titulo": "Área 4: cierra adopción vacía, marcador SSR obsoleto y coincidencia parcial P2022",
+      "descripcion": "Gerente con ACL adoptada vacía denegado; nueva foto SSR actualiza marcador y no lo rebaja por dato ausente; fallback P2022 solo tabla/columna canónicas, no backup/substrings. Batería actual639 middleware/56 cliente-SSR, incluido rerender; CRM14/E16 y compatibilidad ligeras verdes;59 migraciones lexicales sin SQL. HTTP/pantalla y auditoría de operaciones completadas pendientes.",
+      "tipo": "fix",
+      "estado": "en_progreso",
+      "autor": "Área 4",
+      "commitHash": null,
+      "rama": "area4-usuarios-permisos"
+    }
+  ]
+}
