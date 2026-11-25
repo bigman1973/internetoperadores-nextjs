@@ -10,6 +10,8 @@ export type Area4AuditOperation =
   | 'CONFIRMACION_SOLICITADA'
   | 'EXPORTACION_SOLICITADA'
   | 'MENU_PRESENTACION_CAMBIO'
+  | 'CRM_IMPORTACION_ISP'
+  | 'CRM_IMPORTACION_HUBSPOT'
 
 export type Area4AuditInput = Readonly<{
   actorId: number
