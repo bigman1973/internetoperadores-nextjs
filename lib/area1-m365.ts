@@ -101,3 +101,20 @@ export function scopesParaRenovar(scopes: string | null | undefined): string {
   }
   return pedir.join(' ')
 }
+
+/** Canal de correo por defecto (decisión de Víctor, 25/11): «Mi Outlook»; el buzón corporativo queda como opción. */
+export type M365Conexion = { enabled: boolean; connected: boolean; mail?: boolean }
+export function canalCorreoInicial(conexion: M365Conexion): 'outlook' | 'corporativo' {
+  return conexion.enabled ? 'outlook' : 'corporativo'
+}
+export function correoOutlookListo(conexion: M365Conexion): boolean {
+  return conexion.enabled && conexion.connected && Boolean(conexion.mail)
+}
+/** Si se ha elegido Mi Outlook y aún no se puede usar, no se cae al corporativo en silencio: se pide conectar o elegir. */
+export function bloqueoCanalCorreo(viaOutlook: boolean, conexion: M365Conexion): string | null {
+  if (!viaOutlook || correoOutlookListo(conexion)) return null
+  if (!conexion.enabled) return 'El envío desde Outlook no está activo en este entorno: elige «Buzón corporativo».'
+  return conexion.connected
+    ? 'Concede el permiso de correo a tu Outlook o elige «Buzón corporativo».'
+    : 'Conecta tu Outlook o elige «Buzón corporativo» para enviar.'
+}

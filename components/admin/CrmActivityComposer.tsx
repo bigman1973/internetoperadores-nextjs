@@ -16,6 +16,7 @@ import {
   XMarkIcon,
 } from '@heroicons/react/24/outline'
 import { Area1M365Aviso, Area1M365Correo } from './Area1M365'
+import { bloqueoCanalCorreo, canalCorreoInicial } from '@/lib/area1-m365'
 
 export type CrmActivityType = 'CORREO' | 'REUNION' | 'NOTA' | 'TAREA' | 'WHATSAPP' | 'LINKEDIN' | 'SMS' | 'CORREO_POSTAL'
 
@@ -96,7 +97,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
   const [error, setError] = useState<string | null>(null)
   const [requestId, setRequestId] = useState(() => createRequestId())
   const outlookMailReady = outlookConnection.enabled && outlookConnection.connected && Boolean(outlookConnection.mail)
-  const [viaOutlook, setViaOutlook] = useState(outlookMailReady)
+  const [viaOutlook, setViaOutlook] = useState(() => canalCorreoInicial(outlookConnection) === 'outlook')
   const [aiDraft, setAiDraft] = useState(false)
 
   useEffect(() => {
@@ -128,7 +129,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
     setSaving(false)
     setError(null)
     setRequestId(createRequestId())
-    setViaOutlook(outlookMailReady)
+    setViaOutlook(canalCorreoInicial(outlookConnection) === 'outlook')
     setAiDraft(false)
   }, [contactEmail, contactName, open, outlookConnection.connected, outlookConnection.enabled, outlookMailReady, type])
 
@@ -190,6 +191,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
     if (!description.trim()) return setError(type === 'CORREO' ? 'Escribe el contenido del correo.' : 'Añade una descripción útil.')
     if ((type === 'CORREO' || type === 'TAREA') && !title.trim()) return setError(type === 'CORREO' ? 'Escribe el asunto del correo.' : 'Escribe el título de la tarea.')
     if (type === 'CORREO' && !to.trim()) return setError('Añade al menos un destinatario.')
+    if (type === 'CORREO') { const bloqueo = bloqueoCanalCorreo(viaOutlook, outlookConnection); if (bloqueo) return setError(bloqueo) }
     if (type === 'REUNION' && syncOutlook && !title.trim()) return setError('Escribe el título de la reunión.')
     if (type === 'REUNION' && syncOutlook && Number(durationMinutes) < 5) return setError('Indica una duración mínima de 5 minutos.')
     const assistedUrl = direction === 'SALIENTE' ? channelUrl(type, contactPhone, contactLinkedIn, contactName, description) : null
@@ -288,7 +290,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
 
             {type === 'CORREO' && <>
               <Area1M365Aviso aviso={m365Aviso} />
-              <Area1M365Correo contactId={contactId} conexion={outlookConnection} corporativo={senderEmail} viaOutlook={viaOutlook && outlookMailReady} onCanal={setViaOutlook} onBorrador={({ asunto, cuerpo }) => { setTitle(asunto); setDescription(cuerpo); setAiDraft(true) }} />
+              <Area1M365Correo contactId={contactId} conexion={outlookConnection} corporativo={senderEmail} viaOutlook={viaOutlook} onCanal={setViaOutlook} onBorrador={({ asunto, cuerpo }) => { setTitle(asunto); setDescription(cuerpo); setAiDraft(true) }} />
               <div className="space-y-3">
                 <label className="block text-sm font-semibold text-slate-900">Para<input type="text" value={to} onChange={(event) => setTo(event.target.value)} required placeholder="correo@empresa.com" className="mt-2 block min-h-11 w-full rounded-xl border-slate-300 text-sm text-slate-900 focus:border-blue-500 focus:ring-blue-500" /></label>
                 <button type="button" onClick={() => setShowCopies((current) => !current)} className="text-xs font-semibold text-blue-700 hover:text-blue-900">{showCopies ? 'Ocultar CC y CCO' : 'Añadir CC o CCO'}</button>

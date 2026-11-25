@@ -1,7 +1,7 @@
 /* Batería Área 1 · Microsoft 365 (sin red, sin BD, sin datos personales). */
 import { readFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
-import { aislarAsistentes, aislarCorreo, avisoAislamiento, M365_SCOPES_TODOS, m365CorreoPrueba, m365Modo, scopesParaRenovar, tienePermiso } from '../lib/area1-m365'
+import { aislarAsistentes, bloqueoCanalCorreo, canalCorreoInicial, aislarCorreo, avisoAislamiento, M365_SCOPES_TODOS, m365CorreoPrueba, m365Modo, scopesParaRenovar, tienePermiso } from '../lib/area1-m365'
 import { enviarCorreoComoUsuario, leerEventoOutlook, leerHiloCorreo } from '../lib/area1-m365-graph'
 import { construirPromptBorrador, generarBorrador, interpretarRespuesta, limpiarPeticion, type ContextoBorrador } from '../lib/area1-m365-borrador'
 
@@ -98,6 +98,13 @@ async function main() {
   const diffEmail = execSync('git diff origin/staging -- lib/email.ts middleware.js', { encoding: 'utf8' })
   t('lib/email.ts y middleware.js sin tocar', diffEmail.trim() === '')
 
+  // Canal por defecto: Mi Outlook (decisión de Víctor 25/11)
+  t('canal por defecto: Mi Outlook si la integración está activa (aunque no esté conectado)', canalCorreoInicial({ enabled: true, connected: false }) === 'outlook' && canalCorreoInicial({ enabled: true, connected: true, mail: true }) === 'outlook')
+  t('canal por defecto: corporativo si la integración no está activa', canalCorreoInicial({ enabled: false, connected: false }) === 'corporativo')
+  t('Mi Outlook sin conectar bloquea el envío (no cae al corporativo en silencio)', /Conecta tu Outlook/.test(bloqueoCanalCorreo(true, { enabled: true, connected: false }) || '') && /permiso de correo/.test(bloqueoCanalCorreo(true, { enabled: true, connected: true, mail: false }) || ''))
+  t('corporativo elegido o Outlook listo: sin bloqueo', bloqueoCanalCorreo(false, { enabled: true, connected: false }) === null && bloqueoCanalCorreo(true, { enabled: true, connected: true, mail: true }) === null)
+  const comp = readFileSync('components/admin/CrmActivityComposer.tsx', 'utf8')
+  t('compositor: estado inicial y validación usan el canal por defecto', /useState\(\(\) => canalCorreoInicial\(outlookConnection\) === 'outlook'\)/.test(comp) && /bloqueoCanalCorreo\(viaOutlook, outlookConnection\)/.test(comp))
   console.log(`\nResultado: ${ok}/${ok + ko}`)
   if (ko) process.exit(1)
 }

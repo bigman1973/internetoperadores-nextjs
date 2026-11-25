@@ -62,10 +62,11 @@ export function Area1M365Correo({ contactId, conexion, corporativo, viaOutlook, 
     <div className="m365-row">
       <span className="m365-lbl">Enviar desde</span>
       <div className="seg" role="group" aria-label="Buzón de envío">
-        <button type="button" aria-pressed={viaOutlook} disabled={!outlookListo} onClick={() => onCanal(true)} title={outlookListo ? undefined : 'Conecta tu Outlook con permiso de correo'}>Mi Outlook</button>
+        <button type="button" aria-pressed={viaOutlook} disabled={!conexion.enabled} onClick={() => onCanal(true)} title={outlookListo ? undefined : 'Conecta tu Outlook con permiso de correo'}>Mi Outlook</button>
         <button type="button" aria-pressed={!viaOutlook} onClick={() => onCanal(false)}>Buzón corporativo</button>
       </div>
       {viaOutlook && outlookListo && <Pill tone="ok">{conexion.email} · queda en Enviados</Pill>}
+      {viaOutlook && !outlookListo && <Pill tone="mod">Pendiente de conectar</Pill>}
       {!viaOutlook && <Pill>{corporativo}</Pill>}
     </div>
     {conexion.enabled && !conexion.connected && <p className="m365-sub"><a className="btn" href={connectUrl(contactId)}>Conectar mi Outlook</a> para enviar desde tu buzón y ver las respuestas en la ficha.</p>}
