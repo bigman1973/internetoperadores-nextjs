@@ -448,6 +448,7 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
       { path: '/api/admin/usuarios', kind: 'api' },
       { path: '/api/admin/usuarios/[id]', kind: 'api' },
       { path: '/api/admin/usuarios/menu-presentacion', kind: 'api' },
+      { path: '/api/admin/usuarios/propuestas', kind: 'api' },
     ],
   },
   {

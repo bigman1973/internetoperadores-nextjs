@@ -7,23 +7,38 @@ import { AREA4_MENU_CONFIGURATION_ID, readArea4MenuConfiguration } from '@/lib/a
 export const dynamic = 'force-dynamic'
 
 async function owner() {
-  return requireArea4Owner(prisma)
+  const auth = await requireArea4Owner(prisma)
+  const session = auth.ok ? auth.session as { impersonation?: unknown } | null : null
+  if (auth.ok && session?.impersonation) return {
+    ok: false as const,
+    response: NextResponse.json({ error: 'No disponible durante una actuación' }, { status: 403 }),
+  }
+  return auth
 }
 
 export async function GET() {
   const auth = await owner()
   if (auth.ok === false) return auth.response
   const configuracion = await readArea4MenuConfiguration(prisma)
-  return NextResponse.json({ configuracion })
+  return NextResponse.json({ configuracion }, { headers: { 'Cache-Control': 'private, no-store' } })
 }
 
 export async function PUT(request: Request) {
   const auth = await owner()
   if (auth.ok === false) return auth.response
+  if (process.env.IO_PRODUCTION_READ_ONLY === '1' || process.env.FINANCE_DEPLOYMENT_READ_ONLY === '1') {
+    return NextResponse.json({ error: 'El panel está en modo solo lectura' }, { status: 409, headers: { 'Cache-Control': 'private, no-store' } })
+  }
+  if (request.headers.get('origin') !== new URL(request.url).origin) {
+    return NextResponse.json({ error: 'Origen no permitido' }, { status: 403 })
+  }
 
   let body: Record<string, unknown>
   try {
-    body = await request.json()
+    const text = await request.text()
+    if (text.length > 2048) return NextResponse.json({ error: 'Configuración demasiado grande' }, { status: 413 })
+    body = JSON.parse(text)
+    if (!body || Array.isArray(body) || typeof body !== 'object') throw new Error('Objeto requerido')
   } catch {
     return NextResponse.json({ error: 'Cuerpo no válido' }, { status: 400 })
   }
@@ -57,7 +72,7 @@ export async function PUT(request: Request) {
     })
     return saved
   })
-  return NextResponse.json({ ok: true, configuracion })
+  return NextResponse.json({ ok: true, configuracion }, { headers: { 'Cache-Control': 'private, no-store' } })
 }
 
 export async function POST() { return NextResponse.json({ error: 'Método no permitido' }, { status: 405 }) }

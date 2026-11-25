@@ -66,3 +66,13 @@ test('las plantillas aprobadas no conceden Usuarios ni permisos a Gerente', () =
   assert.equal(lorena?.permisos.find(grant => grant.areaCodigo === 'admin.clientes')?.lectura, true)
   assert.equal(lorena?.permisos.find(grant => grant.areaCodigo === 'admin.clientes')?.escritura, false)
 })
+
+
+test('Gerente adoptado no recupera permisos por su rol ante un apartado nuevo', () => {
+  const grants = [{ codigo: 'admin.crm', lectura: true, escritura: true, confirmar: false, exportar: false }]
+  for (const capability of ['lectura', 'escritura', 'confirmar', 'exportar'] as const) {
+    assert.equal(evaluateArea4Capability({ principal: gerente, grants, codigoArea: 'admin.nueva_area', capability, ownerId: 3, permissionsAdopted: true }), false)
+    assert.equal(evaluateArea4Capability({ principal: gerente, grants, codigoArea: 'admin.nueva_area', capability, ownerId: 3, permissionsAdopted: false }), true)
+  }
+  assert.equal(evaluateArea4Capability({ principal: gerente, grants, codigoArea: 'admin.crm', capability: 'confirmar', ownerId: 3, permissionsAdopted: true }), false)
+})

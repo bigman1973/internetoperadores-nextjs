@@ -524,7 +524,7 @@ async function area4RegisteredAdminApiBoundary(request) {
     if (request.headers.has('next-action')) return privateBoundary({ error: 'Acción de servidor no registrada en la matriz' }, 403);
     const grants = user.permisos.map(p => ({ codigo: p.area.codigo, lectura: p.lectura, escritura: p.escritura, confirmar: p.confirmar, exportar: p.exportar }));
     // The dashboard shell is readable only for a principal with an admin grant.
-    if (isPage && pathname === '/admin' && user.rol !== 'GERENTE' && !policy.isArea4Owner(user)) {
+    if (isPage && pathname === '/admin' && !policy.isArea4Owner(user)) {
       return grants.some(p => p.codigo.startsWith('admin.') && p.lectura) ? null : privateBoundary({ error: 'Usa tu Portal del empleado' }, 403);
     }
     const maximumBytes = isApi ? requestPolicy.area4CommandBodyLimit(pathname, request.method) : null;
@@ -582,6 +582,11 @@ export async function middleware(request) {
       // El control valida su propia sesión real, CSRF/origen y entorno; esta
       // excepción no habilita ninguna API de negocio durante actuación.
       || path === '/api/admin/actuar-como'
+      // Área 4: contrato cerrado de revisión/aplicación. El handler vuelve a
+      // exigir propietario vivo sin actuación, origen y revisión; aplicar
+      // exige además destino aislado y flag explícito. No abre rutas vecinas.
+      || (path === '/api/admin/usuarios/propuestas' && request.method === 'POST')
+      || (path === '/api/admin/usuarios/menu-presentacion' && request.method === 'PUT')
       || (/^\/api\/admin\/finanzas\/facturas\/calidad\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
       || (path === '/api/admin/finanzas/importar-movimientos' && request.method === 'POST')
       || (/^\/api\/admin\/finanzas\/movimientos\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')

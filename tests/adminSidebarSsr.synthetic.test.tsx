@@ -183,7 +183,10 @@ const managerNavigation = filterAuthorizedSidebarNavigation('staging', section =
   effectiveRole: 'GERENTE',
   isSuperAdmin: false,
   userRoles: ['GERENTE'],
-  permisosGranulares: revokedTickets,
+  permisosGranulares: [
+    { codigo: 'admin.finanzas', lectura: true, escritura: false, confirmar: false, exportar: true },
+    ...revokedTickets,
+  ],
   tienePermisosGranulares: true,
   ...noPreview,
 }))

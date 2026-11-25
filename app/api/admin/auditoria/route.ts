@@ -7,14 +7,22 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: Request) {
   const auth = await requireArea4Owner(prisma)
   if (auth.ok === false) return auth.response
+  const session = auth.session as { impersonation?: unknown } | null
+  if (session?.impersonation) return NextResponse.json({ error: 'No disponible durante una actuación' }, { status: 403 })
 
   const url = new URL(request.url)
   const requestedLimit = Number(url.searchParams.get('limit') || 50)
   const limit = Number.isSafeInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 50
   const cursor = url.searchParams.get('cursor') || undefined
+  const target = url.searchParams.get('usuarioId')
+  if ((target !== null && !/^[1-9]\d{0,8}$/.test(target))
+    || (cursor && !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(cursor))) {
+    return NextResponse.json({ error: 'Filtro de historial no válido' }, { status: 400 })
+  }
 
   const rows = await prisma.auditoriaPermisosArea4.findMany({
     take: limit + 1,
+    ...(target ? { where: { objetivoUsuarioId: Number(target) } } : {}),
     ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     select: {
@@ -25,5 +33,7 @@ export async function GET(request: Request) {
   })
   const hasMore = rows.length > limit
   const events = hasMore ? rows.slice(0, limit) : rows
-  return NextResponse.json({ events, nextCursor: hasMore ? events.at(-1)?.id ?? null : null })
+  return NextResponse.json({ events, nextCursor: hasMore ? events.at(-1)?.id ?? null : null }, {
+    headers: { 'Cache-Control': 'private, no-store' },
+  })
 }

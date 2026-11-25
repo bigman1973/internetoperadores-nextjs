@@ -127,9 +127,10 @@ export function evaluateArea4Capability(input: Readonly<{
   // Una ACL adoptada vacía es una denegación, también para Gerente.
   if (input.permissionsAdopted && grants.length === 0) return false
 
-  // Decisión de Víctor: Gerente opera todo el negocio, pero nunca usuarios,
-  // perfiles/permisos, auditoría ni Actuar como.
-  if (principal.rol === 'GERENTE') {
+  // El comportamiento legacy no cambia antes de confirmar una propuesta.
+  // Una vez adoptada la ACL, Gerente usa únicamente sus grants explícitos:
+  // nunca obtiene un área nueva o una acción no marcada por un fallback de rol.
+  if (principal.rol === 'GERENTE' && !input.permissionsAdopted) {
     const inherited = new Set(inheritedAreaCodes(codigoArea))
     if (!grants.some(grant => inherited.has(grant.codigo))) return true
   }

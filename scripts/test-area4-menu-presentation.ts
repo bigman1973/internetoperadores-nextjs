@@ -148,14 +148,14 @@ test('el grant más específico revoca una hija y coincide con la política comp
   }
 })
 
-test('Gerente respeta revocaciones explícitas sin perder el negocio no ajustado', () => {
+test('Gerente adoptado respeta revocaciones y no recupera apartados no concedidos', () => {
   const grants = [
     { codigo: 'admin.finanzas', lectura: false, escritura: false },
     { codigo: 'admin.finanzas.facturas', lectura: true, escritura: true },
   ]
   const overrides = { effectiveRole: 'GERENTE', userRoles: ['GERENTE'], permisosGranulares: grants, tienePermisosGranulares: true }
   for (const area of ['admin.finanzas', 'admin.finanzas.facturas', 'admin.finanzas.movimientos', 'admin.clientes', 'admin.usuarios']) {
-    const expected = evaluateArea4Capability({ principal: manager, grants, codigoArea: area, capability: 'lectura', ownerId: 3 })
+    const expected = evaluateArea4Capability({ principal: manager, grants, codigoArea: area, capability: 'lectura', ownerId: 3, permissionsAdopted: true })
     assert.equal(access(area, overrides), expected, area)
   }
   const hrefs = leafItems(menu('agrupado', overrides)).map(item => item.href)
