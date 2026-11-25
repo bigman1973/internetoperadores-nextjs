@@ -13,6 +13,8 @@ import {
   parseCaixaBankXLS,
   parseCaixaGuissonaCSV,
   parseBBVACSV,
+  parseBBVAXLSX,
+  esExtractoBBVAXLSX,
   parseVividCSV,
   parseWiseXLSX,
   parseNorma43,
@@ -199,7 +201,16 @@ async function leerFormularioImportacion(req: NextRequest): Promise<
 }
 
 function parsearMovimientos(filename: string, buffer: Buffer, bancoManual: string | null): { formato: string; movimientos: MovimientoParsed[] } | { error: string; codigo?: string } {
-  const formato = (bancoManual || detectarFormato(filename, buffer.toString('utf-8').substring(0, 500))).toLowerCase()
+  const esExcel = /\.xlsx?$/i.test(filename)
+  let formato = (bancoManual || detectarFormato(filename, buffer.toString('utf-8').substring(0, 500))).toLowerCase()
+  if (!bancoManual && formato === 'desconocido' && esExcel) {
+    // Los Excel no se leen como texto: se mira la cabecera de la primera hoja (p. ej. BBVA sin «bbva» en el nombre).
+    try {
+      const libro = XLSX.read(buffer, { type: 'buffer' })
+      const filas = XLSX.utils.sheet_to_json(libro.Sheets[libro.SheetNames[0]], { header: 1 }) as any[][]
+      formato = detectarFormato(filename, filas.slice(0, 30).map((fila) => (Array.isArray(fila) ? fila.join(' ') : '')).join('\n')).toLowerCase()
+    } catch { /* se informa como formato no reconocido */ }
+  }
   if (!FORMATOS_ADMITIDOS.has(formato)) return { error: `Formato no reconocido: ${formato}` }
 
   switch (formato) {
@@ -221,6 +232,9 @@ function parsearMovimientos(filename: string, buffer: Buffer, bancoManual: strin
       if (filename.toLowerCase().endsWith('.xlsx') || filename.toLowerCase().endsWith('.xls')) {
         const workbook = XLSX.read(buffer, { type: 'buffer' })
         const sheet = workbook.Sheets[workbook.SheetNames[0]]
+        const filas = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][]
+        // Formato actual de la banca online (cabecera «F. CONTABLE»); si no, el CSV antiguo de Caixa/BBVA.
+        if (esExtractoBBVAXLSX(filas)) return { formato, movimientos: parseBBVAXLSX(filas) }
         return { formato, movimientos: parseBBVACSV(XLSX.utils.sheet_to_csv(sheet)) }
       }
       return { formato, movimientos: parseBBVACSV(buffer.toString('utf-8')) }
