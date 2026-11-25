@@ -95,7 +95,9 @@ async function main() {
   t('actividades: «no_enviado» sale antes de cualquier envío', act.indexOf("accion === 'no_enviado'") > 0 && act.indexOf("accion === 'no_enviado'") < act.indexOf('await sendCrmEmail'))
   const libs = ['lib/area1-m365.ts', 'lib/area1-m365-graph.ts', 'lib/area1-m365-borrador.ts', 'lib/outlook-user-connection.ts'].map((f) => readFileSync(f, 'utf8')).join('\n')
   t('sin client_credentials en M365 del Área 1', !/client_credentials/.test(libs))
-  const diffEmail = execSync('git diff origin/staging -- lib/email.ts middleware.js', { encoding: 'utf8' })
+  // Solo lo que aporta esta rama (desde su base con staging) y lo no confirmado: el middleware del Área 4 integrado en staging no cuenta.
+  const baseStaging = (() => { try { return execSync('git merge-base HEAD origin/staging', { encoding: 'utf8' }).trim() } catch { return 'HEAD' } })()
+  const diffEmail = execSync(`git diff ${baseStaging} -- lib/email.ts middleware.js`, { encoding: 'utf8' })
   t('lib/email.ts y middleware.js sin tocar', diffEmail.trim() === '')
 
   // Canal por defecto: Mi Outlook (decisión de Víctor 25/11)
