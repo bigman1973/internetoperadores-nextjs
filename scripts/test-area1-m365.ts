@@ -105,6 +105,12 @@ async function main() {
   t('corporativo elegido o Outlook listo: sin bloqueo', bloqueoCanalCorreo(false, { enabled: true, connected: false }) === null && bloqueoCanalCorreo(true, { enabled: true, connected: true, mail: true }) === null)
   const comp = readFileSync('components/admin/CrmActivityComposer.tsx', 'utf8')
   t('compositor: estado inicial y validación usan el canal por defecto', /useState\(\(\) => canalCorreoInicial\(outlookConnection\) === 'outlook'\)/.test(comp) && /bloqueoCanalCorreo\(viaOutlook, outlookConnection\)/.test(comp))
+  // Único camino de envío con buzón delegado o corporativo del CRM: la ruta de actividades, y siempre aislado.
+  const usos = execSync("git -c color.ui=never grep -l --no-color -E 'enviarCorreoComoUsuario\\(|createOutlookUserCalendarEvent\\(|sendCrmEmail\\(' -- app lib components", { encoding: 'utf8' }).trim().split('\n').sort()
+  t('solo actividades/route.ts envía correo o crea eventos (además de sus definiciones)', JSON.stringify(usos) === JSON.stringify(['app/api/admin/crm/contactos/[id]/actividades/route.ts', 'lib/area1-m365-graph.ts', 'lib/email.ts', 'lib/outlook-calendar.ts']))
+  const m365r = readFileSync('app/api/admin/crm/contactos/[id]/actividades/[actividadId]/m365/route.ts', 'utf8')
+  t('ruta m365: solo lecturas Graph (sin enviar ni crear eventos)', !/enviarCorreoComoUsuario\(|createOutlookUserCalendarEvent\(|sendCrmEmail\(/.test(m365r))
+  t('modo real solo con VERCEL_ENV=production; preview/staging/vacío aislados', m365Modo({ VERCEL_ENV: 'production' }) === 'real' && m365Modo({ VERCEL_ENV: 'preview' }) === 'aislado' && m365Modo({ VERCEL_ENV: 'staging' }) === 'aislado' && m365Modo({}) === 'aislado')
   console.log(`\nResultado: ${ok}/${ok + ko}`)
   if (ko) process.exit(1)
 }
