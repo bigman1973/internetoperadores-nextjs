@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import { importacionesCrmCerradas } from '@/lib/area1-puertas-produccion'
 import { ArrowLeftIcon } from '@heroicons/react/24/outline'
 import { requireAuth } from '@/lib/middleware/auth'
 import prisma from '@/lib/prisma'
@@ -8,6 +9,7 @@ import CrmIspImportPanel from '@/components/admin/CrmIspImportPanel'
 export const dynamic = 'force-dynamic'
 
 export default async function CrmIspImportPage() {
+  if (importacionesCrmCerradas()) notFound()
   const session = await requireAuth('admin')
   const cuenta = await prisma.usuarioAdmin.findUnique({ where: { id: Number(session.user.id) }, select: { rol: true, activo: true } })
   if (!cuenta?.activo || cuenta.rol !== 'SUPER_ADMIN') notFound()

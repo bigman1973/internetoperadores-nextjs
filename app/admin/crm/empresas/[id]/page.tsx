@@ -11,6 +11,7 @@ import FichaCliente from '@/components/admin/FichaCliente'
 import { cargarFichaCliente } from '@/lib/area1-ficha-cliente'
 import { nivelDe } from '@/lib/area1-crm-resumen-vista'
 import { avisoAislamiento } from '@/lib/area1-m365'
+import { fichaNuevaHabilitada } from '@/lib/area1-puertas-produccion'
 import { getDefaultEmailSender } from '@/lib/email'
 import { getOutlookConnectionStatus } from '@/lib/outlook-user-connection'
 import { verificarPermisoServer } from '@/lib/permisos'
@@ -27,7 +28,7 @@ export default async function CrmCompanyDetailPage({ params, searchParams }: { p
     canAccessCrmRelated(relatedUser, 'admin.crm.contactos'), canAccessCrmRelated(relatedUser, 'admin.clientes'),
   ])
   const { id } = await params
-  const editar = (await searchParams)?.editar === '1'
+  const editar = (await searchParams)?.editar === '1' || !fichaNuevaHabilitada()
   if (!editar) {
     const userId = Number(session.user.id)
     const yo = await prisma.usuarioAdmin.findUnique({ where: { id: userId }, select: { rol: true, roles: true } })

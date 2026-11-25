@@ -1,5 +1,5 @@
 import { getServerSession } from 'next-auth'
-import { bloqueoActuacion } from '@/lib/area1-m365'
+import { bloqueoActuacion, m365Habilitado } from '@/lib/area1-m365'
 import { NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { authOptions } from '@/lib/auth'
@@ -13,6 +13,7 @@ export const dynamic = 'force-dynamic'
 type Ctx = { params: Promise<{ id: string; actividadId: string }> }
 
 async function cargar(ctx: Ctx, necesitaEscritura: boolean) {
+  if (!m365Habilitado()) return { error: NextResponse.json({ error: 'Microsoft 365 en la ficha no está disponible.' }, { status: 404 }) }
   const session = await getServerSession(authOptions)
   if (!session || session.user.userType !== 'admin' || !session.user.id) return { error: NextResponse.json({ error: 'No autorizado.' }, { status: 401 }) }
   const actuacion = bloqueoActuacion(session)

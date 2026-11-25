@@ -13,6 +13,16 @@
 
 type Env = Record<string, string | undefined>
 export type M365Modo = 'real' | 'aislado'
+/**
+ * Tanda 1 de producción (25/11): Microsoft 365 en la ficha (correo desde «Mi Outlook», borrador IA,
+ * «Actualizar desde Outlook» y «Ver respuestas») NO entra. En producción queda APAGADO salvo que
+ * exista AREA1_M365_PRODUCCION=1. Fuera de producción no cambia nada. El calendario ya existente
+ * (crear reunión en mi agenda) y «Mi día» (solo lectura) no dependen de este interruptor.
+ */
+export function m365Habilitado(env: Record<string, string | undefined> = process.env): boolean {
+  if (env.VERCEL_ENV !== 'production') return true
+  return (env.AREA1_M365_PRODUCCION || '').trim() === '1'
+}
 
 const EMAIL_OK = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const DOMINIOS_CORPORATIVOS = ['internetoperadores.com', 'lfgd.es', 'farmsplanet.es', 'elypseadvisory.com']
@@ -116,9 +126,9 @@ export function scopesParaRenovar(scopes: string | null | undefined): string {
 }
 
 /** Canal de correo por defecto (decisión de Víctor, 25/11): «Mi Outlook»; el buzón corporativo queda como opción. */
-export type M365Conexion = { enabled: boolean; connected: boolean; mail?: boolean }
+export type M365Conexion = { enabled: boolean; connected: boolean; mail?: boolean; m365?: boolean }
 export function canalCorreoInicial(conexion: M365Conexion): 'outlook' | 'corporativo' {
-  return conexion.enabled ? 'outlook' : 'corporativo'
+  return conexion.enabled && conexion.m365 !== false ? 'outlook' : 'corporativo'
 }
 export function correoOutlookListo(conexion: M365Conexion): boolean {
   return conexion.enabled && conexion.connected && Boolean(conexion.mail)

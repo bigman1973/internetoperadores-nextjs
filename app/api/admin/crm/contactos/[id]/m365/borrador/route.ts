@@ -1,5 +1,5 @@
 import { getServerSession } from 'next-auth'
-import { bloqueoActuacion } from '@/lib/area1-m365'
+import { bloqueoActuacion, m365Habilitado } from '@/lib/area1-m365'
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { authOptions } from '@/lib/auth'
@@ -13,6 +13,7 @@ export const dynamic = 'force-dynamic'
  * Devuelve { asunto, cuerpo, avisos } para que el usuario lo revise en el compositor.
  */
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
+  if (!m365Habilitado()) return NextResponse.json({ error: 'Microsoft 365 en la ficha no está disponible.' }, { status: 404 })
   const session = await getServerSession(authOptions)
   if (!session || session.user.userType !== 'admin' || !session.user.id) return NextResponse.json({ error: 'No autorizado.' }, { status: 401 })
   const actuacion = bloqueoActuacion(session)

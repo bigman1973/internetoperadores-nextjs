@@ -7,7 +7,7 @@ import { getDefaultEmailSender, sendCrmEmail } from '@/lib/email'
 import { createOutlookUserCalendarEvent } from '@/lib/outlook-calendar'
 import { getOutlookConnectionStatus, getOutlookUserAccessToken } from '@/lib/outlook-user-connection'
 import prisma from '@/lib/prisma'
-import { aislarAsistentes, aislarCorreo, bloqueoActuacion, calendarioBloqueadoEnPruebas, RESULTADO_CALENDARIO_AISLADO } from '@/lib/area1-m365'
+import { aislarAsistentes, aislarCorreo, bloqueoActuacion, calendarioBloqueadoEnPruebas, RESULTADO_CALENDARIO_AISLADO, m365Habilitado } from '@/lib/area1-m365'
 import { enviarCorreoComoUsuario } from '@/lib/area1-m365-graph'
 import { verificarPermisoServer } from '@/lib/permisos'
 
@@ -145,6 +145,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const inviteAttendees = syncOutlook && body.inviteAttendees === true
   // Área 1 · M365: correo desde el buzón del usuario (delegado). Si no, buzón corporativo de la app (lib/email.ts).
   const viaOutlookMail = type === 'CORREO' && body.viaOutlook === true
+  if (viaOutlookMail && !m365Habilitado()) return NextResponse.json({ error: 'El envío desde tu Outlook no está disponible: elige «Buzón corporativo».' }, { status: 409 })
   const mailStatus = viaOutlookMail ? await getOutlookConnectionStatus(authorId) : null
   const borradorIa = type === 'CORREO' && body.borradorIa === true
   const preparedExternalChannel = ['WHATSAPP', 'LINKEDIN', 'SMS'].includes(type) && direction === 'SALIENTE' && body.prepareExternalChannel === true
