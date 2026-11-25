@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import { requireAuth } from '../../../lib/middleware/auth'
-import { registrarArea } from '../../../lib/permisos'
+import { registrarArea, verificarPermisoServer } from '../../../lib/permisos'
+import { cargarAgendaOutlook, type AgendaOutlook, type ReunionAgenda } from '../../../lib/area1-crm-agenda'
+import { bloqueoActuacion } from '../../../lib/area1-m365'
 import prisma from '../../../lib/prisma'
 import { cargarResumenCrm, fmtEur } from '../../../lib/area1-crm-resumen'
 import { nivelDe, resolverVista, type NivelResumen } from '../../../lib/area1-crm-resumen-vista'
@@ -19,6 +21,8 @@ export const dynamic = 'force-dynamic'
 
 const NIVEL_TXT: Record<NivelResumen, string> = { SUPERADMIN: 'superadmin', GERENTE: 'gerente', COMERCIAL: 'comercial' }
 const n0 = (v: number) => v.toLocaleString('es-ES')
+const CONECTAR_OUTLOOK = '/api/admin/integraciones/outlook/connect?returnTo=/admin/crm'
+const GRUPOS_TAREA: Array<['VENCIDA' | 'HOY' | 'SEMANA', string]> = [['VENCIDA', 'Vencidas'], ['HOY', 'Hoy'], ['SEMANA', 'Esta semana']]
 const COLORES_ETAPA = ['var(--before)', '#F3A37A', 'var(--accent)', '#C23F00', '#8F2E00', '#6B2200', '#4A1800']
 
 type Busqueda = { alcance?: string; verComo?: string }
@@ -44,7 +48,18 @@ export default async function CrmPage({ searchParams }: { searchParams: Promise<
     : []
   const candidato = esSuper && params.verComo ? usuarios.find((u) => String(u.id) === String(params.verComo)) || null : null
   const vista = resolverVista(real, { alcance: params.alcance, verComo: params.verComo }, candidato)
-  const d = await cargarResumenCrm(vista)
+  // Mi día: agenda de Outlook de quien está conectado (solo lectura, conexión delegada de la ficha).
+  // Nunca en «Ver como» (el calendario es personal) ni durante «Actuar como».
+  const [d, agenda, permisoCrm] = await Promise.all([
+    cargarResumenCrm(vista),
+    cargarAgendaOutlook({
+      userId: real.id,
+      email: session.user.email || '',
+      bloqueada: vista.verComoActivo ? 'Tu calendario de Outlook solo lo ves tú: en «Ver como» se muestran las reuniones del CRM.' : bloqueoActuacion(session),
+    }).catch((): AgendaOutlook => ({ estado: 'error', motivo: 'No se ha podido leer tu calendario de Outlook ahora.' })),
+    verificarPermisoServer(real.id, 'admin.crm.contactos', session.user.role).catch(() => ({ escritura: false })),
+  ])
+  const puedeConectar = !!permisoCrm?.escritura && !vista.verComoActivo && !bloqueoActuacion(session)
   const hoyTxt = d.fecha.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Madrid' })
   const mesTxt = d.fecha.toLocaleDateString('es-ES', { month: 'long', timeZone: 'Europe/Madrid' })
   const enVerComo = vista.verComoActivo
@@ -56,7 +71,7 @@ export default async function CrmPage({ searchParams }: { searchParams: Promise<
     ['Leads abiertos', n0(d.kpis.leadsAbiertos), d.kpis.leadsAbiertos ? `${n0(d.kpis.leadsSinContactar)} sin contactar en 7 días` : (vista.alcance === 'MIO' ? 'ninguno asignado a ti' : 'ninguno abierto')],
     ['Pipeline ponderado', fmtEur(d.kpis.ponderado), d.pipelines.some((p) => p.total) ? 'importe × probabilidad de la etapa' : 'sin negocios abiertos todavía'],
     [`Ganado en ${mesTxt}`, n0(d.kpis.ganadosMes), d.kpis.ganadosMes ? `${fmtEur(d.kpis.ganadosImporte)} de importe` : 'ningún negocio ganado este mes'],
-    ['Reuniones esta semana', n0(d.kpis.reunionesSemana), 'del CRM · Outlook al conectar Microsoft 365'],
+    ['Reuniones esta semana', n0(d.kpis.reunionesSemana), 'registradas en el CRM'],
     d.kpis.vinculosPendientes !== undefined
       ? ['Vínculos ISP por confirmar', d.kpis.vinculosPendientes == null ? '—' : n0(d.kpis.vinculosPendientes), d.kpis.vinculosPendientes == null ? 'aún no se ha importado ISP' : 'fichas propuestas al importar']
       : ['Tareas vencidas', n0(d.kpis.tareasVencidas), vista.alcance === 'MIO' ? 'tuyas, sin completar' : 'del equipo, sin completar'],
@@ -112,19 +127,52 @@ export default async function CrmPage({ searchParams }: { searchParams: Promise<
         <div className="g2">
           <div className="panel">
             <h2>Mi día</h2>
-            <p className="help">Reuniones del CRM (las de tu Outlook aparecerán al conectar Microsoft 365) y tareas del CRM. Pulsa una para abrir la ficha.</p>
-            <h3>Reuniones de hoy</h3>
-            {d.reunionesHoy.length === 0
-              ? <div className="empty">Sin reuniones registradas para hoy.</div>
-              : d.reunionesHoy.map((m) => (
-                <div className="item" key={m.id}><span className="time">{m.hora}</span><div><div className="t">{m.quien}</div><div className="w">{m.que}</div></div><Link className="btn small" href={`/admin/crm/contactos/${m.contactoId}`}>Abrir</Link></div>
-              ))}
+            <p className="help">{agenda.estado === 'ok' ? `Reuniones de tu Outlook (${agenda.correo}), solo lectura,` : 'Reuniones registradas en el CRM'} y tareas del CRM. Pulsa una para abrir la ficha.</p>
+            {agenda.estado === 'ok' ? (
+              <>
+                {(['HOY', 'MANANA'] as const).map((dia) => {
+                  const lista = agenda.reuniones.filter((m) => m.dia === dia)
+                  return (
+                    <div key={dia}>
+                      <h3>{dia === 'HOY' ? 'Reuniones de hoy' : 'Reuniones de mañana'}</h3>
+                      {lista.length === 0
+                        ? <div className="empty">{dia === 'HOY' ? 'Sin reuniones en tu Outlook para hoy.' : 'Sin reuniones en tu Outlook para mañana.'}</div>
+                        : lista.map((m) => <ReunionOutlook key={m.id} m={m} />)}
+                    </div>
+                  )
+                })}
+              </>
+            ) : (
+              <>
+                <div className="empty">
+                  {agenda.motivo}
+                  {(agenda.estado === 'sin_conexion' || agenda.estado === 'sin_permiso') && puedeConectar
+                    ? <> <a className="btn small primary" href={CONECTAR_OUTLOOK}>Conectar mi Outlook</a></>
+                    : null}
+                </div>
+                <h3>Reuniones de hoy (CRM)</h3>
+                {d.reunionesHoy.length === 0
+                  ? <div className="empty">Sin reuniones registradas en el CRM para hoy.</div>
+                  : d.reunionesHoy.map((m) => (
+                    <div className="item" key={m.id}><span className="time">{m.hora}</span><div><div className="t">{m.quien}</div><div className="w">{m.que}</div></div><Link className="btn small" href={`/admin/crm/contactos/${m.contactoId}`}>Abrir</Link></div>
+                  ))}
+              </>
+            )}
             <h3>Tareas y seguimientos</h3>
             {d.tareas.length === 0
-              ? <div className="empty">{vista.alcance === 'MIO' ? 'No tienes tareas pendientes.' : 'El equipo no tiene tareas pendientes.'}</div>
-              : d.tareas.map((t) => (
-                <div className="item" key={t.id}><span className={`due ${t.clase}`.trim()}>{t.texto}</span><div><Link href={`/admin/crm/contactos/${t.contactoId}`} style={{ color: 'inherit', textDecoration: 'none' }}><div className="t">{t.titulo}</div><div className="w">{t.detalle}</div></Link></div><TareaHecho id={t.id} deshabilitado={enVerComo} /></div>
-              ))}
+              ? <div className="empty">{vista.alcance === 'MIO' ? 'No tienes tareas vencidas ni para esta semana.' : 'El equipo no tiene tareas vencidas ni para esta semana.'}</div>
+              : GRUPOS_TAREA.map(([g, titulo]) => {
+                const lista = d.tareas.filter((t) => t.grupo === g)
+                if (!lista.length) return null
+                return (
+                  <div key={g}>
+                    <div className="eyebrow" style={{ margin: '10px 0 4px' }}>{titulo} · {lista.length}</div>
+                    {lista.map((t) => (
+                      <div className="item" key={t.id}><span className={`due ${t.clase}`.trim()}>{t.texto}</span><div><Link href={`/admin/crm/contactos/${t.contactoId}`} style={{ color: 'inherit', textDecoration: 'none' }}><div className="t">{t.titulo}</div><div className="w">{t.detalle}</div></Link></div><TareaHecho id={t.id} deshabilitado={enVerComo} /></div>
+                    ))}
+                  </div>
+                )
+              })}
           </div>
           <div style={{ display: 'grid', gap: 18, minWidth: 0 }}>
             <div className="panel">
@@ -242,6 +290,27 @@ export default async function CrmPage({ searchParams }: { searchParams: Promise<
           )}
         </div>
       </main>
+    </div>
+  )
+}
+
+/** Una reunión de Outlook en «Mi día»: hora, asunto, Teams, Outlook y fichas del CRM que coinciden. */
+function ReunionOutlook({ m }: { m: ReunionAgenda }) {
+  return (
+    <div className="item">
+      <span className="time">{m.hora}</span>
+      <div>
+        <div className="t">{m.asunto}</div>
+        <div className="w">
+          {m.fichas.length
+            ? m.fichas.map((f, i) => <span key={f.href}>{i ? ' · ' : ''}<Link href={f.href}>{f.nombre}</Link>{f.tipo === 'empresa' ? ' (empresa)' : ''}</span>)
+            : 'Ningún asistente coincide con una ficha del CRM'}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        {m.teamsJoinUrl ? <a className="btn small primary" href={m.teamsJoinUrl} target="_blank" rel="noopener noreferrer">Teams</a> : null}
+        {m.webLink ? <a className="btn small" href={m.webLink} target="_blank" rel="noopener noreferrer">Outlook</a> : null}
+      </div>
     </div>
   )
 }

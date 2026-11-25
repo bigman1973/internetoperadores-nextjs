@@ -14,6 +14,15 @@ const PARTNER_CERRADO = ['APROBADO', 'RECHAZADO', 'DESCARTADO'] as const
 const TIPOS_REUNION = ['REUNION', 'MEETING']
 
 /** Inicio del día en Madrid (sin dependencias): desplazamiento real de la zona en esa fecha. */
+/** Grupo de una tarea pendiente en «Mi día» según su vencimiento (hora de Madrid). */
+export function grupoTarea(vence: Date | null, hoy0: Date, finSemana: Date): 'VENCIDA' | 'HOY' | 'SEMANA' | null {
+  if (!vence) return null
+  const t = vence.getTime()
+  if (t < hoy0.getTime()) return 'VENCIDA'
+  if (t < hoy0.getTime() + 86400000) return 'HOY'
+  if (t < finSemana.getTime()) return 'SEMANA'
+  return null
+}
 export function inicioDiaMadrid(fecha: Date): Date {
   const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(fecha)
   const g = (t: string) => Number(p.find((x) => x.type === t)?.value)
@@ -78,8 +87,9 @@ export async function cargarResumenCrm(vista: VistaResumen, ahora = new Date()) 
     }),
     prisma.crmActividad.count({ where: { ...filtroReuniones, fechaActividad: { gte: lunes, lt: domingoFin } } }),
     prisma.crmTarea.findMany({
-      where: { ...filtroTareas, estado: 'PENDIENTE' },
-      orderBy: { venceAt: 'asc' }, take: 6,
+      // Mi día: tareas y seguimientos vencidos, de hoy y del resto de la semana (hasta el domingo).
+      where: { ...filtroTareas, estado: 'PENDIENTE', venceAt: { lt: domingoFin } },
+      orderBy: { venceAt: 'asc' }, take: 15,
       select: { id: true, titulo: true, descripcion: true, venceAt: true, contactoId: true, asignadoANombre: true, contacto: { select: { nombre: true, empresa: true } } },
     }),
     prisma.crmTarea.count({ where: { ...filtroTareas, estado: 'PENDIENTE', venceAt: { lt: hoy } } }),
@@ -212,6 +222,7 @@ export async function cargarResumenCrm(vista: VistaResumen, ahora = new Date()) 
     })),
     tareas: tareas.map((t) => ({
       id: t.id,
+      grupo: grupoTarea(t.venceAt, hoy, domingoFin) || 'SEMANA',
       ...vencimiento(t.venceAt, ahora),
       titulo: t.titulo,
       detalle: [t.contacto?.empresa || t.contacto?.nombre, mio ? null : t.asignadoANombre].filter(Boolean).join(' · ') || (t.descripcion || '').slice(0, 90),
