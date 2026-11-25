@@ -3949,3 +3949,77 @@ export function area4EasyMenu(conciliarEnabled: boolean): readonly Area4MenuLeaf
       icon: easy === 'para-pedir' ? 'documentText' : 'clipboardDocumentList', section: section.key }
   })))
 }
+
+/** Dashboard presentation belongs to this registry, not to a second role/access catalogue.
+ * Each block names an EXISTING apartado and its real page; metadata NEVER grants V.
+ * Readers require both apartado V and source-surface permission before any data is loaded.
+ * Baseline descriptors/identities above are untouched; no automatic assignments or adoption.
+ */
+export type Area4DashboardReader = 'finance' | 'clients' | 'contracts' | 'crm' | 'rentabilidad' | 'soon'
+export type Area4DashboardDefinition = Readonly<{
+  id: string; sectionKey: string; sourcePath: string; title: string; help: string;
+  reader: Area4DashboardReader; chart?: 'money' | 'percent';
+}>
+export const AREA4_DASHBOARD_BLOCKS: readonly Area4DashboardDefinition[] = [
+  { id: 'decisiones', sectionKey: 'usuarios-permisos', sourcePath: '/admin/usuarios', title: 'Necesita tu decisión', help: 'Lo que está parado esperando un sí o un no tuyo.', reader: 'soon' },
+  { id: 'facturado', sectionKey: 'facturacion', sourcePath: '/admin/facturacion', title: 'Facturado por mes · {year}', help: '{month} va en curso.', reader: 'finance', chart: 'money' },
+  { id: 'avisos', sectionKey: 'conciliacion', sourcePath: '/admin/finanzas/conciliar', title: 'Avisos', help: '', reader: 'finance' },
+  { id: 'margen', sectionKey: 'rentabilidad', sourcePath: '/admin/rentabilidad', title: 'Margen por mes', help: 'Margen conocido; provisional si faltan costes o repartos.', reader: 'rentabilidad', chart: 'percent' },
+  { id: 'mi-dia', sectionKey: 'crm', sourcePath: '/admin/crm', title: 'Mi día', help: 'Reuniones guardadas y tareas del CRM.', reader: 'crm' },
+  { id: 'altas', sectionKey: 'altas-pendientes', sourcePath: '/admin/altas-pendientes', title: 'Altas pendientes', help: 'Contratos firmados que aún no están en ISP.', reader: 'soon' },
+  { id: 'permanencias', sectionKey: 'contratos', sourcePath: '/admin/contratos', title: 'Permanencias que acaban', help: 'Próximos 60 días: buena ocasión para renovar.', reader: 'soon' },
+  { id: 'cierre', sectionKey: 'conciliacion', sourcePath: '/admin/finanzas/conciliar', title: 'Cierre de {month}', help: 'Lo que falta para cerrar el mes.', reader: 'soon' },
+  { id: 'para-hoy', sectionKey: 'conciliacion', sourcePath: '/admin/finanzas/conciliar', title: 'Para hoy', help: '', reader: 'finance' },
+  { id: 'gastos-equipo', sectionKey: 'personal', sourcePath: '/admin/empleados', title: 'Gastos de trabajadores', help: 'Área 5.', reader: 'soon' },
+  { id: 'negocios', sectionKey: 'crm', sourcePath: '/admin/crm', title: 'Mis negocios por etapa', help: 'Pulsa uno para abrir su ficha.', reader: 'crm' },
+  { id: 'objetivo', sectionKey: 'crm', sourcePath: '/admin/crm', title: 'Objetivo de {month}', help: '', reader: 'soon' },
+  { id: 'leads-nuevos', sectionKey: 'leads', sourcePath: '/admin/leads', title: 'Leads nuevos sin contactar', help: 'Llegados por la web y por teléfono.', reader: 'crm' },
+  { id: 'draxton-facturas', sectionKey: 'draxton-finanzas', sourcePath: '/admin/clientes/ggcc/draxton/finanzas', title: 'Facturas de Draxton', help: 'Solo las de las sociedades del grupo.', reader: 'soon' },
+  { id: 'draxton-documentos', sectionKey: 'draxton-contratos', sourcePath: '/admin/clientes/ggcc/draxton/contratos', title: 'Documentación', help: 'Requerimientos y contratos.', reader: 'soon' },
+  { id: 'mis-gastos', sectionKey: 'portal-empleado', sourcePath: '/empleado/gastos', title: 'Mis gastos', help: 'Sube el ticket con el móvil.', reader: 'soon' },
+  { id: 'mis-documentos', sectionKey: 'portal-empleado', sourcePath: '/empleado/nominas', title: 'Mis documentos', help: '', reader: 'soon' },
+  { id: 'comunicados', sectionKey: 'comunicados', sourcePath: '/admin/comunicados', title: 'Comunicados', help: '', reader: 'soon' },
+]
+export type Area4DashboardKpiDefinition = Readonly<{
+  id: string; sectionKey: string; sourcePath: string; label: string; reader: Area4DashboardReader;
+}>
+export const AREA4_DASHBOARD_KPIS: readonly Area4DashboardKpiDefinition[] = [
+  { id: 'facturado-anio', sectionKey: 'facturacion', sourcePath: '/admin/facturacion', label: 'Facturado {year}', reader: 'finance' },
+  { id: 'facturado-mes', sectionKey: 'facturacion', sourcePath: '/admin/facturacion', label: '{month}', reader: 'finance' },
+  { id: 'margen-ultimo', sectionKey: 'rentabilidad', sourcePath: '/admin/rentabilidad', label: 'Margen del último mes con dato', reader: 'rentabilidad' },
+  { id: 'cobro', sectionKey: 'conciliacion', sourcePath: '/admin/finanzas/conciliar', label: 'Cobro confirmado', reader: 'finance' },
+  { id: 'clientes', sectionKey: 'clientes', sourcePath: '/admin/clientes', label: 'Clientes activos', reader: 'clients' },
+  { id: 'contratos', sectionKey: 'contratos', sourcePath: '/admin/contratos', label: 'Contratos activos', reader: 'contracts' },
+  { id: 'altas-pendientes', sectionKey: 'altas-pendientes', sourcePath: '/admin/altas-pendientes', label: 'Altas pendientes', reader: 'soon' },
+  { id: 'leads', sectionKey: 'leads', sourcePath: '/admin/leads', label: 'Leads abiertos', reader: 'crm' },
+  { id: 'reuniones', sectionKey: 'crm', sourcePath: '/admin/crm', label: 'Reuniones esta semana', reader: 'crm' },
+  { id: 'por-confirmar', sectionKey: 'conciliacion', sourcePath: '/admin/finanzas/conciliar', label: 'Por confirmar', reader: 'finance' },
+  { id: 'extractos', sectionKey: 'conciliacion', sourcePath: '/admin/finanzas/conciliar', label: 'Extractos', reader: 'finance' },
+  { id: 'proveedores', sectionKey: 'finanzas-facturas', sourcePath: '/admin/finanzas/facturas', label: 'Facturas de proveedor', reader: 'soon' },
+  { id: 'remesa', sectionKey: 'finanzas-remesas', sourcePath: '/admin/finanzas/conciliacion-remesas', label: 'Remesa {month}', reader: 'soon' },
+  { id: 'mis-leads', sectionKey: 'leads', sourcePath: '/admin/leads', label: 'Mis leads', reader: 'crm' },
+  { id: 'mis-negocios', sectionKey: 'crm', sourcePath: '/admin/crm', label: 'Mis negocios', reader: 'crm' },
+  { id: 'ganado', sectionKey: 'crm', sourcePath: '/admin/crm', label: 'Ganado en {month}', reader: 'crm' },
+  { id: 'objetivo-mes', sectionKey: 'crm', sourcePath: '/admin/crm', label: 'Objetivo del mes', reader: 'soon' },
+  { id: 'mis-clientes', sectionKey: 'clientes', sourcePath: '/admin/clientes', label: 'Mis clientes', reader: 'soon' },
+  { id: 'draxton-facturado', sectionKey: 'draxton-finanzas', sourcePath: '/admin/clientes/ggcc/draxton/finanzas', label: 'Facturado a Draxton {year}', reader: 'soon' },
+  { id: 'draxton-sedes', sectionKey: 'draxton-contratos', sourcePath: '/admin/clientes/ggcc/draxton/contratos', label: 'Sedes', reader: 'soon' },
+  { id: 'draxton-pendientes', sectionKey: 'draxton-finanzas', sourcePath: '/admin/clientes/ggcc/draxton/finanzas', label: 'Facturas pendientes', reader: 'soon' },
+  { id: 'draxton-incidencias', sectionKey: 'draxton-seguimiento', sourcePath: '/admin/clientes/ggcc/draxton/seguimiento', label: 'Incidencias abiertas', reader: 'soon' },
+  { id: 'draxton-requerimientos', sectionKey: 'draxton-contratos', sourcePath: '/admin/clientes/ggcc/draxton/contratos', label: 'Requerimientos AEAT', reader: 'soon' },
+  { id: 'draxton-ultima', sectionKey: 'draxton-finanzas', sourcePath: '/admin/clientes/ggcc/draxton/finanzas', label: 'Última factura', reader: 'soon' },
+  { id: 'gastos-propios', sectionKey: 'portal-empleado', sourcePath: '/empleado/gastos', label: 'Mis gastos', reader: 'soon' },
+  { id: 'nomina-propia', sectionKey: 'portal-empleado', sourcePath: '/empleado/nominas', label: 'Última nómina', reader: 'soon' },
+  { id: 'vacaciones-propias', sectionKey: 'portal-empleado', sourcePath: '/empleado', label: 'Vacaciones', reader: 'soon' },
+  { id: 'peticiones-propias', sectionKey: 'peticiones-propias', sourcePath: '/peticiones', label: 'Mis peticiones', reader: 'soon' },
+  { id: 'comunicados-propios', sectionKey: 'comunicados', sourcePath: '/admin/comunicados', label: 'Comunicados', reader: 'soon' },
+  { id: 'agenda-propia', sectionKey: 'portal-empleado', sourcePath: '/empleado', label: 'Mi día', reader: 'soon' },
+]
+export const AREA4_DASHBOARD_LAYOUTS: Readonly<Record<import('./users-contract').ApprovedRoleKey, Readonly<{ kpis: readonly string[]; columns: readonly (readonly string[])[] }>>> = {
+  superadmin: { kpis: ['facturado-anio','facturado-mes','margen-ultimo','cobro','clientes','contratos'], columns: [['decisiones','facturado'],['avisos','margen','mi-dia']] },
+  gerente: { kpis: ['facturado-mes','clientes','contratos','altas-pendientes','leads','reuniones'], columns: [['mi-dia','altas'],['facturado','permanencias']] },
+  contabilidad: { kpis: ['facturado-mes','cobro','por-confirmar','extractos','proveedores','remesa'], columns: [['cierre','facturado'],['para-hoy','gastos-equipo']] },
+  comercial: { kpis: ['mis-leads','mis-negocios','ganado','objetivo-mes','reuniones','mis-clientes'], columns: [['mi-dia','negocios'],['objetivo','leads-nuevos']] },
+  draxton: { kpis: ['draxton-facturado','draxton-sedes','draxton-pendientes','draxton-incidencias','draxton-requerimientos','draxton-ultima'], columns: [['draxton-facturas'],['draxton-documentos']] },
+  empleado: { kpis: ['gastos-propios','nomina-propia','vacaciones-propias','peticiones-propias','comunicados-propios','agenda-propia'], columns: [['mis-gastos'],['mis-documentos','comunicados']] },
+}
