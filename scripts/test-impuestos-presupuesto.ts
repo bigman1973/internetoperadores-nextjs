@@ -126,8 +126,8 @@ t('middleware: Impuestos y Presupuesto registrados y escrituras del sandbox acot
   assert.deepEqual(areas('/api/admin/finanzas/presupuesto/versiones/3/lineas'), ['admin.finanzas.presupuesto']);
   const a0 = src.indexOf('const allowed = '); const a1 = src.indexOf("\n    if ((path.startsWith('/api/cron/')", a0);
   const expr = src.slice(a0 + 'const allowed = '.length, a1).trim().replace(/;$/, '');
-  const allowed = new Function('path', 'request', 'isAuthorizedP2Path', `return ${expr}`) as (p: string, r: { method: string }, f: (p: string) => boolean) => boolean;
-  const ok2 = (p: string, m: string) => allowed(p, { method: m }, () => false);
+  const allowed = new Function('path', 'request', 'isAuthorizedP2Path', 'crmImportAllowed', `return ${expr}`) as (p: string, r: { method: string }, f: (p: string) => boolean, crm: boolean) => boolean;
+  const ok2 = (p: string, m: string) => allowed(p, { method: m }, () => false, false);
   assert.equal(ok2('/api/admin/finanzas/impuestos/presentados', 'POST'), true);
   assert.equal(ok2('/api/admin/finanzas/impuestos/presentados', 'DELETE'), true);
   assert.equal(ok2('/api/admin/finanzas/presupuesto/versiones', 'POST'), true);

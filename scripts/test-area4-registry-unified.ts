@@ -41,21 +41,24 @@ function discoveredPaths(directory: string, filename: RegExp, prefix: string): s
   })
 }
 
-test('source4d03 exacto: 439 descriptores y 79 identidades literales, SHA256 locked independiente', () => {
+test('source4d03 exacto (sin las 12 superficies del Área 5 revertidas): 427 descriptores y 79 identidades literales, SHA256 locked independiente', () => {
   assert.equal(AREA4_BASELINE_SOURCE, '4d03c9a3')
   const allMatches = area4RegistrySurfaceMatches()
   const matches = allMatches.filter(match => match.surface.baselineDescriptor !== undefined)
-  assert.equal(matches.length, 439)
+  assert.equal(matches.length, 427) // 439 de 4d03 menos 12 del Área 5 (candidata sin Área 5)
   assert.equal(AREA4_SECTION_REGISTRY.length, 79)
   const changedContracts = ['/api/admin/crm/hubspot/historial', '/api/admin/crm/isp/importar']
   assert.deepEqual(matches.filter(match => !match.baseline).map(match => match.surface.path).sort(), changedContracts)
-  assert.equal(matches.filter(match => match.baseline).length, 437)
+  assert.equal(matches.filter(match => match.baseline).length, 425)
   assert.ok(allMatches.filter(match => match.surface.baselineDescriptor === undefined).every(match => !match.baseline), 'las altas nuevas no entran en la evidencia source4d03')
   const expectedSurfaces = '46f6730c0eb75836ee9fbf311d6ebb38b1b5e70babedc56591f6d6c97854a92f'
   const expectedIdentities = '1fd44a77bd14022b2e72de292e7081daf5b7590ec2f8c11c6416844afba0470c'
   assert.equal(AREA4_BASELINE_DESCRIPTORS_SHA256, expectedSurfaces)
   assert.equal(AREA4_BASELINE_IDENTITIES_SHA256, expectedIdentities)
-  assert.equal(digest(matches.map(match => match.surface.baselineDescriptor).sort()), expectedSurfaces)
+  // Candidata sin Área 5: los 12 descriptores revertidos viven en un fixture y el hash 4d03 se reconstruye exacto con ellos.
+  const area5Revertida: string[] = JSON.parse(readFileSync(new URL('./fixtures-area5-revertida-descriptores.json', import.meta.url), 'utf8'))
+  assert.equal(area5Revertida.length, 12)
+  assert.equal(digest([...matches.map(match => match.surface.baselineDescriptor as string), ...area5Revertida].sort()), expectedSurfaces)
   assert.equal(digest(AREA4_SECTION_REGISTRY.map(section => section.baselineIdentity).sort()), expectedIdentities)
   for (const match of matches) {
     assert.deepEqual(Object.keys(match).sort(), ['baseline', 'descriptor', 'id', 'section', 'surface'])
