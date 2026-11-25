@@ -118,3 +118,9 @@ export function bloqueoCanalCorreo(viaOutlook: boolean, conexion: M365Conexion):
     ? 'Concede el permiso de correo a tu Outlook o elige «Buzón corporativo».'
     : 'Conecta tu Outlook o elige «Buzón corporativo» para enviar.'
 }
+
+/** Mientras alguien «actúa como» otra persona no se usa su Outlook, no se envían correos ni se redacta con IA en su nombre. */
+export const M365_BLOQUEO_ACTUACION = 'No disponible mientras actúas como otra persona: sal de «Actuar como» para usar Outlook, correo o IA.'
+export function bloqueoActuacion(session: { impersonation?: unknown } | null | undefined): string | null {
+  return session && session.impersonation ? M365_BLOQUEO_ACTUACION : null
+}

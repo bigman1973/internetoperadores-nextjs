@@ -1,7 +1,7 @@
 /* Batería Área 1 · Microsoft 365 (sin red, sin BD, sin datos personales). */
 import { readFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
-import { aislarAsistentes, bloqueoCanalCorreo, canalCorreoInicial, aislarCorreo, avisoAislamiento, M365_SCOPES_TODOS, m365CorreoPrueba, m365Modo, scopesParaRenovar, tienePermiso } from '../lib/area1-m365'
+import { aislarAsistentes, bloqueoActuacion, bloqueoCanalCorreo, canalCorreoInicial, aislarCorreo, avisoAislamiento, M365_SCOPES_TODOS, m365CorreoPrueba, m365Modo, scopesParaRenovar, tienePermiso } from '../lib/area1-m365'
 import { enviarCorreoComoUsuario, leerEventoOutlook, leerHiloCorreo } from '../lib/area1-m365-graph'
 import { construirPromptBorrador, generarBorrador, interpretarRespuesta, limpiarPeticion, type ContextoBorrador } from '../lib/area1-m365-borrador'
 
@@ -111,6 +111,13 @@ async function main() {
   const m365r = readFileSync('app/api/admin/crm/contactos/[id]/actividades/[actividadId]/m365/route.ts', 'utf8')
   t('ruta m365: solo lecturas Graph (sin enviar ni crear eventos)', !/enviarCorreoComoUsuario\(|createOutlookUserCalendarEvent\(|sendCrmEmail\(/.test(m365r))
   t('modo real solo con VERCEL_ENV=production; preview/staging/vacío aislados', m365Modo({ VERCEL_ENV: 'production' }) === 'real' && m365Modo({ VERCEL_ENV: 'preview' }) === 'aislado' && m365Modo({ VERCEL_ENV: 'staging' }) === 'aislado' && m365Modo({}) === 'aislado')
+  // Actuar como: nada de Outlook, correo ni IA en nombre de otra persona
+  t('bloqueoActuacion: bloquea con impersonation y deja pasar sin ella', !!bloqueoActuacion({ impersonation: { actorId: 1 } }) && bloqueoActuacion({}) === null && bloqueoActuacion(null) === null)
+  for (const [f, re] of [
+    ['app/api/admin/crm/contactos/[id]/actividades/[actividadId]/m365/route.ts', /bloqueoActuacion\(session\)/],
+    ['app/api/admin/crm/contactos/[id]/m365/borrador/route.ts', /bloqueoActuacion\(session\)/],
+    ['app/api/admin/crm/contactos/[id]/actividades/route.ts', /\(type === 'CORREO' \|\| requestedOutlook\) \? bloqueoActuacion\(session\)/],
+  ] as const) { const src = readFileSync(f, 'utf8'); t(`actuar como bloqueado antes de Graph/IA: ${f.split('/').slice(-3).join('/')}`, re.test(src) && src.search(re) < Math.max(src.indexOf('getOutlookUserAccessToken('), src.indexOf('generarBorrador('), 0) + (src.includes('getOutlookUserAccessToken(') || src.includes('generarBorrador(') ? 0 : 1e9)) }
   console.log(`\nResultado: ${ok}/${ok + ko}`)
   if (ko) process.exit(1)
 }
