@@ -131,18 +131,14 @@ test('ACL de la persona revocada: no lectores ni contenido heredado del propieta
   assert.deepEqual(m.kpis, []); assert.equal(m.columns.flat().length, 0)
   assert.ok(!h.calls.some((c: string) => c.startsWith('crm-reader:')))
 })
-test('Decisiones: guardia de revisores antes del agregado; count global >400, sin leer filas personales', async () => {
-  const calls: string[] = []
-  const imports = { '@/lib/prisma': { default: { $queryRaw: async (sql: TemplateStringsArray) => { calls.push(sql.join('')); return [{ total: 570 }] } }, __esModule: true }, '@/lib/area5/server': { actorRevisor: async () => { calls.push('guard'); return { usuarioId: 903, actuando: false, revisor: true } } } }
-  const h = execute('lib/area4/dashboard-decisions.ts', imports)
+test('Decisiones: sin bloque de Área 5 (revertida); solo el aviso de Subida y sin importar módulos eliminados', async () => {
+  const fuente = readFileSync('lib/area4/dashboard-decisions.ts', 'utf8')
+  assert.ok(!/area5/i.test(fuente) && !/gastos-nominas/.test(fuente) && !/@\/lib\/prisma/.test(fuente))
+  const h = execute('lib/area4/dashboard-decisions.ts', {})
   const rows = await h.readDashboardDecisions(903, now, () => true)
-  assert.equal(calls[0], 'guard'); assert.match(calls[1], /COUNT\(\*\).*PENDIENTE.*LIMIT 1/)
-  assert.equal(rows[0].badge, '570'); assert.equal(rows.length, 2)
+  assert.equal(rows.length, 1); assert.equal(rows[0].href, '/admin/subida-precios')
   assert.equal(h.dashboardPriceDeadline(new Date('2026-11-30T23:00:00Z')), null)
-  imports['@/lib/area5/server'].actorRevisor = async () => { throw new Error('DENIED') }
-  calls.length = 0
-  const denied = await h.readDashboardDecisions(903, now, () => true)
-  assert.deepEqual(calls, []); assert.equal(denied.length, 1); assert.equal(denied[0].href, '/admin/subida-precios')
+  assert.equal((await h.readDashboardDecisions(903, now, () => false)).length, 0)
 })
 test('cliente no modifica RoleContext; el indicador falso de avisos se ha quitado', () => {
   const client = readFileSync('components/admin/DashboardClient.tsx', 'utf8')
