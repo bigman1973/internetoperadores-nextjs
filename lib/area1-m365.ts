@@ -22,6 +22,19 @@ export function m365Modo(env: Env = process.env): M365Modo {
   return env.VERCEL_ENV === 'production' ? 'real' : 'aislado'
 }
 
+/**
+ * Opción C (Víctor, 25/11): en modo aislado la reunión con syncOutlook NO crea evento en Outlook
+ * (ni pide token ni llama a Graph) y queda en la ficha como CALENDARIO_NO_CREADO_AISLADO,
+ * salvo que M365_STAGING_CALENDARIO=1 (Víctor la activa solo durante la prueba guiada).
+ * Con la variable, el evento va solo al calendario propio y los invitados siguen pasando por aislarAsistentes.
+ * En producción (modo real) devuelve siempre false: no cambia nada.
+ */
+export function calendarioBloqueadoEnPruebas(env: Env = process.env): boolean {
+  if (m365Modo(env) === 'real') return false
+  return (env.M365_STAGING_CALENDARIO || '').trim() !== '1'
+}
+export const RESULTADO_CALENDARIO_AISLADO = 'CALENDARIO_NO_CREADO_AISLADO'
+
 /** Dirección de prueba para staging: solo se acepta si es un buzón corporativo. */
 export function m365CorreoPrueba(env: Env = process.env): string | null {
   const v = (env.M365_STAGING_TEST_EMAIL || '').trim().toLowerCase()
