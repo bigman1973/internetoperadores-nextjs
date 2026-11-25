@@ -7,7 +7,7 @@ import { getDefaultEmailSender, sendCrmEmail } from '@/lib/email'
 import { createOutlookUserCalendarEvent } from '@/lib/outlook-calendar'
 import { getOutlookConnectionStatus, getOutlookUserAccessToken } from '@/lib/outlook-user-connection'
 import prisma from '@/lib/prisma'
-import { aislarAsistentes, aislarCorreo } from '@/lib/area1-m365'
+import { aislarAsistentes, aislarCorreo, bloqueoActuacion } from '@/lib/area1-m365'
 import { enviarCorreoComoUsuario } from '@/lib/area1-m365-graph'
 import { verificarPermisoServer } from '@/lib/permisos'
 
@@ -135,6 +135,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const authorName = session.user.name || session.user.email || 'Administrador'
   const authorEmail = session.user.email?.trim().toLowerCase() || ''
   const requestedOutlook = type === 'REUNION' && body.syncOutlook === true
+  const actuacion = (type === 'CORREO' || requestedOutlook) ? bloqueoActuacion(session) : null
+  if (actuacion) return NextResponse.json({ error: actuacion }, { status: 403 })
   const outlookStatus = requestedOutlook ? await getOutlookConnectionStatus(authorId) : null
   const syncOutlook = Boolean(requestedOutlook && outlookStatus?.enabled && outlookStatus.connected)
   const onlineMeeting = syncOutlook && body.onlineMeeting === true

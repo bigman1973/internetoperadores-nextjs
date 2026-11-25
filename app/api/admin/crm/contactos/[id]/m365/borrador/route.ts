@@ -1,4 +1,5 @@
 import { getServerSession } from 'next-auth'
+import { bloqueoActuacion } from '@/lib/area1-m365'
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { authOptions } from '@/lib/auth'
@@ -14,6 +15,8 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions)
   if (!session || session.user.userType !== 'admin' || !session.user.id) return NextResponse.json({ error: 'No autorizado.' }, { status: 401 })
+  const actuacion = bloqueoActuacion(session)
+  if (actuacion) return NextResponse.json({ error: actuacion }, { status: 403 })
   const permission = await verificarPermisoServer(Number(session.user.id), 'admin.crm.contactos', session.user.role)
   if (!permission.escritura) return NextResponse.json({ error: 'No tienes permiso para escribir a este contacto.' }, { status: 403 })
 

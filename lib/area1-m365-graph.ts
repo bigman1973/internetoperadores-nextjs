@@ -168,3 +168,49 @@ export async function leerEventoOutlook(accessToken: string, eventId: string, fe
     },
   }
 }
+
+/** Agenda del usuario (solo lectura): GET /me/calendarView entre dos instantes. Nunca escribe ni envía. */
+export type EventoAgenda = {
+  id: string
+  asunto: string
+  inicio: string | null
+  fin: string | null
+  todoElDia: boolean
+  teamsJoinUrl: string | null
+  webLink: string | null
+  asistentes: string[]
+  organizador: string | null
+}
+export async function leerAgendaOutlook(accessToken: string, desde: Date, hasta: Date, fetchImpl: FetchLike = fetch): Promise<{ ok: boolean; status: number; eventos: EventoAgenda[]; error?: string }> {
+  const url = new URL(`${GRAPH}/me/calendarView`)
+  url.searchParams.set('startDateTime', desde.toISOString())
+  url.searchParams.set('endDateTime', hasta.toISOString())
+  url.searchParams.set('$select', 'id,subject,start,end,isAllDay,isCancelled,onlineMeeting,webLink,attendees,organizer')
+  url.searchParams.set('$orderby', 'start/dateTime')
+  url.searchParams.set('$top', '50')
+  const response = await fetchImpl(url.toString(), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${accessToken}`, Prefer: 'outlook.timezone="UTC"' },
+    cache: 'no-store',
+    signal: AbortSignal.timeout(15_000),
+  })
+  if (!response.ok) return { ok: false, status: response.status, eventos: [], error: await graphError(response) }
+  const data = await response.json() as { value?: Array<{
+    id?: string; subject?: string; isAllDay?: boolean; isCancelled?: boolean; webLink?: string
+    start?: { dateTime?: string }; end?: { dateTime?: string }; onlineMeeting?: { joinUrl?: string } | null
+    attendees?: Array<{ emailAddress?: { address?: string } }>; organizer?: { emailAddress?: { address?: string } }
+  }> }
+  const utc = (v?: string) => (v ? (/[zZ]|[+-]\d\d:?\d\d$/.test(v) ? new Date(v) : new Date(`${v}Z`)).toISOString() : null)
+  const eventos = (data.value || []).filter((e) => e.id && !e.isCancelled).map((e) => ({
+    id: e.id as string,
+    asunto: (e.subject || '').trim() || '(sin asunto)',
+    inicio: utc(e.start?.dateTime),
+    fin: utc(e.end?.dateTime),
+    todoElDia: Boolean(e.isAllDay),
+    teamsJoinUrl: e.onlineMeeting?.joinUrl || null,
+    webLink: e.webLink || null,
+    asistentes: [...new Set((e.attendees || []).flatMap((a) => a.emailAddress?.address ? [a.emailAddress.address.trim().toLowerCase()] : []))],
+    organizador: e.organizer?.emailAddress?.address?.trim().toLowerCase() || null,
+  }))
+  return { ok: true, status: response.status, eventos }
+}

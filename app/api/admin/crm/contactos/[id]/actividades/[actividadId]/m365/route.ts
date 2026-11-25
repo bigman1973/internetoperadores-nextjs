@@ -1,4 +1,5 @@
 import { getServerSession } from 'next-auth'
+import { bloqueoActuacion } from '@/lib/area1-m365'
 import { NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { authOptions } from '@/lib/auth'
@@ -14,6 +15,8 @@ type Ctx = { params: Promise<{ id: string; actividadId: string }> }
 async function cargar(ctx: Ctx, necesitaEscritura: boolean) {
   const session = await getServerSession(authOptions)
   if (!session || session.user.userType !== 'admin' || !session.user.id) return { error: NextResponse.json({ error: 'No autorizado.' }, { status: 401 }) }
+  const actuacion = bloqueoActuacion(session)
+  if (actuacion) return { error: NextResponse.json({ error: actuacion }, { status: 403 }) }
   const userId = Number(session.user.id)
   const permission = await verificarPermisoServer(userId, 'admin.crm.contactos', session.user.role)
   if (necesitaEscritura ? !permission.escritura : !permission.lectura) return { error: NextResponse.json({ error: 'Sin permiso.' }, { status: 403 }) }
