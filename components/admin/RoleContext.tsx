@@ -2,6 +2,8 @@
 
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import { grantAllowsArea4Capability, isArea4OwnerOnlyArea, area4FinanceModuleAllows, type Area4Capability } from '@/lib/area4/policy'
+import { area4CodeIsBaseline, area4RegisteredSurface } from '@/lib/area4/section-registry'
+import { area4CodeSeedAllows, area4SurfaceSeedAllows, type Area4SurfacePermissionSeed } from '@/lib/area4/surface-access-contract'
 import {
   decideAdminPermissionSeedLoad,
   type AdminPermissionSsrSeed,
@@ -47,9 +49,11 @@ interface RoleContextType {
   setViewAsRole: (role: RolId | null) => void
   setViewAsUser: (user: UsuarioSimulado | null) => void
   hasAccess: (section: string) => boolean
+  hasSurfaceAccess: (href: string) => boolean
   hasAreaAccess: (codigoArea: string, tipo?: Area4Capability) => boolean
   effectiveRole: RolId
   permisosGranulares: PermisoGranular[]
+  surfacePermissions: readonly Area4SurfacePermissionSeed[]
   effectiveUserId: number | null
   tienePermisosGranulares: boolean
   permisosLoaded: boolean
@@ -67,9 +71,11 @@ const RoleContext = createContext<RoleContextType>({
   setViewAsRole: () => {},
   setViewAsUser: () => {},
   hasAccess: () => false,
+  hasSurfaceAccess: () => false,
   hasAreaAccess: () => false,
   effectiveRole: 'VISOR',
   permisosGranulares: [],
+  surfacePermissions: [],
   effectiveUserId: null,
   tienePermisosGranulares: false,
   permisosLoaded: false,
@@ -86,6 +92,7 @@ export function RoleProvider({
   skipPermissionLoad,
   permissionsAdopted,
   actingUser,
+  initialSurfacePermissions,
 }: {
   children: React.ReactNode
   userRole: string
@@ -102,6 +109,8 @@ export function RoleProvider({
   permissionsAdopted?: boolean
   /** Destino efectivo resuelto por el servidor, nunca el actor original. */
   actingUser?: UsuarioSimulado
+  /** Solo superficies nuevas con consentimiento vivo del actor efectivo. */
+  initialSurfacePermissions?: readonly Area4SurfacePermissionSeed[]
 }) {
   const [viewAsRole, setViewAsRoleState] = useState<RolId | null>(null)
   const [viewingUser, setViewingUser] = useState<UsuarioSimulado | null>(null)
@@ -110,6 +119,7 @@ export function RoleProvider({
   )
   const [permisosLoaded, setPermisosLoaded] = useState(initialPermissionsLoaded === true)
   const [adopted, setAdopted] = useState(permissionsAdopted === true)
+  const [surfacePermissions, setSurfacePermissions] = useState<readonly Area4SurfacePermissionSeed[]>(initialSurfacePermissions || [])
   // Una previsualización es local y no cambia la sesión. Tras usarla no se puede
   // restaurar una ACL serializada al hidratar: incluso al volver al actor inicial
   // se consulta de nuevo la API, que vuelve a validar la sesión.
@@ -152,6 +162,7 @@ export function RoleProvider({
     if (mode === 'seed' || mode === 'skip' || mode === 'privileged') {
       if (permissionsAdopted !== undefined) setAdopted(permissionsAdopted)
       setPermisosGranulares(mode === 'seed' ? (initialPermissions || []).map(permission => ({ ...permission })) : [])
+      setSurfacePermissions(mode === 'seed' ? initialSurfacePermissions || [] : [])
       setPermisosLoaded(true)
       return
     }
@@ -161,6 +172,8 @@ export function RoleProvider({
     const controller = new AbortController()
     let current = true
     setPermisosGranulares([])
+    setSurfacePermissions([])
+    setAdopted(false)
     setPermisosLoaded(false)
     fetch(`/api/admin/permisos?action=usuario&usuarioId=${uid}`, { signal: controller.signal, cache: 'no-store' })
       .then(res => {
@@ -171,6 +184,7 @@ export function RoleProvider({
         if (!current) return
         if (Array.isArray(data.permisos)) {
           setAdopted(data.permisosArea4Vivos === true)
+          setSurfacePermissions(Array.isArray(data.surfacePermissions) ? data.surfacePermissions : [])
           setPermisosGranulares(data.permisos.map((p: any) => ({
             areaId: p.areaId,
             codigo: p.area.codigo,
@@ -193,7 +207,7 @@ export function RoleProvider({
       current = false
       controller.abort()
     }
-  }, [effectiveUserId, initialPermissions, initialPermissionsLoaded, initialSeedInvalidated, isPrivilegedRealRole, isViewingAs, skipPermissionLoad, userId, permissionsAdopted])
+  }, [effectiveUserId, initialPermissions, initialPermissionsLoaded, initialSeedInvalidated, isPrivilegedRealRole, isViewingAs, skipPermissionLoad, userId, permissionsAdopted, initialSurfacePermissions])
 
   const setViewAsRole = useCallback((role: RolId | null) => {
     if (role !== null) setInitialSeedInvalidated(true)
@@ -220,7 +234,19 @@ export function RoleProvider({
     viewingUser: effectiveViewingUser,
     permisosGranulares,
     tienePermisosGranulares,
-  }), [effectiveRole, isSuperAdmin, isArea4Owner, isViewingAs, isViewingAsUser, viewAsRole, userRoles, effectiveViewingUser, permisosGranulares, tienePermisosGranulares, permisosLoaded])
+    permissionsAdopted: adopted,
+    surfacePermissions,
+  }), [effectiveRole, isSuperAdmin, isArea4Owner, isViewingAs, isViewingAsUser, viewAsRole, userRoles, effectiveViewingUser, permisosGranulares, tienePermisosGranulares, permisosLoaded, adopted, surfacePermissions])
+
+  const hasSurfaceAccess = useCallback((href: string) => {
+    const match = area4RegisteredSurface(href.split('?')[0], 'page')
+    if (!match) return false
+    if (isArea4Owner && !isViewingAs) return true
+    if (match.baseline) return true
+    if (!permisosLoaded || !adopted || (viewAsRole !== null && !isViewingAsUser)) return false
+    return area4SurfaceSeedAllows(surfacePermissions, href)
+      && permisosGranulares.some(p => p.codigo === match.section.areaCode && p.lectura)
+  }, [isArea4Owner, isViewingAs, permisosLoaded, adopted, viewAsRole, isViewingAsUser, surfacePermissions, permisosGranulares])
 
   // Verificación granular por código de área
   const hasAreaAccess = useCallback((codigoArea: string, tipo: Area4Capability = 'lectura') => {
@@ -230,13 +256,18 @@ export function RoleProvider({
     if (isArea4Owner && !isViewingAs) return true
     if (isArea4OwnerOnlyArea(codigoArea)) return false
     if (!permisosLoaded) return false
+    if (!area4CodeIsBaseline(codigoArea)) {
+      if (viewAsRole !== null && !isViewingAsUser) return false
+      return adopted && area4CodeSeedAllows(surfacePermissions, codigoArea, tipo)
+        && permisosGranulares.some(p => p.codigo === codigoArea && p.lectura && p[tipo] === true)
+    }
     if (!hasAccess(codigoArea)) return false
     if (tipo === 'lectura') return true
     const matches = permisosGranulares.filter(p => codigoArea === p.codigo || codigoArea.startsWith(`${p.codigo}.`))
-    if (effectiveRole === 'GERENTE' && matches.length === 0) return true
+    if (effectiveRole === 'GERENTE' && !adopted && matches.length === 0) return true
     // Un hijo sólo abre su enlace; nunca concede datos ni edición del padre.
     return grantAllowsArea4Capability(permisosGranulares, codigoArea, tipo)
-  }, [isArea4Owner, isViewingAs, effectiveRole, permisosLoaded, permisosGranulares, hasAccess, isViewingAsUser, effectiveViewingUser, userRoles, effectiveUserId])
+  }, [isArea4Owner, isViewingAs, effectiveRole, permisosLoaded, permisosGranulares, hasAccess, isViewingAsUser, effectiveViewingUser, userRoles, effectiveUserId, adopted, surfacePermissions, viewAsRole])
 
   return (
     <RoleContext.Provider value={{
@@ -251,9 +282,11 @@ export function RoleProvider({
       setViewAsRole,
       setViewAsUser,
       hasAccess,
+      hasSurfaceAccess,
       hasAreaAccess,
       effectiveRole,
       permisosGranulares,
+      surfacePermissions,
       effectiveUserId,
       tienePermisosGranulares,
       permisosLoaded,

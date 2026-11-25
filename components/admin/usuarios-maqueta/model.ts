@@ -1,11 +1,12 @@
 import { approvedCodePermissions } from '@/lib/area4/approved-roles'
+import { AREA4_ACTIONS } from '@/lib/area4/section-registry'
 import type {
-  ApprovedRoleKey, PermissionMap, UsersDraft, UsersPerson,
+  ActionLetter, ApprovedRoleKey, PermissionMap, UsersDraft, UsersPerson,
   UsersProposalRow, UsersSection, UsersSnapshot,
 } from '@/lib/area4/users-contract'
 
-export const ACTIONS = ['V', 'E', 'C', 'X'] as const
-export const ACTION_LABELS = { V: 'ver', E: 'editar', C: 'confirmar', X: 'exportar' }
+export const ACTIONS = AREA4_ACTIONS.map(action => action.letter)
+export const ACTION_LABELS = Object.fromEntries(AREA4_ACTIONS.map(action => [action.letter, action.label.toLocaleLowerCase('es')])) as Record<ActionLetter, string>
 export const VIEWS = ['usuarios', 'roles', 'cambios', 'auditoria'] as const
 export type View = typeof VIEWS[number]
 export const STORAGE_KEY = 'io.area4.users.draft.v1'
@@ -53,7 +54,7 @@ function sameDraft(snapshot: UsersSnapshot, first?: UsersDraft, second?: UsersDr
 /** Expansión pura de la misma ACL que usa el servidor; no importa Prisma ni crypto. */
 export function expandedPermissions(snapshot: UsersSnapshot, role: ApprovedRoleKey, extras: PermissionMap): PermissionMap {
   const codes = [...new Set(snapshot.sections.flatMap(section => section.codes))]
-  const map = approvedCodePermissions(role, cleanExtras(extras, snapshot.sections), codes)
+  const map = approvedCodePermissions(role, cleanExtras(extras, snapshot.sections), codes, snapshot.roles)
   return Object.fromEntries(snapshot.sections.map(section => [section.key,
     ACTIONS.filter(action => section.codes.some(code => (map[code] ?? '').includes(action))).join(''),
   ]))

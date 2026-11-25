@@ -15,6 +15,8 @@ let grants: any[] = []
 let adopted = true
 let dbError: any = null
 let auditFailure = false
+let futureSurfacePath: string | null = null
+let consentCapabilities = new Set<string>()
 const audit: any[] = []
 const database = {
   usuarioAdmin: { findUnique: async ({ select }: any) => {
@@ -40,9 +42,21 @@ vm.runInNewContext(code, {
     if (name === './lib/high-risk-api-policy') return {}
     if (name === './lib/altas/contrato-access') return {}
     if (name === 'next-auth/jwt') return { getToken: async () => token }
-    if (name === '@/lib/area4/section-registry') return registry
+    if (name === '@/lib/area4/section-registry') return { ...registry, area4RegisteredSurface: (path: string, kind: 'page' | 'api') => {
+      const match = registry.area4RegisteredSurface(path, kind)
+      return match && path === futureSurfacePath ? { ...match, baseline: false, descriptor: `${match.descriptor}:SYNTHETIC_FUTURE_CONTRACT` } : match
+    } }
     if (name === '@/lib/area4/policy') return policy
     if (name === '@/lib/area4/request-policy') return requestPolicy
+    if (name === '@/lib/area4/surface-access') return {
+      readArea4SurfaceAccessUser: async () => {
+        if (dbError && policy.isArea4MissingAdoptionColumn(dbError)) return null
+        if (dbError) throw dbError
+        return principal ? { ...principal, perfilAsignado: null, permisosArea4Vivos: adopted,
+          grants: grants.map((g, i) => ({ ...g, areaId: `synthetic-area-${i}` })) } : null
+      },
+      validateArea4NewSurfaceConsent: async (_db: unknown, _user: unknown, _match: unknown, capability: string) => consentCapabilities.has(capability),
+    }
     if (name === '@/lib/prisma') return { default: database }
     if (name === '@/lib/impersonation') return { readImpersonationClaims: () => null }
     if (name === '@/lib/area4/audit') return { appendArea4Audit: async (tx: any, input: any) => tx.auditoriaPermisosArea4.create({ data: input }) }
@@ -69,6 +83,7 @@ function set(role = 'VISOR', id = 100) {
   principal = { id, activo: true, rol: role, roles: [] }
   token = { id: String(id), userType: 'admin', role: 'SUPER_ADMIN' } // deliberately stale/misleading JWT
   adopted = true; grants = []; dbError = null; auditFailure = false
+  futureSurfacePath = null; consentCapabilities = new Set()
 }
 async function run() {
   const pages = registry.AREA4_SECTION_REGISTRY.flatMap(s => s.surfaces.filter(p => p.kind === 'page' && p.path.startsWith('/admin')).map(p => ({ ...p, area: s.areaCode })))
@@ -197,6 +212,32 @@ async function run() {
     { codigo: 'admin.clientes', lectura: true, escritura: true },
     { codigo: 'admin.clientes.ggcc.draxton', lectura: false, escritura: false },
   ], 'admin.clientes.ggcc.draxton.personal', 'lectura'), false)
+  // A FUTURE contract in an EXISTING CRM code cannot inherit today's grants.
+  set('GERENTE'); futureSurfacePath = '/admin/crm/contactos'
+  grants = [{ codigo: 'admin.crm.contactos', lectura: true, escritura: true, confirmar: true, exportar: true }]
+  adopted = false
+  assert.equal(await status(futureSurfacePath), 403, 'future surface precedes unadopted Gerente compatibility')
+  adopted = true
+  assert.equal(await status(futureSurfacePath), 403, 'exact old grants without personal surface consent remain closed')
+  consentCapabilities.add('lectura')
+  assert.equal(await status(futureSurfacePath), 200, 'validated personal consent plus exact live V dispatches')
+  grants = [{ codigo: 'admin.crm', lectura: true, escritura: true, confirmar: true, exportar: true }]
+  assert.equal(await status(futureSurfacePath), 403, 'a broad parent cannot authorize the new surface even with a consent result')
+  dbError = { code: 'P2022', meta: { column: 'usuarios_admin.permisos_area4_vivos' } }
+  assert.equal(await status(futureSurfacePath), 403, 'missing adoption schema cannot open a future surface')
+  set('GERENTE'); futureSurfacePath = '/api/admin/crm/contactos/synthetic/actividades'
+  grants = [{ codigo: 'admin.crm.contactos', lectura: false, escritura: true, confirmar: true, exportar: true }]
+  consentCapabilities = new Set(['escritura'])
+  assert.equal(await status(futureSurfacePath, 'POST', {}), 403, 'E without V cannot mutate a future surface')
+  grants[0].lectura = true; consentCapabilities.add('lectura')
+  assert.equal(await status(futureSurfacePath, 'POST', {}), 200, 'V+E both consented and exact can dispatch')
+  consentCapabilities.delete('escritura')
+  assert.equal(await status(futureSurfacePath, 'POST', {}), 403, 'a read-only entitlement cannot mutate')
+  set('SUPER_ADMIN', 3); futureSurfacePath = '/admin/crm/contactos'
+  adopted = false
+  assert.equal(await status(futureSurfacePath), 200, 'the real canonical owner alone has the unassigned exception')
+  token.impersonation = { syntheticOnly: true }
+  assert.equal(await status(futureSurfacePath), 403, 'acting never reuses the owner exception')
   console.log(JSON.stringify({ ok: true, checks, registeredAdminPages: pages.length, templateProfiles: AREA4_TEMPLATES.length + 1,
     evidence: 'REAL_MIDDLEWARE_WITH_SYNTHETIC_DB_AND_SESSION', renderedPages: false, httpAcceptance: false,
     confirmationAudit: 'PRE_DISPATCH_ATTEMPT_ONLY', databaseWrites: false }))

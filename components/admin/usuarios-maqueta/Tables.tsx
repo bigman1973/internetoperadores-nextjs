@@ -4,7 +4,7 @@ import type { UsersDraft, UsersProposalRow, UsersSnapshot } from '@/lib/area4/us
 import { ACTION_LABELS, ACTIONS, currentRoleKey, groupedSections, roleName } from './model'
 
 export function RolesTable({ snapshot }: { snapshot: UsersSnapshot }) {
-  return <Panel title="Roles" help="Qué puede hacer cada rol en cada apartado. V = ver · E = editar · C = confirmar (aprobar, enviar, borrar) · X = exportar. A cada persona se le pueden sumar extras.">
+  return <Panel title="Roles" help={`Qué puede hacer cada rol en cada apartado. ${ACTIONS.map(action => `${action} = ${ACTION_LABELS[action]}`).join(' · ')}. A cada persona se le pueden sumar extras.`}>
     <div className="tablewrap"><table className="perm roles-matrix" aria-label="Matriz de las seis plantillas de rol">
       <thead><tr><th scope="col">Apartado</th>{snapshot.roles.map(role => <th scope="col" className="role-col" key={role.key}>
         {role.name}<div className="small muted">{snapshot.users.filter(person => person.active && currentRoleKey(snapshot, person) === role.key).length} pers.</div>

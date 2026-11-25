@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
+import { getServerSession, type Session } from 'next-auth'
 import type { PrismaClient } from '@prisma/client'
 import { authOptions } from '@/lib/auth'
 import {
@@ -11,13 +11,14 @@ import {
   isArea4Owner,
   isArea4MissingAdoptionColumn,
 } from './policy'
+import { area4CodeIsBaseline, area4RegisteredSurface } from './section-registry'
 
-export type Area4Database = Pick<PrismaClient, 'usuarioAdmin' | 'permisoArea' | 'permisoUsuario'>
+export type Area4Database = Pick<PrismaClient, 'usuarioAdmin' | 'permisoArea' | 'permisoUsuario'> & Partial<Pick<PrismaClient, 'auditoriaPermisosArea4'>>
 
 export type Area4Authorized = Readonly<{
   ok: true
   principal: Area4Principal
-  session: Awaited<ReturnType<typeof getServerSession>>
+  session: Session
 }>
 
 export type Area4Denied = Readonly<{
@@ -75,7 +76,7 @@ export async function readLiveArea4Adoption(database: Area4Database, userId: num
   }
 }
 
-async function sessionPrincipal(database: Area4Database): Promise<{ principal: Area4Principal; session: Awaited<ReturnType<typeof getServerSession>> } | null> {
+async function sessionPrincipal(database: Area4Database): Promise<{ principal: Area4Principal; session: Session } | null> {
   const session = await getServerSession(authOptions)
   if (!session?.user || session.user.userType !== 'admin') return null
   const principal = await resolveLiveAdminPrincipal(database, Number(session.user.id))
@@ -91,7 +92,7 @@ export async function requireLiveArea4Admin(database: Area4Database): Promise<Ar
 export async function requireArea4Owner(database: Area4Database): Promise<Area4Authorization> {
   const resolved = await sessionPrincipal(database)
   if (!resolved) return { ok: false, response: unauthorized() }
-  if (!isArea4Owner(resolved.principal)) return { ok: false, response: forbidden() }
+  if (resolved.session?.impersonation || !isArea4Owner(resolved.principal)) return { ok: false, response: forbidden() }
   return { ok: true, ...resolved }
 }
 
@@ -99,11 +100,28 @@ export async function requireArea4Capability(
   database: Area4Database,
   codigoArea: string,
   capability: Area4Capability,
+  surfacePath?: string,
 ): Promise<Area4Authorization> {
   const resolved = await sessionPrincipal(database)
   if (!resolved) return { ok: false, response: unauthorized() }
 
-  if (isArea4Owner(resolved.principal)) return { ok: true, ...resolved }
+  const isImpersonating = Boolean(resolved.session?.impersonation)
+  const match = surfacePath ? area4RegisteredSurface(surfacePath, surfacePath.startsWith('/api/') ? 'api' : 'page') : null
+  if (surfacePath && (!match || match.section.areaCode !== codigoArea)) return { ok: false, response: forbidden() }
+  if (!isImpersonating && isArea4Owner(resolved.principal)) return { ok: true, ...resolved }
+  if (!area4CodeIsBaseline(codigoArea) && !match) return { ok: false, response: forbidden() }
+
+  if (match && !match.baseline) {
+    if (!database.auditoriaPermisosArea4 || resolved.principal.rol === 'SUPER_ADMIN') return { ok: false, response: forbidden() }
+    const access = await import('./surface-access')
+    const user = await access.readArea4SurfaceAccessUser(database, resolved.principal.id)
+    if (!user?.permisosArea4Vivos) return { ok: false, response: forbidden() }
+    const consent = await access.validateArea4NewSurfaceConsent(database as import('./users-proposals').Area4ConsentDatabase,
+      user, match, capability, configuredArea4OwnerId())
+    const allowed = consent && evaluateArea4Capability({ principal: user, grants: user.grants, codigoArea, capability,
+      isImpersonating, permissionsAdopted: true, newSurfaceConsent: consent, requireExactGrant: true })
+    return allowed ? { ok: true, ...resolved } : { ok: false, response: forbidden() }
+  }
 
   const targetArea = await database.permisoArea.findUnique({
     where: { codigo: codigoArea }, select: { activo: true },
@@ -131,6 +149,7 @@ export async function requireArea4Capability(
     capability,
     ownerId: configuredArea4OwnerId(),
     permissionsAdopted: await readLiveArea4Adoption(database, resolved.principal.id),
+    isImpersonating,
   })
   return allowed ? { ok: true, ...resolved } : { ok: false, response: forbidden() }
 }

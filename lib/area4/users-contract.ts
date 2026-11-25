@@ -1,4 +1,6 @@
 import type { Area4MenuGroup } from './section-registry'
+import type { Area4RegistrySnapshot } from './section-assignments'
+export type { Area4RegistrySnapshot, SectionAssignmentDraft, SectionAssignmentProposal, SectionAssignmentCommand, RegistryEntitlement } from './section-assignments'
 
 export type ApprovedRoleKey = 'superadmin' | 'gerente' | 'contabilidad' | 'comercial' | 'draxton' | 'empleado'
 export type ActionLetter = 'V' | 'E' | 'C' | 'X'
@@ -22,6 +24,7 @@ export type UsersSnapshot = {
   users: UsersPerson[]; roles: ApprovedRole[]; sections: UsersSection[];
   proposal: UsersProposal; applyingAllowed: boolean; environmentLabel: string;
   warnings: string[];
+  registry?: Area4RegistrySnapshot;
 }
 export type UsersAuditEvent = {
   id: string; createdAt: string; operation: string; actorName: string;

@@ -28,6 +28,8 @@ import { AdminSidebarPlaceholder } from '@/components/admin/presentation/AdminSi
 import { isArea4Owner } from '@/lib/area4/policy'
 import { resolveLiveAdminPrincipal, readLiveArea4Adoption } from '@/lib/area4/live-admin'
 import { readArea4MenuConfiguration, resolveArea4MenuPresentation, type Area4MenuPresentation } from '@/lib/area4/menu-presentation'
+import { readArea4SurfacePermissionSeedWithFallback } from '@/lib/area4/surface-access'
+import { area4SurfacePermissionSignature, area4SurfaceSeedAllows, type Area4SurfacePermissionSeed } from '@/lib/area4/surface-access-contract'
 
 type SidebarInitialModel = Readonly<{
   mode: 'easy' | 'privileged' | 'seed'
@@ -50,6 +52,8 @@ function getSidebarInitialModel({
   isViewingAsUser,
   viewingUser,
   menuPresentation,
+  permissionsAdopted,
+  surfacePermissions,
 }: {
   userRole: string
   userRoles: string[]
@@ -62,6 +66,8 @@ function getSidebarInitialModel({
   isViewingAsUser: boolean
   viewingUser: AdminSidebarPreviewUser | null
   menuPresentation: Area4MenuPresentation
+  permissionsAdopted: boolean
+  surfacePermissions: readonly Area4SurfacePermissionSeed[]
 }): SidebarInitialModel | null {
   if (easyOnly) {
     return {
@@ -79,7 +85,7 @@ function getSidebarInitialModel({
   if (!isOwner && initialPermissions === null) return null
 
   const permissions = initialPermissions || []
-  const tienePermisosGranulares = permissions.length > 0
+  const tienePermisosGranulares = permissionsAdopted || permissions.length > 0
   const navigation = filterAuthorizedSidebarNavigation(financeEnvironment, section => hasAccess({
     section,
     effectiveRole: userRole,
@@ -94,12 +100,14 @@ function getSidebarInitialModel({
     viewingUser,
     permisosGranulares: permissions,
     tienePermisosGranulares,
-  }), conciliarEnabled, menuPresentation)
+    permissionsAdopted,
+    surfacePermissions,
+  }), conciliarEnabled, menuPresentation, href => isOwner || area4SurfaceSeedAllows(surfacePermissions, href))
 
   return {
     mode: isPrivilegedRealRole ? 'privileged' : 'seed',
     navigation,
-    permissionSignature: permissionSignature(permissions),
+    permissionSignature: `${permissionSignature(permissions)}::${area4SurfacePermissionSignature(surfacePermissions)}`,
   }
 }
 
@@ -138,7 +146,7 @@ export default async function AdminLayout({
   // Las lecturas posteriores a la autenticación son independientes y no mutan
   // estado. La foto, si está disponible, reutiliza su propio conteo de lectura;
   // ante un error se conserva exactamente el fallback histórico de count().
-  const [profileEnvironment, financeContext, conciliarContext, initialPermissions, canAccessAdmin, menuConfiguration, permissionsAdopted] = await Promise.all([
+  const [profileEnvironment, financeContext, conciliarContext, initialPermissions, canAccessAdmin, menuConfiguration, permissionsAdopted, surfacePermissions] = await Promise.all([
     getFinanceEasyProfileRuntime(),
     getFinanceEasyRuntimeContext(),
     getConciliarRuntimeContext(),
@@ -150,6 +158,7 @@ export default async function AdminLayout({
     }),
     readArea4MenuConfiguration(prisma),
     readLiveArea4Adoption(prisma, effectiveUserId),
+    isOwner ? Promise.resolve([]) : readArea4SurfacePermissionSeedWithFallback(prisma, effectiveUserId),
   ])
   trace('environment-and-access')
   const easyOnly = profileEnvironment !== null && await isEasyOnlyFinanceUser(Number(session.user.id))
@@ -172,6 +181,8 @@ export default async function AdminLayout({
     isViewingAsUser,
     viewingUser,
     menuPresentation,
+    permissionsAdopted,
+    surfacePermissions,
   })
   const initialMenu = initialSidebar ? (
     <AdminSidebarMenu
@@ -198,6 +209,7 @@ export default async function AdminLayout({
         isArea4Owner={isOwner}
         permissionsAdopted={permissionsAdopted}
         actingUser={viewingUser ?? undefined}
+        initialSurfacePermissions={surfacePermissions}
       >
         <SidebarProvider>
           <div data-admin-shell className="min-h-screen overflow-x-hidden bg-gray-50 text-gray-900">

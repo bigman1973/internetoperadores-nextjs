@@ -3,7 +3,7 @@ import type { UsersApplyDatabase, UsersCurrentState, UsersCurrentUser } from '..
 
 export const OWNER_ID = 901
 export const TEST_ENV = {
-  AREA4_OWNER_USER_ID: String(OWNER_ID), FINANCE_STAGING_SANDBOX: '1', AREA4_STAGING_USER_APPLY: '1', VERCEL_ENV: 'preview',
+  AREA4_OWNER_USER_ID: String(OWNER_ID), FINANCE_STAGING_SANDBOX: '1', AREA4_STAGING_USER_APPLY: '1', AREA4_STAGING_SECTION_ASSIGN: '1', VERCEL_ENV: 'preview',
   DATABASE_URL: 'postgresql://io_staging_finanzas:synthetic@database.example.invalid/io_staging_finanzas',
   VERCEL_URL: 'area4-synthetic-preview.vercel.app',
 }
@@ -26,12 +26,21 @@ export function fixtureState(): UsersCurrentState {
     profiles: [{ id: 'synthetic-legacy-profile', nombre: 'Perfil anterior', activo: true, permisos: [], updatedAt: at }],
   }
 }
-export function createProposalStub(initial: UsersCurrentState, options: { failAudit?: number; serializationFailure?: boolean } = {}) {
+export function createProposalStub(initial: UsersCurrentState, options: { failAudit?: number; serializationFailure?: boolean; initialAudits?: any[]; auditReadError?: string } = {}) {
   let committed = structuredClone(initial)
-  let audits: any[] = []
-  const stats = { transactions: 0, writes: 0, readCalls: 0, isolation: '' }
+  let audits: any[] = structuredClone(options.initialAudits ?? [])
+  const stats = { transactions: 0, writes: 0, auditWrites: 0, readCalls: 0, auditReads: 0, isolation: '' }
   const delegates = (state: UsersCurrentState, ledger: any[]) => ({
     usuarioAdmin: {
+      async findUnique(args: any) {
+        stats.readCalls++
+        const user = state.users.find(u => u.id === args.where.id)
+        if (!user) return null
+        if (args.select.passwordHash || args.select.email || args.select.nombre || args.select.nif) throw new Error('unsafe gate select')
+        return Object.fromEntries(Object.keys(args.select).map(key => [key, key === 'permisos'
+          ? user.grants.map(({ codigo, ...g }) => ({ ...g, area: { codigo } }))
+          : key === 'updatedAt' ? new Date(user.updatedAt) : (user as any)[key]]))
+      },
       async findMany(args: any) {
         stats.readCalls++
         if (args.select.passwordHash || args.select.empleado || args.select.nif) throw new Error('unsafe select')
@@ -64,12 +73,17 @@ export function createProposalStub(initial: UsersCurrentState, options: { failAu
     auditoriaPermisosArea4: {
       async findFirst(args: any) {
         stats.readCalls++
+        stats.auditReads++
+        if (options.auditReadError) throw Object.assign(new Error('synthetic audit read error'), { code: options.auditReadError })
         const index = ledger.map((event, index) => ({ event, index })).reverse().find(item =>
-          item.event.objetivoUsuarioId === args.where.objetivoUsuarioId && item.event.operacion === args.where.operacion && item.event.origen === args.where.origen)
-        return index ? { id: `synthetic-audit-${index.index + 1}`, actorId: index.event.actorId, createdAt: new Date('2026-11-24T13:00:00.000Z'), despues: structuredClone(index.event.despues) } : null
+          (args.where.objetivoUsuarioId === undefined || item.event.objetivoUsuarioId === args.where.objetivoUsuarioId)
+          && (args.where.areaCodigo === undefined || item.event.areaCodigo === args.where.areaCodigo)
+          && item.event.operacion === args.where.operacion && item.event.origen === args.where.origen)
+        return index ? { id: index.event.id ?? `synthetic-audit-${index.index + 1}`, actorId: index.event.actorId, createdAt: new Date('2026-11-24T13:00:00.000Z'), despues: structuredClone(index.event.despues) } : null
       },
       async create(args: any) {
         if (options.failAudit === ledger.length + 1) throw new Error('synthetic audit failure contains private values')
+        stats.auditWrites++
         ledger.push(structuredClone(args.data)); return { id: `synthetic-audit-${ledger.length}` }
       },
     },
@@ -80,9 +94,28 @@ export function createProposalStub(initial: UsersCurrentState, options: { failAu
     const working = structuredClone(committed)
     const ledger = structuredClone(audits)
     const result = await callback(delegates(working, ledger))
-    if (options.serializationFailure) throw Object.assign(new Error('serialization'), { code: 'P2034' })
+    if (options.serializationFailure && settings?.isolationLevel === 'Serializable') throw Object.assign(new Error('serialization'), { code: 'P2034' })
     committed = working; audits = ledger
+    Object.assign(db, delegates(committed, audits))
     return result
   } } as unknown as UsersApplyDatabase
   return { db, stats, state: () => committed, audits: () => audits }
+}
+
+/** Pure fixture adapter for coherent server-generated person audit metadata. */
+export async function fixturePersonAssignment(state: UsersCurrentState, draft: import('../lib/area4/users-contract').UsersDraft, ownerId = OWNER_ID) {
+  const { approvedCodePermissions, ROLE_ENUM, APPROVED_ROLES_VERSION } = await import('../lib/area4/approved-roles')
+  const { captureRoleTemplateSnapshot, personRegistryEntitlements, resolvedUsersRoles, usersProposalRevision } = await import('../lib/area4/users-proposals')
+  const { emptyArea4SectionAssignmentState } = await import('../lib/area4/section-assignments')
+  const user = state.users.find(u => u.id === draft.userId)!
+  const desired = approvedCodePermissions(draft.role, draft.extras, state.areas.map(a => a.codigo), resolvedUsersRoles(state))
+  const after = { id: user.id, rol: ROLE_ENUM[draft.role], roles: [ROLE_ENUM[draft.role]], activo: draft.active, perfilAsignado: null,
+    permisosArea4Vivos: true, approvedRole: draft.role, extras: draft.extras, confirmed: true, ownerId,
+    revision: usersProposalRevision(state, [draft], ownerId), templateVersion: APPROVED_ROLES_VERSION,
+    roleTemplateSnapshot: captureRoleTemplateSnapshot(state, desired), registryEntitlements: personRegistryEntitlements(state, draft, desired),
+    assignmentRevision: (state.assignments ?? emptyArea4SectionAssignmentState()).revision,
+    grants: state.areas.map(a => ({ areaId: a.id, codigo: a.codigo, lectura: a.activo && desired[a.codigo].includes('V'), escritura: a.activo && desired[a.codigo].includes('E'), confirmar: a.activo && desired[a.codigo].includes('C'), exportar: a.activo && desired[a.codigo].includes('X') })) }
+  Object.assign(user, { rol: after.rol, roles: after.roles, activo: after.activo, perfilAsignado: null, permisosArea4Vivos: true,
+    grants: after.grants.map((g, i) => ({ ...g, id: `fixture-person-grant-${i}`, createdAt: at, updatedAt: at })) })
+  return { actorId: ownerId, objetivoUsuarioId: user.id, operacion: 'PERFIL_APLICADO', origen: '/api/admin/usuarios/propuestas', despues: after }
 }

@@ -10,6 +10,7 @@ import * as roleModule from '../components/admin/RoleContext'
 import * as registry from '../lib/area4/section-registry'
 import * as policy from '../lib/area4/policy'
 import * as seedContract from '../lib/admin-permissions-ssr-contract'
+import * as surfaceContract from '../lib/area4/surface-access-contract'
 import * as roleModuleForHooks from '../components/admin/sidebar-access-evaluator'
 
 let currentPath = '/admin/finanzas/conciliar'
@@ -143,6 +144,8 @@ vm.runInNewContext(providerCode, {
       },
     }
     if (name === '@/lib/area4/policy') return policy
+    if (name === '@/lib/area4/section-registry') return registry
+    if (name === '@/lib/area4/surface-access-contract') return surfaceContract
     if (name === '@/lib/admin-permissions-ssr-contract') return seedContract
     if (name === './sidebar-access-evaluator') return { hasAccess: (input: any) => roleModuleForHooks.hasAccess(input) }
     throw new Error(`Unexpected provider module ${name}`)
@@ -167,4 +170,28 @@ assert.equal(adoptedSeed.tienePermisosGranulares, true); checks++
 assert.equal(adoptedSeed.hasAccess('finanzas.impuestos'), false); checks++
 const missingMarkerSeed = seeded({ initialPermissions: [], permissionsAdopted: undefined })
 assert.equal(missingMarkerSeed.tienePermisosGranulares, true); checks++
+// Only an in-memory metadata mutation of an existing real page. No handler,
+// account, HTTP request or permanent registry entry is created by these cases.
+const contactPage = registry.area4RegisteredSurface('/admin/crm/contactos', 'page')!
+const pageActions = contactPage.surface.actions as string[]
+pageActions.push('E')
+try {
+  const changedPage = registry.area4RegisteredSurface('/admin/crm/contactos', 'page')!
+  assert.equal(changedPage.baseline, false); checks++
+  const consent = { id: changedPage.id, descriptor: changedPage.descriptor, actions: 'V' }
+  const props = { initialPermissions: contacts, initialSurfacePermissions: [consent] }
+  denied('/admin/crm/contactos', { initialPermissions: contacts })
+  denied('/admin/crm/contactos', { ...props, permissionsAdopted: false, userRole: 'GERENTE' })
+  denied('/admin/crm/contactos', { ...props, initialPermissions: [{ codigo: 'admin.crm', lectura: true, escritura: true }] })
+  denied('/admin/crm/contactos', { ...props, initialSurfacePermissions: [{ ...consent, descriptor: 'stale' }] })
+  denied('/admin/crm/contactos', { ...props, initialSurfacePermissions: [{ ...consent, actions: 'E' }] })
+  denied('/admin/crm/contactos', { ...props, initialPermissionsLoaded: true, initialPermissions: [{ ...contacts[0], lectura: false }] })
+  allowed('/admin/crm/contactos', props)
+  allowed('/admin/crm/contactos', { userRole: 'SUPER_ADMIN', userId: 3, isArea4Owner: true, initialPermissions: [] })
+  denied('/admin/crm/contactos', { userRole: 'SUPER_ADMIN', userId: 3, isArea4Owner: true, actingUser: effectiveUser, initialPermissions: contacts })
+  const before = seeded(props)
+  assert.equal(before.hasSurfaceAccess('/admin/crm/contactos'), true); checks++
+  const revoked = seeded({ ...props, initialSurfacePermissions: [] })
+  assert.equal(revoked.hasSurfaceAccess('/admin/crm/contactos'), false); checks++
+} finally { pageActions.pop() }
 console.log(JSON.stringify({ ok: true, checks, evidence: 'REAL_CLIENT_COMPONENTS_SYNTHETIC_SSR', browser: false, httpAcceptance: false, databaseWrites: false }))

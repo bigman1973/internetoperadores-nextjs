@@ -211,4 +211,12 @@ const placeholderHtml = renderToStaticMarkup(createElement(AdminSidebarPlacehold
 assert.match(placeholderHtml, /data-admin-sidebar-placeholder/, 'el fallback expone un marcador explícito de carga segura')
 assert.doesNotMatch(placeholderHtml, /href=/, 'el fallback durante una ACL viva no emite enlaces potencialmente no autorizados')
 
+const closedManager = { ...noPreview, effectiveRole: 'GERENTE', isSuperAdmin: false, userRoles: ['GERENTE'], permisosGranulares: [], tienePermisosGranulares: true, permissionsAdopted: true }
+assert.equal(hasAccess({ ...closedManager, section: 'clientes' }), false, 'una ACL adoptada vacía no recupera menú por GERENTE')
+for (const explicit of [false, true]) {
+  assert.equal(hasAccess({ ...closedManager, section: 'admin.futura', tienePermisosGranulares: explicit, permissionsAdopted: explicit }), false, 'un código futuro sin consentimiento no abre por rol')
+  assert.equal(hasAccess({ ...closedManager, section: 'admin.futura', permisosGranulares: [{ codigo: 'admin.futura', lectura: true, escritura: true }] }), false, 'un grant exacto solo no demuestra consentimiento futuro')
+}
+assert.equal(hasAccess({ ...closedManager, section: 'admin.futura', surfacePermissions: [{ id: 'page:/admin/futura', descriptor: 'inventado', actions: 'VECX' }], permisosGranulares: [{ codigo: 'admin.futura', lectura: true, escritura: true }] }), false, 'una semilla inventada no coincide con superficie canónica')
+
 console.log('admin sidebar evaluator, SSR HTML, actuation ACL, Gerente revocations, Lorena and secure placeholder synthetic tests: ok')

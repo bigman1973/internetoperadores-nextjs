@@ -339,7 +339,7 @@ export function isSensitiveImpersonationPath(path: string): boolean {
 
   const segments = lowered.split('/').filter(Boolean)
   return segments.some(segment =>
-    /^(?:usuarios?|roles?|permisos?|password|contrasen(?:a|as)|2fa|mfa|identidad|identities|email|emails|correo|mail|comunicados?|comunicaciones?|chat|notific(?:acion|aciones)|enviar|send|sync(?:hronize)?(?:[-_].*)?|sincroniz(?:ar|acion|aciones)?|import(?:ar|acion|aciones)?|graph|outlook|azure|integraciones?|config(?:uracion)?|deploy(?:ment)?|vercel|publicar|publish|aapp)$/.test(segment),
+    /^(?:usuarios?|roles?|permisos?|password|contrasen(?:a|as)|2fa|mfa|identidad|identities|email|emails|correo|mail|comunicados?|comunicaciones?|chat|notific(?:acion|aciones)|enviar|send|sync(?:hronize)?(?:[-_].*)?|sincroniz(?:ar|acion|aciones)?|import(?:ar|acion|aciones)?|graph|outlook|m365|azure|integraciones?|config(?:uracion)?|deploy(?:ment)?|vercel|publicar|publish|aapp)$/.test(segment),
   )
 }
 

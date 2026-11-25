@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { appendArea4Audit } from '@/lib/area4/audit'
-import { evaluateArea4Capability, isArea4Owner } from '@/lib/area4/policy'
+import { AREA4_CAPABILITIES, evaluateArea4Capability, isArea4Owner } from '@/lib/area4/policy'
 import { normalizeArea4Grants, requireArea4Owner, requireLiveArea4Admin, readLiveArea4Adoption } from '@/lib/area4/live-admin'
+import { readArea4SurfacePermissionSeedWithFallback } from '@/lib/area4/surface-access'
+import { area4CodeIsBaseline } from '@/lib/area4/section-registry'
+import { area4CodeSeedAllows } from '@/lib/area4/surface-access-contract'
 
 export const dynamic = 'force-dynamic'
 
@@ -55,7 +58,7 @@ export async function GET(request: Request) {
 
   const live = await requireLiveArea4Admin(prisma)
   if (live.ok === false) return live.response
-  const owner = isArea4Owner(live.principal)
+  const owner = !live.session?.impersonation && isArea4Owner(live.principal)
   const checkUserId = positiveInteger(searchParams.get('uid')) || live.principal.id
   const selfPermissionRead = (action === 'usuario' && requestedUserId === live.principal.id)
     || (action === 'verificar' && checkUserId === live.principal.id)
@@ -67,8 +70,11 @@ export async function GET(request: Request) {
       include: { area: true },
       orderBy: { area: { codigo: 'asc' } },
     })
-    const permisosArea4Vivos = await readLiveArea4Adoption(prisma, requestedUserId)
-    return NextResponse.json({ permisos, permisosArea4Vivos })
+    const [permisosArea4Vivos, surfacePermissions] = await Promise.all([
+      readLiveArea4Adoption(prisma, requestedUserId),
+      readArea4SurfacePermissionSeedWithFallback(prisma, requestedUserId),
+    ])
+    return NextResponse.json({ permisos, permisosArea4Vivos, surfacePermissions }, { headers: { 'Cache-Control': 'private, no-store' } })
   }
 
   if (action === 'verificar') {
@@ -85,9 +91,15 @@ export async function GET(request: Request) {
     ])
     if (!target?.activo || !area?.activo) return NextResponse.json({ lectura: false, escritura: false, confirmar: false, exportar: false })
     const grants = normalizeArea4Grants(rows)
+    const [adopted, surfacePermissions] = await Promise.all([
+      readLiveArea4Adoption(prisma, checkUserId),
+      area4CodeIsBaseline(codigo) ? Promise.resolve([]) : readArea4SurfacePermissionSeedWithFallback(prisma, checkUserId),
+    ])
     return NextResponse.json(Object.fromEntries(
-      ['lectura', 'escritura', 'confirmar', 'exportar'].map(capability => [capability, evaluateArea4Capability({
-        principal: target, grants, codigoArea: codigo, capability: capability as 'lectura' | 'escritura' | 'confirmar' | 'exportar',
+      AREA4_CAPABILITIES.map(capability => [capability, evaluateArea4Capability({
+        principal: target, grants, codigoArea: codigo, capability, permissionsAdopted: adopted,
+        isImpersonating: Boolean(live.session?.impersonation),
+        newSurfaceConsent: area4CodeSeedAllows(surfacePermissions, codigo, capability), requireExactGrant: !area4CodeIsBaseline(codigo),
       })]),
     ))
   }

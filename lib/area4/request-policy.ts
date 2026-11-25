@@ -1,59 +1,23 @@
 import type { Area4Capability } from './policy'
 import { parseConciliarCommand } from '../finanzas/conciliar-contract'
+import { AREA4_ACTIONS, AREA4_REQUEST_CONTRACT, area4RegisteredSurface } from './section-registry'
 
-const SAFE = new Set(['GET', 'HEAD', 'OPTIONS'])
-const CONFIRM_ACTIONS = new Set([
-  'confirmar', 'confirmar_traspasos_propios_manual', 'aprobar', 'aprobar_extra', 'aprobar_gasto', 'validar',
-  'asociar_devolucion', 'asociar_facturas', 'vincular_factura_interes',
-  'vincular_compra', 'vincular_personal', 'imputar', 'imputar-a-ventas',
-  'imputar-todas-proveedor', 'aplicar-similares', 'guardar-lineas',
-  'RESOLVER_CUARENTENA', 'RESOLVER_HISTORICA',
-])
-const EXPORT_ACTIONS = new Set(['exportar', 'export', 'download', 'descargar', 'pdf', 'excel', 'csv'])
-
-/** Only these handlers dispatch a JSON command selector. Ordinary batch bodies
- * and multipart uploads are left to their existing handler limits and guards.
- * New command handlers must be registered here before their actions are exposed.
- */
-const JSON_COMMAND_PATHS = [
-  /^\/api\/admin\/empleados\/organigrama$/,
-  /^\/api\/admin\/empleados\/escenarios-salariales(?:\/[^/]+)?$/,
-  /^\/api\/admin\/proyectos$/,
-  /^\/api\/admin\/peticiones$/,
-  /^\/api\/admin\/finanzas\/imputacion$/,
-  /^\/api\/admin\/finanzas\/conciliacion-remesas$/,
-  /^\/api\/admin\/crm\/isp\/vinculos$/,
-  /^\/api\/admin\/comunicados\/asistente-ia$/,
-  /^\/api\/admin\/finanzas\/conciliar$/,
-  /^\/api\/admin\/finanzas\/conciliar\/intereses$/,
-  /^\/api\/admin\/clientes\/ggcc\/exagrid\/finanzas$/,
-  /^\/api\/admin\/finanzas\/clientes\/ggcc-draxton$/,
-  /^\/api\/admin\/clientes\/ggcc\/draxton\/personal-contrato$/,
-  /^\/api\/admin\/imputaciones$/,
-  /^\/api\/admin\/gastos-extras$/,
-  /^\/api\/admin\/clientes\/ggcc\/draxton\/guardias$/,
-  /^\/api\/admin\/aapp$/,
-  /^\/api\/admin\/clientes\/ggcc\/draxton\/actualizaciones$/,
-] as const
-
+/** Methods, selectors, command labels and physical handler limits live in the registry. */
 export function area4CommandBodyLimit(path: string, method: string): number | null {
-  if (SAFE.has(method) || !JSON_COMMAND_PATHS.some(pattern => pattern.test(path))) return null
-  // Conciliar already enforces this exact closed-contract limit. Other command
-  // handlers get a separate generous cap; there is no global 16 KiB body limit.
-  return path === '/api/admin/finanzas/conciliar' ? 16 * 1024 : 8 * 1024 * 1024
+  if ((AREA4_REQUEST_CONTRACT.safeMethods as readonly string[]).includes(method)) return null
+  return area4RegisteredSurface(path, 'api')?.surface.request?.commandBodyLimit ?? null
 }
 
 function isClosedReadOnlyReviewPreview(path: string, method: string, body: unknown): boolean {
-  if (path !== '/api/admin/finanzas/conciliar' || method !== 'POST') return false
+  if (method !== 'POST' || area4RegisteredSurface(path, 'api')?.surface.request?.readOnlyReview !== 'conciliar-closed-review-preview') return false
   try {
     const command = parseConciliarCommand(body)
     return command.action === 'confirmar' && 'review' in command && command.review.kind === 'REVIEW_PREVIEW'
   } catch { return false }
 }
 
-/** Additional capability, never a substitute for a module's own live guard.
- * A preview is not a confirmation and viewing a document is not a bulk export.
- * This inventory is deliberately inspectable; new commands need review here.
+/** Additional capability, never a replacement for a handler's own live guard.
+ * A closed read-only preview stays V; every mutation otherwise requires V + E.
  */
 export function area4RequestCapabilities(input: Readonly<{
   path: string
@@ -64,16 +28,23 @@ export function area4RequestCapabilities(input: Readonly<{
 }>): readonly Area4Capability[] {
   const { path, method } = input
   if (method === 'OPTIONS') return []
-  if (isClosedReadOnlyReviewPreview(path, method, input.body)) return ['lectura']
-  const actions = [input.action, input.queryAction].filter((a): a is string => Boolean(a))
-  const caps = new Set<Area4Capability>(['lectura'])
-  if (!SAFE.has(method)) caps.add('escritura')
-  if (actions.some(a => CONFIRM_ACTIONS.has(a)) || /\/(?:confirmar|aprobar|validar|confirmacion)(?:\/|$)/.test(path)) {
-    caps.add('confirmar')
+  if (isClosedReadOnlyReviewPreview(path, method, input.body)) return [AREA4_ACTIONS[0].capability]
+  const contract = AREA4_REQUEST_CONTRACT
+  const actions = [input.action, input.queryAction].filter((action): action is string => Boolean(action))
+  const segments = path.split('/').filter(Boolean)
+  const caps = new Set<Area4Capability>([AREA4_ACTIONS[0].capability])
+  if (!(contract.safeMethods as readonly string[]).includes(method)) caps.add(AREA4_ACTIONS[1].capability)
+  const methodActions = area4RegisteredSurface(path, 'api')?.surface.request?.requiredActions
+  const declaredActions = methodActions?.[method as keyof NonNullable<typeof methodActions>] || []
+  for (const action of AREA4_ACTIONS) if (declaredActions.includes(action.letter)) caps.add(action.capability)
+  if (actions.some(action => (contract.confirmActions as readonly string[]).includes(action))
+    || segments.some(segment => (contract.confirmPathSegments as readonly string[]).includes(segment))) {
+    caps.add(AREA4_ACTIONS[2].capability)
   }
-  if (actions.some(a => EXPORT_ACTIONS.has(a)) || /\/(?:exportar(?:-a3)?|export|exportaciones|excel|csv)(?:\/|$)/.test(path)
-    || (/\/pdf$/.test(path) && path !== '/api/admin/finanzas/conciliar/documento')) {
-    caps.add('exportar')
+  if (actions.some(action => (contract.exportActions as readonly string[]).includes(action))
+    || segments.some(segment => (contract.exportPathSegments as readonly string[]).includes(segment))
+    || (segments.at(-1) === contract.exportFinalSegment && path !== contract.singleDocumentException)) {
+    caps.add(AREA4_ACTIONS[3].capability)
   }
   return [...caps]
 }

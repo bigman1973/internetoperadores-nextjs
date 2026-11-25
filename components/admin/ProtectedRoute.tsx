@@ -2,7 +2,7 @@
 
 import { usePathname } from 'next/navigation'
 import { useRole } from './RoleContext'
-import { area4RegisteredSurfaceArea } from '@/lib/area4/section-registry'
+import { area4RegisteredSurface, area4RegisteredSurfaceArea } from '@/lib/area4/section-registry'
 import { isArea4OwnerOnlyArea } from '@/lib/area4/policy'
 
 /**
@@ -74,6 +74,7 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
   const pathname = usePathname()
   const { 
     hasAreaAccess, 
+    hasSurfaceAccess,
     isArea4Owner,
     isViewingAs, 
     permisosLoaded 
@@ -90,7 +91,7 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
   if (isArea4OwnerOnlyArea(areaCode)) return <AccessDenied />
   
   // Dashboard siempre accesible
-  if (areaCode === 'admin') {
+  if (areaCode === 'admin' && area4RegisteredSurface(pathname, 'page')?.baseline) {
     return <>{children}</>
   }
 
@@ -103,7 +104,7 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
     )
   }
   
-  if (!hasAreaAccess(areaCode, 'lectura')) return <AccessDenied />
+  if (!hasSurfaceAccess(pathname) || !hasAreaAccess(areaCode, 'lectura')) return <AccessDenied />
   return <>{children}</>
 }
 

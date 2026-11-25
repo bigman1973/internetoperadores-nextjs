@@ -7,6 +7,7 @@ import { useRole } from '../RoleContext'
 import { AdminSidebarChevron, AdminSidebarIcon } from '../presentation/AdminSidebarIcon'
 import {
   filterAuthorizedSidebarNavigation,
+  getEasyOnlySidebarNavigation,
   isSidebarNavigationGroup,
   type FinanceEnvironment,
   type SidebarPresentation,
@@ -35,13 +36,13 @@ export default function InteractiveAdminSidebarMenu({
 }: InteractiveAdminSidebarMenuProps) {
   const pathname = usePathname()
   const [openGroups, setOpenGroups] = useState<string[]>([])
-  const { hasAccess, effectiveRole, isViewingAs } = useRole()
+  const { hasAccess, hasSurfaceAccess, effectiveRole, isViewingAs } = useRole()
   const easyHome = conciliarEnabled ? '/admin/finanzas/conciliar' : '/admin/finanzas/modo-facil'
   const visibleNavigation = useMemo(() => (
     easyOnly
       ? []
-      : filterAuthorizedSidebarNavigation(financeEnvironment, hasAccess, conciliarEnabled, menuPresentation)
-  ), [easyOnly, financeEnvironment, conciliarEnabled, menuPresentation, hasAccess])
+      : filterAuthorizedSidebarNavigation(financeEnvironment, hasAccess, conciliarEnabled, menuPresentation, hasSurfaceAccess)
+  ), [easyOnly, financeEnvironment, conciliarEnabled, menuPresentation, hasAccess, hasSurfaceAccess])
 
   // Auto-abrir el grupo si la ruta actual está dentro.
   useEffect(() => {
@@ -114,10 +115,7 @@ export default function InteractiveAdminSidebarMenu({
     )
   }
 
-  const easyNavigation: SidebarNavigationItem[] = [
-    { name: conciliarEnabled ? 'Conciliar' : 'Modo fácil', href: easyHome, icon: 'clipboardDocumentList' },
-    { name: 'Para pedir', href: '/admin/finanzas/para-pedir', icon: 'documentText' },
-  ]
+  const easyNavigation = getEasyOnlySidebarNavigation(financeEnvironment, conciliarEnabled)
 
   return (
     <div className="flex grow flex-col gap-y-5 overflow-y-auto bg-white px-6 pb-4">

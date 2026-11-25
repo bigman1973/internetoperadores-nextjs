@@ -5,13 +5,14 @@ import { configuredArea4OwnerId } from '@/lib/area4/policy'
 import {
   UsersProposalError, applyUsersProposal, loadUsersSnapshot, previewUsersProposal, readUsersProposalJson,
 } from '@/lib/area4/users-proposals'
+import { SectionAssignmentError, applyArea4SectionAssignments, previewArea4SectionAssignments } from '@/lib/area4/section-assignments'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 const NO_STORE = { 'Cache-Control': 'private, no-store', Pragma: 'no-cache', 'X-Content-Type-Options': 'nosniff' }
 const reply = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: NO_STORE })
 function failure(error: unknown) {
-  if (error instanceof UsersProposalError) return reply({ error: error.message, code: error.code }, error.status)
+  if (error instanceof UsersProposalError || error instanceof SectionAssignmentError) return reply({ error: error.message, code: error.code }, error.status)
   return reply({ error: 'No se pudo completar la operación.', code: 'INTERNAL' }, 500)
 }
 async function authorize(request: Request) {
@@ -48,6 +49,16 @@ export async function POST(request: Request) {
     const command = await readUsersProposalJson(request)
     if (command.action === 'preview') {
       return reply({ proposal: await previewUsersProposal(prisma, auth.ownerId, command.drafts) })
+    }
+    if (command.action === 'preview-sections') {
+      return reply({ proposal: await previewArea4SectionAssignments(prisma, auth.ownerId, command.drafts) })
+    }
+    if (command.action === 'assign-sections') {
+      await applyArea4SectionAssignments(prisma, {
+        actorId: auth.actorId, ownerId: auth.ownerId, origin: new URL(request.url).origin,
+        confirmed: command.confirmed, revision: command.revision, drafts: command.drafts,
+      })
+      return reply({ ok: true, snapshot: await loadUsersSnapshot(prisma, auth.ownerId) })
     }
     const snapshot = await applyUsersProposal(prisma, {
       actorId: auth.actorId, ownerId: auth.ownerId, origin: new URL(request.url).origin,

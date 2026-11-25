@@ -10,6 +10,7 @@ import { AuditPanel, useUsersAudit } from './usuarios-maqueta/Audit'
 import MenuControl from './usuarios-maqueta/MenuControl'
 import { CopyDialog, ExtraDialog } from './usuarios-maqueta/PermissionDialogs'
 import { ChangesTable, RolesTable } from './usuarios-maqueta/Tables'
+import RegistryAssignments from './usuarios-maqueta/RegistryAssignments'
 import UsersPanel, { type PersonAction } from './usuarios-maqueta/UsersPanel'
 import { currentRoleKey, formatDate, personDraft, VIEWS, type View } from './usuarios-maqueta/model'
 import { useUsersDraft } from './usuarios-maqueta/useUsersDraft'
@@ -98,6 +99,7 @@ export default function UsuariosAdminClient({ initialSnapshot }: { initialSnapsh
     </TopBar>
     <Wrap as="main"><div className="area4-page">
       <MenuControl onSaved={() => { void audit.load() }} />
+      <RegistryAssignments registry={snapshot.registry} roles={snapshot.roles} busy={busy} onSaved={async () => { await workspace.refreshSnapshot(true); await audit.load() }} />
       {workspace.error && <Note tone="bad"><span role="alert">{workspace.error}</span></Note>}
       {workspace.notice && <p className="small muted" role="status">{workspace.notice}</p>}
       <section className="view" role="tabpanel" id="area4-view-usuarios" aria-labelledby="area4-tab-usuarios" hidden={view !== 'usuarios'} tabIndex={0}>

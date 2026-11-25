@@ -1,5 +1,6 @@
 import { evaluateArea4Capability, grantAllowsArea4Capability, isArea4OwnerOnlyArea, area4FinanceModuleAllows } from '@/lib/area4/policy'
-import { area4SectionByKey } from '@/lib/area4/section-registry'
+import { area4SectionByKey, area4CodeIsBaseline } from '@/lib/area4/section-registry'
+import { area4CodeSeedAllows, type Area4SurfacePermissionSeed } from '@/lib/area4/surface-access-contract'
 
 export type AdminSidebarPermission = Readonly<{
   codigo: string
@@ -70,6 +71,8 @@ export type AdminSidebarAccessInput = Readonly<{
   viewingUser: AdminSidebarPreviewUser | null
   permisosGranulares: readonly AdminSidebarPermission[]
   tienePermisosGranulares: boolean
+  permissionsAdopted?: boolean
+  surfacePermissions?: readonly Area4SurfacePermissionSeed[]
 }>
 
 /** Representa la política viva; jamás concede autoridad por la identidad del actor inicial. */
@@ -94,6 +97,10 @@ export function hasAccess(input: AdminSidebarAccessInput): boolean {
   if (isArea4OwnerOnlyArea(codigoArea)) return false
   // Tanto un SUPER_ADMIN no canónico como la previsualización de ese rol fallan cerrados.
   if (role === 'SUPER_ADMIN') return false
+  if (!area4CodeIsBaseline(codigoArea)) {
+    if (rolePreview || !input.permissionsAdopted || !area4CodeSeedAllows(input.surfacePermissions || [], codigoArea)) return false
+    return grants.some(grant => grant.codigo === codigoArea && grant.lectura)
+  }
 
   // Subida conserva la guardia actual de staging: rol principal Gerente o
   // propietario, nunca un grant operativo ni una simulación del actor real.
@@ -135,7 +142,8 @@ export function hasAccess(input: AdminSidebarAccessInput): boolean {
 
 /** Un permiso hijo no autoriza el root padre: los contenedores los resuelve el menú sin enlaces. */
 export function checkGranularAccess(section: string, permisos: readonly AdminSidebarPermission[]): boolean {
-  return grantAllowsArea4Capability(permisos, sectionArea(section), 'lectura')
+  const code = sectionArea(section)
+  return area4CodeIsBaseline(code) && grantAllowsArea4Capability(permisos, code, 'lectura')
 }
 
 /** Firma estable, sólo para saber si la foto recibida por el cliente cambió. */

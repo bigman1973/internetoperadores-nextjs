@@ -1,6 +1,8 @@
 import prisma from '@/lib/prisma'
 import type {Prisma} from '@prisma/client'
-import { evaluateArea4Capability, isArea4Owner, isArea4OwnerOnlyArea, isArea4MissingAdoptionColumn } from './area4/policy'
+import { AREA4_CAPABILITIES, evaluateArea4Capability, isArea4Owner, isArea4OwnerOnlyArea, isArea4MissingAdoptionColumn } from './area4/policy'
+import { area4CodeIsBaseline } from './area4/section-registry'
+import { area4CodeSeedAllows } from './area4/surface-access-contract'
 
 // Solo se almacenan códigos de áreas públicas, nunca identidades ni permisos.
 // La TTL permite revalidar un área si la configuración cambia en otra instancia.
@@ -42,14 +44,14 @@ export async function registrarArea(codigo: string, nombre: string, padre?: stri
 
 /**
  * Verifica si un usuario tiene permiso de lectura o escritura en un área.
- * Soporta herencia: si tiene permiso en un padre, hereda a los hijos.
- * SUPER_ADMIN y GERENTE siempre tienen acceso total.
+ * Conserva la herencia histórica, pero los códigos nuevos requieren adopción
+ * personal auditada y una concesión exacta. El borde valida además la ruta.
  */
 export async function verificarPermisoServer(
   usuarioId: number,
   codigoArea: string,
   _rol?: string,
-  database: Pick<Prisma.TransactionClient, 'usuarioAdmin' | 'permisoArea' | 'permisoUsuario'> = prisma,
+  database: Pick<Prisma.TransactionClient, 'usuarioAdmin' | 'permisoArea' | 'permisoUsuario'> & Partial<Pick<Prisma.TransactionClient, 'auditoriaPermisosArea4'>> = prisma,
 ): Promise<{ lectura: boolean; escritura: boolean; confirmar: boolean; exportar: boolean }> {
   const denied = { lectura: false, escritura: false, confirmar: false, exportar: false }
   if (!Number.isSafeInteger(usuarioId) || usuarioId <= 0) return denied
@@ -58,6 +60,14 @@ export async function verificarPermisoServer(
   if (!principal?.activo) return denied
   if (isArea4Owner(principal)) return { lectura: true, escritura: true, confirmar: true, exportar: true }
   if (principal.rol === 'SUPER_ADMIN' || isArea4OwnerOnlyArea(codigoArea)) return denied
+  // Runs BEFORE the unadopted/missing-column fallback. A parent grant or a
+  // historical Gerente role can never automatically open a future code.
+  if (!area4CodeIsBaseline(codigoArea)) {
+    if (!database.auditoriaPermisosArea4) return denied
+    const { readArea4SurfacePermissionSeedWithFallback } = await import('./area4/surface-access')
+    const seed = await readArea4SurfacePermissionSeedWithFallback(database as import('./area4/users-proposals').Area4ConsentDatabase, usuarioId)
+    return Object.fromEntries(AREA4_CAPABILITIES.map(capability => [capability, area4CodeSeedAllows(seed, codigoArea, capability)])) as typeof denied
+  }
   const codes = codigoArea.split('.').map((_, i, parts) => parts.slice(0, i + 1).join('.'))
   const [area, rows] = await Promise.all([
     database.permisoArea.findUnique({ where: { codigo: codigoArea }, select: { activo: true } }),
@@ -80,8 +90,8 @@ export async function verificarPermisoServer(
   const liveRows = await database.permisoUsuario.findMany({ where: { usuarioId, area: { codigo: { in: codes }, activo: true } },
     select: { lectura: true, escritura: true, confirmar: true, exportar: true, area: { select: { codigo: true } } } })
   const grants = liveRows.map(p => ({ codigo: p.area.codigo, lectura: p.lectura, escritura: p.escritura, confirmar: p.confirmar, exportar: p.exportar }))
-  return Object.fromEntries(['lectura', 'escritura', 'confirmar', 'exportar'].map(capability => [capability,
-    evaluateArea4Capability({ principal, grants, codigoArea, capability: capability as 'lectura' | 'escritura' | 'confirmar' | 'exportar', permissionsAdopted: true })])) as typeof denied
+  return Object.fromEntries(AREA4_CAPABILITIES.map(capability => [capability,
+    evaluateArea4Capability({ principal, grants, codigoArea, capability, permissionsAdopted: true })])) as typeof denied
 }
 
 /**

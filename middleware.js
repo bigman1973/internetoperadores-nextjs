@@ -472,18 +472,26 @@ async function highRiskApiBoundary(request) {
  */
 async function area4RegisteredAdminApiBoundary(request) {
   const pathname = request.nextUrl.pathname;
-  const isPage = pathname === '/admin' || pathname.startsWith('/admin/');
-  const isApi = pathname.startsWith('/api/admin/');
+  const isAdminPage = pathname === '/admin' || pathname.startsWith('/admin/');
+  const isAdminApi = pathname.startsWith('/api/admin/');
+  const isPage = isAdminPage || pathname === '/empleado' || pathname.startsWith('/empleado/') || pathname === '/peticiones' || pathname.startsWith('/peticiones/');
+  const isApi = isAdminApi || pathname.startsWith('/api/empleado/') || pathname === '/api/empleado' || pathname === '/api/peticiones' || pathname.startsWith('/api/peticiones/');
   if ((!isPage && !isApi) || request.method === 'OPTIONS') return null;
   // Recovery/state of acting has its own closed policy and must remain reachable.
   if (pathname === '/api/admin/actuar-como') return null;
   try {
+    if (!isAdminPage && !isAdminApi) {
+      const catalogue = await import('@/lib/area4/section-registry');
+      const portalSurface = catalogue.area4RegisteredSurface(pathname, isApi ? 'api' : 'page');
+      if (!portalSurface) return privateBoundary({ error: 'Superficie propia no registrada' }, 403);
+      if (portalSurface.baseline) return null; // Existing own-data guards retain their exact semantics and zero SQL overhead.
+    }
     const [registry, { getToken }, { default: prisma }, policy, requestPolicy] = await Promise.all([
       import('@/lib/area4/section-registry'), import('next-auth/jwt'), import('@/lib/prisma'),
       import('@/lib/area4/policy'), import('@/lib/area4/request-policy'),
     ]);
     const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET, cookieName: configuredSessionCookieName() });
-    if (token?.userType !== 'admin') return isApi ? privateBoundary({ error: 'No autorizado' }, 401) : null;
+    if (token?.userType !== 'admin') return isApi ? privateBoundary({ error: 'No autorizado' }, 401) : isAdminPage ? null : privateBoundary({ error: 'Apartado nuevo sin asignación confirmada' }, 403);
     const userId = Number(token.id);
     if (!Number.isSafeInteger(userId) || userId <= 0) return privateBoundary({ error: 'No autorizado' }, 401);
     // Minimal projection remains readable before migration; absence of the new
@@ -495,11 +503,13 @@ async function area4RegisteredAdminApiBoundary(request) {
       action: query.get('action'), usuarioId: query.get('usuarioId'), uid: query.get('uid'), effectiveId: userId });
     const codigoArea = registry.area4RegisteredSurfaceArea(pathname, isApi ? 'api' : 'page');
     if (!codigoArea) return privateBoundary({ error: 'Superficie administrativa no registrada' }, 403);
+    const surfaceMatch = registry.area4RegisteredSurface(pathname, isApi ? 'api' : 'page');
+    if (!surfaceMatch) return privateBoundary({ error: 'Superficie administrativa no registrada' }, 403);
+    const isImpersonating = token.impersonation !== undefined && token.impersonation !== null;
     if (policy.isArea4OwnerOnlyArea(codigoArea)) {
-      return ownAcl || policy.isArea4Owner(principal) ? null : privateBoundary({ error: 'Solo Víctor puede acceder a esta sección' }, 403);
+      return ownAcl || (!isImpersonating && policy.isArea4Owner(principal)) ? null : privateBoundary({ error: 'Solo Víctor puede acceder a esta sección' }, 403);
     }
     if (principal.rol === 'SUPER_ADMIN' && !policy.isArea4Owner(principal)) return privateBoundary({ error: 'Esta cuenta no es el propietario autorizado' }, 403);
-    const isImpersonating = token.impersonation !== undefined && token.impersonation !== null;
     const moduleCapabilities = requestPolicy.area4RequestCapabilities({ path: pathname, method: request.method,
       queryAction: query.get('action') || query.get('accion') });
     for (const capability of moduleCapabilities) {
@@ -507,22 +517,33 @@ async function area4RegisteredAdminApiBoundary(request) {
         return privateBoundary({ error: 'Tu perfil no permite esta operación en el módulo' }, 403);
       }
     }
+    // Gate BEFORE both legacy escape hatches. An old parent/CRM grant does not
+    // authorize a future handler, even when its area code already existed.
+    let surfaceUser = null;
+    let surfaceAccess = null;
+    if (!surfaceMatch.baseline) {
+      if (!isImpersonating && policy.isArea4Owner(principal)) return null;
+      if (principal.rol === 'SUPER_ADMIN') return privateBoundary({ error: 'La actuación no hereda el acceso del propietario' }, 403);
+      surfaceAccess = await import('@/lib/area4/surface-access');
+      surfaceUser = await surfaceAccess.readArea4SurfaceAccessUser(prisma, userId);
+      if (!surfaceUser?.permisosArea4Vivos) return privateBoundary({ error: 'Apartado nuevo sin asignación personal confirmada' }, 403);
+    }
     let marker;
     try {
       marker = await prisma.usuarioAdmin.findUnique({ where: { id: userId }, select: { permisosArea4Vivos: true } });
     } catch (error) {
       // Only the exact absent adoption column permits historical compatibility.
-      if (policy.isArea4MissingAdoptionColumn(error)) return null;
+      if (policy.isArea4MissingAdoptionColumn(error)) return surfaceMatch.baseline ? null : privateBoundary({ error: 'Apartado nuevo sin adopción verificable' }, 403);
       throw error;
     }
-    if (!marker?.permisosArea4Vivos) return null;
-    const user = await prisma.usuarioAdmin.findUnique({ where: { id: userId }, select: {
+    if (!marker?.permisosArea4Vivos) return surfaceMatch.baseline ? null : privateBoundary({ error: 'Apartado nuevo sin adopción verificable' }, 403);
+    const user = surfaceUser || await prisma.usuarioAdmin.findUnique({ where: { id: userId }, select: {
       id: true, activo: true, rol: true, roles: true, permisosArea4Vivos: true,
       permisos: { where: { area: { activo: true } }, select: { lectura: true, escritura: true, confirmar: true, exportar: true, area: { select: { codigo: true } } } },
     } });
     if (!user?.activo) return privateBoundary({ error: 'No autorizado' }, 401);
     if (request.headers.has('next-action')) return privateBoundary({ error: 'Acción de servidor no registrada en la matriz' }, 403);
-    const grants = user.permisos.map(p => ({ codigo: p.area.codigo, lectura: p.lectura, escritura: p.escritura, confirmar: p.confirmar, exportar: p.exportar }));
+    const grants = surfaceUser ? surfaceUser.grants : user.permisos.map(p => ({ codigo: p.area.codigo, lectura: p.lectura, escritura: p.escritura, confirmar: p.confirmar, exportar: p.exportar }));
     // The dashboard shell is readable only for a principal with an admin grant.
     if (isPage && pathname === '/admin' && !policy.isArea4Owner(user)) {
       return grants.some(p => p.codigo.startsWith('admin.') && p.lectura) ? null : privateBoundary({ error: 'Usa tu Portal del empleado' }, 403);
@@ -533,7 +554,9 @@ async function area4RegisteredAdminApiBoundary(request) {
     const capabilities = requestPolicy.area4RequestCapabilities({ path: pathname, method: request.method, action: command.action,
       body: command.body, queryAction: query.get('action') || query.get('accion') });
     for (const capability of capabilities) {
-      if (!policy.evaluateArea4Capability({ principal: user, grants, codigoArea, capability, isImpersonating, permissionsAdopted: true })) {
+      const consent = surfaceMatch.baseline || await surfaceAccess.validateArea4NewSurfaceConsent(prisma, surfaceUser, surfaceMatch, capability, policy.configuredArea4OwnerId());
+      if (!consent || !policy.evaluateArea4Capability({ principal: user, grants, codigoArea, capability, isImpersonating, permissionsAdopted: true,
+        newSurfaceConsent: consent, requireExactGrant: !surfaceMatch.baseline })) {
         return privateBoundary({ error: `Sin permiso de ${capability}` }, 403);
       }
     }

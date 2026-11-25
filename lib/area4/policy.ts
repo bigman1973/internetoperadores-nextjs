@@ -1,6 +1,7 @@
 import { permisosFin } from '../impuestos/auth-permisos'
+import { AREA4_ACTIONS, area4CodeIsBaseline } from './section-registry'
 
-export const AREA4_CAPABILITIES = ['lectura', 'escritura', 'confirmar', 'exportar'] as const
+export const AREA4_CAPABILITIES = AREA4_ACTIONS.map(action => action.capability)
 
 export type Area4Capability = typeof AREA4_CAPABILITIES[number]
 
@@ -112,6 +113,10 @@ export function evaluateArea4Capability(input: Readonly<{
   ownerId?: number | null
   isImpersonating?: boolean
   permissionsAdopted?: boolean
+  /** Consentimiento de superficie comprobado en servidor; nunca dato del cliente. */
+  newSurfaceConsent?: boolean
+  /** Una superficie nueva no obtiene permiso por la herencia de su padre. */
+  requireExactGrant?: boolean
 }>): boolean {
   const { principal, grants, codigoArea, capability } = input
   if (!principal.activo) return false
@@ -119,10 +124,17 @@ export function evaluateArea4Capability(input: Readonly<{
 
   const ownerId = input.ownerId === undefined ? configuredArea4OwnerId() : input.ownerId
   if (principal.rol === 'SUPER_ADMIN') {
-    return ownerId !== null && principal.id === ownerId
+    return !input.isImpersonating && ownerId !== null && principal.id === ownerId
   }
 
   if (isArea4OwnerOnlyArea(codigoArea)) return false
+
+  const newCode = !area4CodeIsBaseline(codigoArea)
+  if (newCode && (!input.newSurfaceConsent || !input.permissionsAdopted)) return false
+  if (newCode || input.requireExactGrant) {
+    if (!input.permissionsAdopted) return false
+    return grants.some(grant => grant.codigo === codigoArea && grant[capability] === true)
+  }
 
   // Una ACL adoptada vacía es una denegación, también para Gerente.
   if (input.permissionsAdopted && grants.length === 0) return false

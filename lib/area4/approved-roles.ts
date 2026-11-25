@@ -1,62 +1,27 @@
-import { AREA4_DRAXTON_TECHNICAL_MENU, AREA4_SECTION_REGISTRY, type Area4MenuGroup } from './section-registry'
-import type { ApprovedRole, ApprovedRoleKey, PermissionMap, UsersSection } from './users-contract'
+import {
+  AREA4_ACTIONS, AREA4_DRAXTON_TECHNICAL_MENU, AREA4_REGISTRY_USERS_SECTIONS,
+  AREA4_SECTION_REGISTRY, area4CodeIsBaseline, area4UsersRowIsBaseline,
+} from './section-registry'
+import type { ApprovedRole, ApprovedRoleKey, PermissionMap } from './users-contract'
 
 export const APPROVED_ROLES_VERSION = 'area4-maqueta-20261125-v1'
 export const ROLE_ENUM = {
   superadmin: 'SUPER_ADMIN', gerente: 'GERENTE', contabilidad: 'CONTABILIDAD',
   comercial: 'VENTAS', draxton: 'VISOR', empleado: 'VISOR',
 } as const
-const codes = [...new Set(AREA4_SECTION_REGISTRY.map(s => s.areaCode))]
-const children = (root: string) => codes.filter(c => c === root || c.startsWith(`${root}.`))
-const technicalCodes = AREA4_DRAXTON_TECHNICAL_MENU.map(item => AREA4_SECTION_REGISTRY.find(s => s.key === item.section)!.areaCode)
-const section = (key: string, label: string, group: Area4MenuGroup, values: string[]): UsersSection => ({ key, label, group, codes: [...new Set(values)] })
+const codes = [...new Set(AREA4_SECTION_REGISTRY.map(section => section.areaCode))]
+const letters = AREA4_ACTIONS.map(action => action.letter)
+/** Compatibility alias, not an independent label/code/group inventory. */
+export const USERS_SECTIONS = AREA4_REGISTRY_USERS_SECTIONS
 
-/** Human groups are presentation, not an inheritance rule. Eight technical rows remain explicit. */
-export const USERS_SECTIONS: UsersSection[] = [
-  section('inicio', 'Dashboard', 'Inicio', ['admin']),
-  section('estadisticas', 'Estadísticas', 'Inicio', children('admin.estadisticas')),
-  section('crm', 'CRM', 'Comercial', children('admin.crm')),
-  section('leads', 'Leads', 'Comercial', children('admin.leads')),
-  section('comunicados', 'Comunicados', 'Comercial', children('admin.comunicados')),
-  section('clientes', 'Clientes', 'Clientes y contratos', ['admin.clientes', ...children('admin.clientes.migracion_adamo'), ...children('admin.proyectos')]),
-  section('draxton', 'Grandes cuentas · Draxton', 'Clientes y contratos', children('admin.clientes.ggcc.draxton').filter(c => !technicalCodes.includes(c))),
-  section('exagrid', 'Grandes cuentas · Exagrid', 'Clientes y contratos', children('admin.clientes.ggcc.exagrid')),
-  section('altas-pendientes', 'Altas pendientes', 'Clientes y contratos', children('admin.altas_pendientes')),
-  section('contratos', 'Contratos', 'Clientes y contratos', children('admin.contratos')),
-  section('tarifas', 'Tarifas', 'Clientes y contratos', children('admin.tarifas')),
-  section('subida-precios', 'Subida de precios', 'Clientes y contratos', children('admin.subida_precios')),
-  section('facturacion', 'Facturación', 'Finanzas', ['admin.facturacion', ...children('admin.finanzas.facturas'), ...children('admin.finanzas.facturas_emitidas')]),
-  section('finanzas', 'Conciliar y movimientos', 'Finanzas', children('admin.finanzas').filter(c => !/\.(impuestos|presupuesto|facturas|facturas_emitidas|nominas|rentabilidad)(\.|$)/.test(c))),
-  section('rentabilidad', 'Rentabilidad', 'Finanzas', children('admin.rentabilidad')),
-  section('impuestos', 'Impuestos', 'Finanzas', children('admin.finanzas.impuestos')),
-  section('presupuesto', 'Presupuesto', 'Finanzas', children('admin.finanzas.presupuesto')),
-  section('aapp', 'AAPP', 'Finanzas', children('admin.aapp')),
-  section('personal', 'Personal', 'Personas', children('admin.empleados').filter(c => !/nomina|salari/i.test(c))),
-  section('nominas', 'Nóminas', 'Personas', codes.filter(c => /nomina|salari/i.test(c))),
-  section('gastos', 'Gastos del trabajador', 'Personas', codes.filter(c => /^empleado\.(?:mis_gastos|gastos)(?:\.|$)/.test(c))),
-  section('imputaciones', 'Imputaciones', 'Personas', ['admin.imputaciones', ...codes.filter(c => /^empleado\.imputaciones(?:\.|$)/.test(c))]),
-  section('portal-empleado', 'Portal del empleado', 'Personas', ['empleado.portal']),
-  section('proyectos-internos', 'Proyectos internos', 'Operación', children('admin.proyectos_internos')),
-  section('certificaciones', 'Certificaciones', 'Operación', children('admin.certificaciones')),
-  section('peticiones', 'Peticiones', 'Operación', ['admin.peticiones', 'empleado.peticiones']),
-  section('usuarios-permisos', 'Usuarios y permisos', 'Administración', [...children('admin.usuarios'), ...children('admin.permisos')]),
-  section('auditoria', 'Auditoría', 'Administración', children('admin.auditoria')),
-  section('actuar-como', 'Actuar como', 'Administración', children('admin.actuar_como')),
-  section('historial', 'Historial', 'Administración', children('admin.historial')),
-  section('configuracion', 'Configuración', 'Administración', children('admin.configuracion')),
-  section('sistemas', 'Sistemas y servicios', 'Administración', children('admin.sistemas')),
-  // The mock omits this current registry group; never silently inherit admin V.
-  section('asistente', 'Asistente IA · superficie actual', 'Comercial', children('admin.asistente')),
-  ...AREA4_DRAXTON_TECHNICAL_MENU.map(item => section(item.section, item.name, 'Clientes y contratos', [AREA4_SECTION_REGISTRY.find(s => s.key === item.section)!.areaCode])),
-]
-
-const none = (): PermissionMap => Object.fromEntries(USERS_SECTIONS.map(s => [s.key, '']))
+const none = (): PermissionMap => Object.fromEntries(USERS_SECTIONS.map(section => [section.key, '']))
 const pick = (base: PermissionMap, over: PermissionMap): PermissionMap => ({ ...base, ...over })
-const all = (value: string): PermissionMap => Object.fromEntries(USERS_SECTIONS.map(s => [s.key, value]))
+/** Only explicit source4d03 rows seed ordinary roles. New rows never inherit all(). */
+const all = (value: string, owner = false): PermissionMap => Object.fromEntries(USERS_SECTIONS.map(section => [section.key, owner || area4UsersRowIsBaseline(section) ? value : '']))
 const role = (key: ApprovedRoleKey, name: string, description: string, permissions: PermissionMap): ApprovedRole => ({ key, name, description, permissions })
 export const APPROVED_ROLES: ApprovedRole[] = [
-  role('superadmin', 'Superadmin', 'Todo; exclusivamente el propietario canónico configurado.', all('VECX')),
-  role('gerente', 'Gerente', 'Negocio sin administración, configuración, rentabilidad ni sistemas; guardias del módulo prevalecen.', pick(all('VECX'), {
+  role('superadmin', 'Superadmin', 'Todo; exclusivamente el propietario canónico configurado.', all(letters.join(''), true)),
+  role('gerente', 'Gerente', 'Negocio sin administración, configuración, rentabilidad ni sistemas; guardias del módulo prevalecen.', pick(all(letters.join('')), {
     rentabilidad: '', sistemas: '', 'usuarios-permisos': '', auditoria: '', 'actuar-como': '', configuracion: '',
     historial: 'V', facturacion: 'VX', finanzas: 'VX', impuestos: 'VX', presupuesto: 'VEX', aapp: 'VX',
     nominas: 'VX', personal: 'VX', gastos: 'VEC', 'portal-empleado': 'V',
@@ -78,12 +43,11 @@ export const APPROVED_ROLES: ApprovedRole[] = [
   })),
 ]
 
-/** Only current registry codes: prepares a catalogue report, never assigns users or fabricates an area. */
+/** Only current registry codes: reports the catalogue; never assigns users or fabricates an area. */
 export function missingApprovedRoleCodes(actualCodes: readonly string[]): string[] {
   const existing = new Set(actualCodes)
   return codes.filter(code => !existing.has(code)).sort()
 }
-
 export function normalizePersonName(value: string): string {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
 }
@@ -108,29 +72,35 @@ export function proposedRoleFor(
   ownerId: number | null = null,
 ): { role: ApprovedRoleKey; extras: PermissionMap } | null {
   if (protectedPersonReason(user, ownerId)) return null
-  const approved = approvedPeople.find(p => p.names.includes(normalizePersonName(user.name)))
-  if (!approved || currentSnapshot.filter(u => approved.names.includes(normalizePersonName(u.name))).length !== 1) return null
+  const approved = approvedPeople.find(person => person.names.includes(normalizePersonName(user.name)))
+  if (!approved || currentSnapshot.filter(person => approved.names.includes(normalizePersonName(person.name))).length !== 1) return null
   return { role: approved.role, extras: { ...approved.extras } }
 }
 
-export function mergeRolePermissions(roleKey: ApprovedRoleKey, extras: PermissionMap): PermissionMap {
-  const base = APPROVED_ROLES.find(r => r.key === roleKey)!.permissions
-  return Object.fromEntries(USERS_SECTIONS.map(s => [s.key, 'VECX'.split('').filter(a => `${base[s.key] || ''}${extras[s.key] || ''}`.includes(a)).join('')]))
+export function mergeRolePermissions(roleKey: ApprovedRoleKey, extras: PermissionMap, templates: readonly ApprovedRole[] = APPROVED_ROLES): PermissionMap {
+  const base = templates.find(template => template.key === roleKey)?.permissions || {}
+  return Object.fromEntries(USERS_SECTIONS.map(section => [section.key,
+    letters.filter(action => `${base[section.key] || ''}${extras[section.key] || ''}`.includes(action)).join('')]))
 }
-/** A full replacement ACL: every actual DB area gets four explicit flags, including denials.
- * Unknown areas stay denied. Dashboard admin V cannot re-open an unmapped area.
+/** Full replacement ACL: every actual area has explicit flags; unknown codes stay denied.
+ * Templates may be resolved from exact audited assignments without mutating the seed.
  */
-export function approvedCodePermissions(roleKey: ApprovedRoleKey, extras: PermissionMap, actualCodes: readonly string[]): PermissionMap {
-  const selected = mergeRolePermissions(roleKey, extras)
-  const result: PermissionMap = Object.fromEntries(actualCodes.map(c => [c, '']))
+export function approvedCodePermissions(
+  roleKey: ApprovedRoleKey,
+  extras: PermissionMap,
+  actualCodes: readonly string[],
+  templates: readonly ApprovedRole[] = APPROVED_ROLES,
+): PermissionMap {
+  const selected = mergeRolePermissions(roleKey, extras, templates)
+  const result: PermissionMap = Object.fromEntries(actualCodes.map(code => [code, '']))
   for (const row of USERS_SECTIONS) for (const code of row.codes) if (Object.hasOwn(result, code)) result[code] = selected[row.key]
-  // Lorena's Clients V explicitly includes current children, without writing a broad Draxton VE.
-  if (extras.clientes) for (const code of actualCodes) if (code === 'admin.clientes' || code.startsWith('admin.clientes.')) {
-    result[code] = 'VECX'.split('').filter(a => `${result[code]}${extras.clientes}`.includes(a)).join('')
+  // Lorena's Clients V covers only reviewed current children, never future prefix descendants.
+  if (extras.clientes) for (const code of actualCodes) if (area4CodeIsBaseline(code) && (code === 'admin.clientes' || code.startsWith('admin.clientes.'))) {
+    result[code] = letters.filter(action => `${result[code]}${extras.clientes}`.includes(action)).join('')
   }
   // Salary is never obtained by Personal inheritance/extras.
   if (roleKey !== 'superadmin' && roleKey !== 'gerente') for (const code of actualCodes) if (/nomina|salari/i.test(code)) result[code] = ''
-  // Employee requests are scoped; operating the administrative queue is not an employee grant.
+  // Employee requests are scoped; administrative queue access is not an employee grant.
   if (['empleado', 'draxton', 'comercial', 'contabilidad'].includes(roleKey) && Object.hasOwn(result, 'admin.peticiones')) result['admin.peticiones'] = ''
   return result
 }

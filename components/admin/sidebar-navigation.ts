@@ -1,49 +1,19 @@
-import { AREA4_DRAXTON_TECHNICAL_MENU, AREA4_GROUPED_MENU, AREA4_MENU_GROUPS, area4RegisteredSurfaceArea, area4SectionByKey } from '@/lib/area4/section-registry'
+import {
+  AREA4_GROUPED_MENU, AREA4_HISTORICAL_MENU, AREA4_MENU_GROUP_METADATA,
+  area4EasyMenu, area4RegisteredSurface, area4SectionByKey, type Area4MenuItem,
+} from '@/lib/area4/section-registry'
 
 export type FinanceEnvironment = 'staging' | 'production' | null
 export type SidebarPresentation = 'historico' | 'agrupado'
 
 export type SidebarIconName =
-  | 'academicCap'
-  | 'arrowPath'
-  | 'arrowTrendingUp'
-  | 'arrowsRightLeft'
-  | 'banknotes'
-  | 'bookOpen'
-  | 'briefcase'
-  | 'buildingLibrary'
-  | 'buildingOffice'
-  | 'calendarDays'
-  | 'calculator'
-  | 'chartBar'
-  | 'chatBubbleLeftEllipsis'
-  | 'chatBubbleLeftRight'
-  | 'circleStack'
-  | 'clipboardDocumentList'
-  | 'cloudArrowUp'
-  | 'clock'
-  | 'cog'
-  | 'creditCard'
-  | 'documentDuplicate'
-  | 'documentText'
-  | 'folder'
-  | 'globeAlt'
-  | 'home'
-  | 'inboxStack'
-  | 'lightBulb'
-  | 'link'
-  | 'megaphone'
-  | 'queueList'
-  | 'receiptPercent'
-  | 'rocketLaunch'
-  | 'shieldCheck'
-  | 'signal'
-  | 'sparkles'
-  | 'sun'
-  | 'user'
-  | 'userGroup'
-  | 'users'
-  | 'wrenchScrewdriver'
+  | 'academicCap' | 'arrowPath' | 'arrowTrendingUp' | 'arrowsRightLeft'
+  | 'banknotes' | 'bookOpen' | 'briefcase' | 'buildingLibrary' | 'buildingOffice'
+  | 'calendarDays' | 'calculator' | 'chartBar' | 'chatBubbleLeftEllipsis' | 'chatBubbleLeftRight'
+  | 'circleStack' | 'clipboardDocumentList' | 'cloudArrowUp' | 'clock' | 'cog' | 'creditCard'
+  | 'documentDuplicate' | 'documentText' | 'folder' | 'globeAlt' | 'home' | 'inboxStack'
+  | 'lightBulb' | 'link' | 'megaphone' | 'queueList' | 'receiptPercent' | 'rocketLaunch'
+  | 'shieldCheck' | 'signal' | 'sparkles' | 'sun' | 'user' | 'userGroup' | 'users' | 'wrenchScrewdriver'
 
 export interface SidebarNavigationItem {
   name: string
@@ -53,248 +23,86 @@ export interface SidebarNavigationItem {
   exact?: boolean
   subitems?: SidebarNavigationItem[]
 }
-
 export interface SidebarNavigationGroup {
   name: string
   icon: SidebarIconName
   section?: string
   children: SidebarNavigationItem[]
 }
-
 export type SidebarNavigationEntry = SidebarNavigationItem | SidebarNavigationGroup
-
 export function isSidebarNavigationGroup(entry: SidebarNavigationEntry): entry is SidebarNavigationGroup {
   return 'children' in entry
 }
 
-const navigation: SidebarNavigationEntry[] = [
-  { name: 'Dashboard', href: '/admin', icon: 'home', section: 'dashboard' },
-  {
-    name: 'CRM', icon: 'chartBar', section: 'crm', children: [
-      { name: 'Resumen', href: '/admin/crm', icon: 'chartBar', section: 'crm' },
-      { name: 'Contactos', href: '/admin/crm/contactos', icon: 'userGroup', section: 'crm.contactos' },
-      { name: 'Empresas y autónomos', href: '/admin/crm/empresas', icon: 'buildingOffice', section: 'crm.empresas' },
-      { name: 'Listas y segmentos', href: '/admin/crm/listas', icon: 'circleStack', section: 'crm.listas' },
-      { name: 'Particulares', href: '/admin/clientes?segmento=PARTICULAR', icon: 'user', section: 'crm.particulares' },
-      { name: 'Partners', href: '/admin/crm/partners', icon: 'userGroup', section: 'crm.partners' },
-      { name: 'ISP Gestión', href: '/admin/crm/isp', icon: 'link', section: 'crm' },
-    ],
-  },
-  { name: 'Tarifas', href: '/admin/tarifas', icon: 'creditCard', section: 'tarifas' },
-  {
-    name: 'Clientes', icon: 'users', section: 'clientes', children: [
-      { name: 'Todos los clientes', href: '/admin/clientes', icon: 'users', section: 'clientes.todos' },
-      { name: 'Migración ADAMO', href: '/admin/clientes/migracion-adamo', icon: 'arrowPath', section: 'clientes.migracion_adamo' },
-      { name: 'GGCC - Draxton', href: '/admin/clientes/ggcc/draxton', icon: 'buildingOffice', section: 'clientes.ggcc.draxton' },
-      { name: 'GGCC - Exagrid', href: '/admin/clientes/ggcc/exagrid', icon: 'buildingOffice', section: 'clientes.ggcc.exagrid' },
-      { name: 'Proyectos Cliente', href: '/admin/proyectos', icon: 'folder', section: 'proyectos' },
-      ...AREA4_DRAXTON_TECHNICAL_MENU.map(groupedItem),
-    ],
-  },
-  {
-    name: 'Leads', icon: 'inboxStack', section: 'leads', children: [
-      { name: 'Gestión', href: '/admin/leads-soluciones', icon: 'queueList', section: 'leads' },
-      { name: 'Mantenimiento IT', href: '/admin/leads-mantenimiento', icon: 'wrenchScrewdriver', section: 'leads' },
-      { name: 'Leads Web', href: '/admin/leads', icon: 'globeAlt', section: 'leads' },
-    ],
-  },
-  {
-    name: 'Asistente IA', icon: 'sparkles', section: 'asistente', children: [
-      { name: 'Resumen', href: '/admin/asistente', icon: 'chartBar', section: 'asistente', exact: true },
-      { name: 'Chat interno', href: '/admin/asistente/chat', icon: 'chatBubbleLeftRight', section: 'asistente.chat' },
-      { name: 'Conocimiento', href: '/admin/asistente/conocimiento', icon: 'bookOpen', section: 'asistente.conocimiento' },
-      { name: 'Conversaciones', href: '/admin/asistente/conversaciones', icon: 'queueList', section: 'asistente.conversaciones' },
-      { name: 'Leads del asistente', href: '/admin/asistente/leads', icon: 'inboxStack', section: 'asistente.leads' },
-      { name: 'Aprendizaje', href: '/admin/asistente/aprendizaje', icon: 'lightBulb', section: 'asistente.aprendizaje' },
-      { name: 'Analítica', href: '/admin/asistente/analitica', icon: 'arrowTrendingUp', section: 'asistente.analitica' },
-      { name: 'Informes y propuestas', href: '/admin/asistente/informes', icon: 'documentText', section: 'asistente.propuestas' },
-      { name: 'Configuración', href: '/admin/asistente/configuracion', icon: 'cog', section: 'asistente.configuracion' },
-    ],
-  },
-  { name: 'Comunicados', href: '/admin/comunicados', icon: 'megaphone', section: 'comunicados' },
-  { name: 'Altas Pendientes', href: '/admin/altas-pendientes', icon: 'clipboardDocumentList', section: 'altas-pendientes' },
-  { name: 'Contratos', href: '/admin/contratos', icon: 'documentDuplicate', section: 'contratos' },
-  { name: 'Facturación', href: '/admin/facturacion', icon: 'banknotes', section: 'facturacion' },
-  {
-    name: 'Finanzas', icon: 'calculator', section: 'finanzas', children: [
-      { name: 'Dashboard', href: '/admin/finanzas', icon: 'chartBar', section: 'finanzas' },
-      { name: 'Movimientos', href: '/admin/finanzas/movimientos', icon: 'banknotes', section: 'finanzas' },
-      { name: 'Pendientes', href: '/admin/finanzas/pendientes', icon: 'clipboardDocumentList', section: 'finanzas' },
-      { name: 'Conciliar', href: '/admin/finanzas/conciliar', icon: 'arrowsRightLeft', section: 'finanzas' },
-      { name: 'Conciliación', href: '/admin/finanzas/conciliacion-v2', icon: 'link', section: 'finanzas' },
-      { name: 'Modo fácil', href: '/admin/finanzas/modo-facil', icon: 'clipboardDocumentList', section: 'finanzas' },
-      { name: 'Para pedir', href: '/admin/finanzas/para-pedir', icon: 'documentText', section: 'finanzas' },
-      { name: 'Reparto entre clientes', href: '/admin/finanzas/reparto-clientes', icon: 'chartBar', section: 'finanzas.analitica_costes' },
-      { name: 'Analítica por cliente', href: '/admin/finanzas/analitica-cliente', icon: 'chartBar', section: 'finanzas' },
-      { name: 'Remesas', href: '/admin/finanzas/conciliacion-remesas', icon: 'inboxStack', section: 'finanzas' },
-      { name: 'Centros de coste', href: '/admin/finanzas/centros-coste', icon: 'chartBar', section: 'finanzas' },
-      { name: 'Facturas Recibidas', href: '/admin/finanzas/facturas', icon: 'documentDuplicate', section: 'finanzas' },
-      {
-        name: 'Analítica de Costes', href: '/admin/finanzas/analitica-costes', icon: 'chartBar', section: 'finanzas.analitica_costes', subitems: [
-          { name: 'Costes de operadora', href: '/admin/finanzas/analitica-costes/costes-operadora', icon: 'signal', section: 'finanzas.analitica_costes' },
-        ],
-      },
-      { name: 'Tickets/Gastos', href: '/admin/finanzas/tickets', icon: 'receiptPercent', section: 'finanzas-tickets' },
-      { name: 'Importar Extracto', href: '/admin/finanzas/importar', icon: 'arrowPath', section: 'finanzas' },
-      { name: 'Exportar a A3', href: '/admin/finanzas/exportar-a3', icon: 'documentText', section: 'finanzas' },
-      { name: 'Impuestos', href: '/admin/finanzas/impuestos', icon: 'receiptPercent', section: 'finanzas.impuestos' },
-      { name: 'Presupuesto 2027', href: '/admin/finanzas/presupuesto', icon: 'chartBar', section: 'finanzas.presupuesto' },
-      { name: 'Datos Fiscales', href: '/admin/finanzas/datos-fiscales', icon: 'buildingOffice', section: 'finanzas' },
-      { name: 'Cobros Pendientes', href: '/admin/finanzas/cobros-pendientes', icon: 'banknotes', section: 'finanzas' },
-      { name: 'GGCC Draxton', href: '/admin/finanzas/clientes/ggcc-draxton', icon: 'buildingOffice', section: 'finanzas' },
-    ],
-  },
-  { name: 'Rentabilidad · staging', href: '/admin/rentabilidad', icon: 'arrowTrendingUp', section: 'rentabilidad' },
-  { name: 'Sistemas y servicios', href: '/admin/sistemas', icon: 'cog', section: 'sistemas' },
-  { name: 'Estadísticas', href: '/admin/estadisticas', icon: 'chartBar', section: 'estadisticas' },
-  { name: 'Usuarios Admin', href: '/admin/usuarios', icon: 'userGroup', section: 'usuarios' },
-  { name: 'Subida de Precios', href: '/admin/subida-precios', icon: 'arrowTrendingUp', section: 'subida-precios' },
-  {
-    name: 'Personal', icon: 'briefcase', section: 'personal', children: [
-      { name: 'Costes de Personal', href: '/admin/empleados', icon: 'banknotes', section: 'personal' },
-      { name: 'Organigrama', href: '/admin/empleados/organigrama', icon: 'userGroup', section: 'personal' },
-      { name: 'Vacaciones', href: '/admin/empleados/vacaciones', icon: 'sun', section: 'personal' },
-      { name: 'Calendario', href: '/admin/empleados/calendario', icon: 'calendarDays', section: 'personal' },
-      { name: 'Importar Nóminas', href: '/admin/empleados/nominas', icon: 'cloudArrowUp', section: 'personal' },
-      { name: 'Plan de Carrera', href: '/admin/empleados/plan-carrera', icon: 'academicCap', section: 'personal' },
-      { name: 'Gastos y Extras', href: '/admin/gastos-extras', icon: 'receiptPercent', section: 'personal' },
-    ],
-  },
-  { name: 'Imputaciones', href: '/admin/imputaciones', icon: 'clock', section: 'imputaciones' },
-  { name: 'Proyectos Internos', href: '/admin/proyectos-internos', icon: 'rocketLaunch', section: 'proyectos_internos' },
-  {
-    name: 'AAPP', icon: 'buildingLibrary', section: 'aapp', children: [
-      { name: 'CNMC', href: '/admin/aapp/cnmc', icon: 'buildingLibrary', section: 'aapp' },
-      { name: 'Hacienda', href: '/admin/aapp/hacienda', icon: 'buildingLibrary', section: 'aapp' },
-      { name: 'Seguridad Social', href: '/admin/aapp/seguridad-social', icon: 'buildingLibrary', section: 'aapp' },
-    ],
-  },
-  {
-    name: 'Certificaciones', icon: 'shieldCheck', section: 'certificaciones', children: [
-      { name: 'Resumen', href: '/admin/certificaciones', icon: 'chartBar', section: 'certificaciones' },
-      { name: 'ISO 27001', href: '/admin/certificaciones/iso-27001', icon: 'shieldCheck', section: 'certificaciones.iso_27001' },
-      { name: 'TISAX', href: '/admin/certificaciones/tisax', icon: 'shieldCheck', section: 'certificaciones.tisax' },
-      { name: 'Cuestionarios de seguridad', href: '/admin/certificaciones/cuestionarios', icon: 'clipboardDocumentList', section: 'certificaciones.cuestionarios' },
-    ],
-  },
-  { name: 'Peticiones', href: '/admin/peticiones', icon: 'chatBubbleLeftEllipsis', section: 'peticiones' },
-  { name: 'Portal Empleado', href: '/empleado', icon: 'user', section: 'portal-empleado' },
-  { name: 'Mis peticiones', href: '/peticiones', icon: 'chatBubbleLeftEllipsis', section: 'peticiones-propias' },
-  { name: 'Historial', href: '/admin/historial', icon: 'documentText', section: 'historial' },
-  { name: 'Configuración', href: '/admin/configuracion', icon: 'cog', section: 'configuracion' },
-]
-
-const GROUP_ICONS: Record<(typeof AREA4_MENU_GROUPS)[number], SidebarIconName> = {
-  Inicio: 'home',
-  Comercial: 'chartBar',
-  'Clientes y contratos': 'users',
-  Finanzas: 'calculator',
-  Personas: 'briefcase',
-  Operación: 'rocketLaunch',
-  Administración: 'cog',
-}
-
-function groupedItem(item: (typeof AREA4_GROUPED_MENU)[keyof typeof AREA4_GROUPED_MENU][number]): SidebarNavigationItem {
+function registryItem(item: Area4MenuItem): SidebarNavigationItem {
   const section = area4SectionByKey(item.section)
   if (!section) throw new Error(`Sección no registrada en el menú: ${item.section}`)
-  return {
-    name: item.name,
-    href: item.href,
-    icon: item.icon as SidebarIconName,
-    section: section.areaCode,
-    subitems: item.subitems?.map(subitem => groupedItem(subitem as (typeof AREA4_GROUPED_MENU)[keyof typeof AREA4_GROUPED_MENU][number])),
-  }
+  return { name: item.name, href: item.href, icon: item.icon as SidebarIconName, section: section.areaCode,
+    ...(item.exact ? { exact: true } : {}), subitems: item.subitems?.map(registryItem) }
 }
-
-/** La agrupación sólo cambia presentación: las rutas y sus códigos de área provienen del registro estático. */
 function groupedNavigation(): SidebarNavigationEntry[] {
-  return AREA4_MENU_GROUPS.map(name => ({
-    name,
-    icon: GROUP_ICONS[name],
-    section: 'admin',
-    children: AREA4_GROUPED_MENU[name].map(item => groupedItem(item)),
-  }))
+  return AREA4_MENU_GROUP_METADATA.map(({ name, icon }) => ({ name, icon, section: 'admin',
+    children: AREA4_GROUPED_MENU[name].map(registryItem) }))
+}
+function historicalNavigation(): SidebarNavigationEntry[] {
+  return AREA4_HISTORICAL_MENU.map(entry => 'children' in entry
+    ? { name: entry.name, icon: entry.icon as SidebarIconName, section: area4SectionByKey(entry.section)?.areaCode,
+      children: entry.children.map(registryItem) }
+    : registryItem(entry))
 }
 
-function withFinanceEnvironment(
-  financeEnvironment: FinanceEnvironment,
-  conciliarEnabled = financeEnvironment === 'staging',
-  presentation: SidebarPresentation = 'historico',
-): SidebarNavigationEntry[] {
-  const financeLabel = financeEnvironment === 'staging' ? ' · staging' : ''
-
-  const adaptItem = (item: SidebarNavigationItem): SidebarNavigationItem | null => {
-    if (item.href === '/admin/rentabilidad' && financeEnvironment !== 'staging') return null
-    if (item.href === '/admin/finanzas/conciliar' && !conciliarEnabled) return null
-    if (['/admin/finanzas/modo-facil', '/admin/finanzas/para-pedir', '/admin/finanzas/reparto-clientes'].includes(item.href) && financeEnvironment === null) return null
-    // Telefonía/SOFÍA continúa aparcada en producción.
-    if (item.href === '/admin/finanzas/analitica-cliente' && financeEnvironment !== 'staging') return null
-    // El histórico y el agrupado autorizan la misma área concreta; las variantes
-    // CRM por query y las normas dinámicas conservan su código explícito actual.
-    const explicitArea = item.section && area4SectionByKey(item.section)?.areaCode
-    const variant = item.href.includes('?') || item.section?.startsWith('certificaciones.')
-    const area = variant ? (explicitArea || item.section) : area4RegisteredSurfaceArea(item.href, 'page')
-    return {
-      ...item,
-      section: area || explicitArea || item.section,
-      name: ['/admin/finanzas/modo-facil', '/admin/finanzas/para-pedir', '/admin/finanzas/reparto-clientes', '/admin/finanzas/analitica-cliente'].includes(item.href)
-        ? `${item.name}${financeLabel}`
-        : item.name,
-      subitems: item.subitems?.map(adaptItem).filter((child): child is SidebarNavigationItem => child !== null),
-    }
-  }
-
-  const base = presentation === 'agrupado' ? groupedNavigation() : navigation
-  return base.map(entry => {
-    if (!isSidebarNavigationGroup(entry)) return adaptItem(entry)
-    return { ...entry, children: entry.children.map(adaptItem).filter((child): child is SidebarNavigationItem => child !== null) }
-  }).filter((entry): entry is SidebarNavigationEntry => entry !== null)
-}
-
+/** Presentation and availability are projections; neither grants a parent permission. */
 export function getSidebarNavigation(
   financeEnvironment: FinanceEnvironment,
   conciliarEnabled = financeEnvironment === 'staging',
   presentation: SidebarPresentation = 'historico',
 ): SidebarNavigationEntry[] {
-  return withFinanceEnvironment(financeEnvironment, conciliarEnabled, presentation)
+  const adaptItem = (item: SidebarNavigationItem): SidebarNavigationItem | null => {
+    const match = area4RegisteredSurface(item.href, 'page')
+    if (!match) return null
+    const availability = match.surface.availability
+    if (availability?.stagingOnly && financeEnvironment !== 'staging') return null
+    if (availability?.conciliarOnly && !conciliarEnabled) return null
+    if (availability?.needsFinance && financeEnvironment === null) return null
+    return { ...item,
+      name: availability?.financeSuffix && financeEnvironment === 'staging' ? `${item.name} · staging` : item.name,
+      subitems: item.subitems?.map(adaptItem).filter((child): child is SidebarNavigationItem => child !== null) }
+  }
+  const base = presentation === 'agrupado' ? groupedNavigation() : historicalNavigation()
+  return base.map(entry => !isSidebarNavigationGroup(entry) ? adaptItem(entry)
+    : { ...entry, children: entry.children.map(adaptItem).filter((child): child is SidebarNavigationItem => child !== null) })
+    .filter((entry): entry is SidebarNavigationEntry => entry !== null)
 }
 
 export function getEasyOnlySidebarNavigation(financeEnvironment: FinanceEnvironment, conciliarEnabled = financeEnvironment === 'staging'): SidebarNavigationItem[] {
-  const easyHome = conciliarEnabled ? '/admin/finanzas/conciliar' : '/admin/finanzas/modo-facil'
-  return [
-    {
-      name: conciliarEnabled ? 'Conciliar' : 'Modo fácil',
-      href: easyHome,
-      icon: 'clipboardDocumentList',
-    },
-    { name: 'Para pedir', href: '/admin/finanzas/para-pedir', icon: 'documentText' },
-  ]
+  return area4EasyMenu(conciliarEnabled).map(registryItem)
 }
 
-function filterItem(item: SidebarNavigationItem, hasAccess: (section: string) => boolean): SidebarNavigationItem[] {
-  const subitems = item.subitems?.flatMap(subitem => filterItem(subitem, hasAccess))
-  // Mostrar un hijo autorizado no convierte el padre en enlace autorizado.
-  // Reutilizamos el árbol existente promoviendo los hijos dentro de su grupo.
-  if (item.section && !hasAccess(item.section)) return subitems || []
+function filterItem(
+  item: SidebarNavigationItem,
+  hasAccess: (section: string) => boolean,
+  hasSurfaceAccess: (href: string) => boolean,
+): SidebarNavigationItem[] {
+  const subitems = item.subitems?.flatMap(subitem => filterItem(subitem, hasAccess, hasSurfaceAccess))
+  // An allowed child is promoted, never converted into an allowed parent link.
+  if (!hasSurfaceAccess(item.href) || (item.section && !hasAccess(item.section))) return subitems || []
   return [{ ...item, subitems }]
 }
 
-/**
- * Produce el árbol de presentación ya autorizado. No concede nada por sí mismo:
- * su autoridad es exclusivamente el evaluador que recibe de la respuesta actual.
+/** The optional surface-aware evaluator must enforce live owner/assignment/adoption evidence.
+ * Without it, new descriptors remain closed even if a broad hasAccess returns true.
  */
 export function filterAuthorizedSidebarNavigation(
   financeEnvironment: FinanceEnvironment,
   hasAccess: (section: string) => boolean,
   conciliarEnabled = financeEnvironment === 'staging',
   presentation: SidebarPresentation = 'historico',
+  hasSurfaceAccess: (href: string) => boolean = href => area4RegisteredSurface(href, 'page')?.baseline === true,
 ): SidebarNavigationEntry[] {
   return getSidebarNavigation(financeEnvironment, conciliarEnabled, presentation)
     .flatMap((entry): SidebarNavigationEntry[] => {
-      if (!isSidebarNavigationGroup(entry)) return filterItem(entry, hasAccess)
-
-      const children = entry.children.flatMap(child => filterItem(child, hasAccess))
-      // Un contenedor sin enlaces no es un permiso, ni debe aparecer vacío.
+      if (!isSidebarNavigationGroup(entry)) return filterItem(entry, hasAccess, hasSurfaceAccess)
+      const children = entry.children.flatMap(child => filterItem(child, hasAccess, hasSurfaceAccess))
       return children.length > 0 ? [{ ...entry, children }] : []
     })
 }

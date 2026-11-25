@@ -68,11 +68,23 @@ test('las plantillas aprobadas no conceden Usuarios ni permisos a Gerente', () =
 })
 
 
-test('Gerente adoptado no recupera permisos por su rol ante un apartado nuevo', () => {
+test('ningún Gerente recupera permisos por su rol ante un apartado nuevo sin asignar', () => {
   const grants = [{ codigo: 'admin.crm', lectura: true, escritura: true, confirmar: false, exportar: false }]
   for (const capability of ['lectura', 'escritura', 'confirmar', 'exportar'] as const) {
     assert.equal(evaluateArea4Capability({ principal: gerente, grants, codigoArea: 'admin.nueva_area', capability, ownerId: 3, permissionsAdopted: true }), false)
-    assert.equal(evaluateArea4Capability({ principal: gerente, grants, codigoArea: 'admin.nueva_area', capability, ownerId: 3, permissionsAdopted: false }), true)
+    assert.equal(evaluateArea4Capability({ principal: gerente, grants, codigoArea: 'admin.nueva_area', capability, ownerId: 3, permissionsAdopted: false }), false)
   }
   assert.equal(evaluateArea4Capability({ principal: gerente, grants, codigoArea: 'admin.crm', capability: 'confirmar', ownerId: 3, permissionsAdopted: true }), false)
+})
+
+test('un código o superficie futura exige adopción, consentimiento y fila exacta; no hereda el padre', () => {
+  const parent = [{ codigo: 'admin', lectura: true, escritura: true, confirmar: true, exportar: true }]
+  const exact = [{ codigo: 'admin.nueva_area', lectura: true, escritura: true, confirmar: true, exportar: true }]
+  const input = { principal: gerente, codigoArea: 'admin.nueva_area', capability: 'lectura' as const, ownerId: 3 }
+  assert.equal(evaluateArea4Capability({ ...input, grants: exact, permissionsAdopted: true }), false)
+  assert.equal(evaluateArea4Capability({ ...input, grants: exact, newSurfaceConsent: true, permissionsAdopted: false }), false)
+  assert.equal(evaluateArea4Capability({ ...input, grants: parent, newSurfaceConsent: true, permissionsAdopted: true }), false)
+  assert.equal(evaluateArea4Capability({ ...input, grants: exact, newSurfaceConsent: true, permissionsAdopted: true }), true)
+  assert.equal(evaluateArea4Capability({ ...input, codigoArea: 'admin.crm.contactos', grants: [{ ...parent[0], codigo: 'admin.crm' }], newSurfaceConsent: true, requireExactGrant: true, permissionsAdopted: true }), false)
+  assert.equal(evaluateArea4Capability({ ...input, principal: { id: 3, activo: true, rol: 'SUPER_ADMIN' }, grants: [], isImpersonating: true }), false)
 })

@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useRole } from './RoleContext'
 import { useSidebar } from './AdminSidebarContext'
 import { permissionSignature } from './sidebar-access-evaluator'
+import { area4SurfacePermissionSignature } from '@/lib/area4/surface-access-contract'
 import type { FinanceEnvironment, SidebarPresentation } from './sidebar-navigation'
 import type { AdminSidebarUser } from './server/AdminSidebarMenu'
 import { AdminSidebarPlaceholder } from './presentation/AdminSidebarPlaceholder'
@@ -62,10 +63,11 @@ export default function AdminSidebar({
     isViewingAs,
     isViewingAsUser,
     permisosGranulares,
+    surfacePermissions,
     permisosLoaded,
     effectiveUserId,
   } = useRole()
-  const livePermissionSignature = permissionSignature(permisosGranulares)
+  const livePermissionSignature = `${permissionSignature(permisosGranulares)}::${area4SurfacePermissionSignature(surfacePermissions)}`
   const previewSync = useRef({
     wasViewingAs: false,
     wasViewingAsUser: false,
@@ -111,7 +113,7 @@ export default function AdminSidebar({
     previewSync.current.restoringInitialActor = false
   }
 
-  const hasLiveSeedChange = initialMenuMode === 'seed' && livePermissionSignature !== initialPermissionSignature
+  const hasLiveSeedChange = ['seed', 'privileged'].includes(initialMenuMode) && livePermissionSignature !== initialPermissionSignature
   const needsLiveMenu = !easyOnly && (
     initialMenuMode === 'unavailable' ||
     isViewingAs ||
