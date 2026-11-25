@@ -87,7 +87,7 @@ async function main() {
   await t('ruta: simular es GET (pasa el sandbox de staging) e importar solo POST con confirmar', () => {
     const r = readFileSync(join(root, 'app/api/admin/crm/hubspot/historial/route.ts'), 'utf8')
     assert.match(r, /export async function GET\(\)\s*\{\s*return ejecutar\('simular'\)/)
-    assert.match(r, /export async function POST[\s\S]*confirmar !== true[\s\S]*ejecutar\('importar'\)/)
+    assert.match(r, /export async function POST[\s\S]*confirmar !== true[\s\S]*propietarioImportacion\(\)[\s\S]*ejecutar\('importar', owner\.actorId\)/)
     assert.ok(!r.split('export async function POST')[0].includes("ejecutar('importar')"))
     const lib = readFileSync(join(root, 'lib/area1-hubspot-historial.ts'), 'utf8')
     const i = lib.indexOf("if (modo === 'simular') return resultado"); const w = lib.search(/crmSincronizacionHubspot\.create|INSERT INTO/)

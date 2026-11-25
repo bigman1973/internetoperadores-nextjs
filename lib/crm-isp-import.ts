@@ -233,7 +233,8 @@ function datosContrato(x: PlanImportacion['contratos'][number], importacionId: s
   }
 }
 
-export async function aplicarImportacion(db: PrismaClient, plan: PlanImportacion, meta: { ficheroNombre: string; bytes: number; actorId: number; actorEmail: string }) {
+export type ResultadoAplicarIsp = { importacionId: string; resumen: Record<string, any>; propuestasNuevas: number; propuestasObsoletas: number; propuestasReactivadas: number; propuestasActualizadas: number; vinculosDirectos: number }
+export async function aplicarImportacion(db: PrismaClient, plan: PlanImportacion, meta: { ficheroNombre: string; bytes: number; actorId: number; actorEmail: string }, dentroTx?: (tx: Prisma.TransactionClient, r: ResultadoAplicarIsp) => Promise<void>): Promise<ResultadoAplicarIsp> {
   return db.$transaction(async (tx) => {
     const importacionId = createId()
     const ahora = new Date()
@@ -251,11 +252,13 @@ export async function aplicarImportacion(db: PrismaClient, plan: PlanImportacion
     for (const l of lotes(plan.ausentes.clientes)) await tx.ispClienteArea1.updateMany({ where: { ispClienteId: { in: l } }, data: { presenteEnUltimoFichero: false } })
 
     // Identidad por clave ISP y vínculos ya existentes en el CRM: solo rellenan huecos, nunca sobrescriben.
+    // Se cuentan solo los huecos realmente rellenados (null → id), devueltos por la BD.
+    let vinculosDirectos = 0
     for (const x of plan.clientes) {
       const v = x.vinculo
-      if (v.clienteWebId) await tx.ispClienteArea1.updateMany({ where: { id: x.rowId, clienteWebId: null }, data: { clienteWebId: v.clienteWebId } })
-      if (v.crmContactoId) await tx.ispClienteArea1.updateMany({ where: { id: x.rowId, crmContactoId: null }, data: { crmContactoId: v.crmContactoId } })
-      if (v.crmEmpresaId) await tx.ispClienteArea1.updateMany({ where: { id: x.rowId, crmEmpresaId: null }, data: { crmEmpresaId: v.crmEmpresaId } })
+      if (v.clienteWebId) vinculosDirectos += (await tx.ispClienteArea1.updateMany({ where: { id: x.rowId, clienteWebId: null }, data: { clienteWebId: v.clienteWebId } })).count
+      if (v.crmContactoId) vinculosDirectos += (await tx.ispClienteArea1.updateMany({ where: { id: x.rowId, crmContactoId: null }, data: { crmContactoId: v.crmContactoId } })).count
+      if (v.crmEmpresaId) vinculosDirectos += (await tx.ispClienteArea1.updateMany({ where: { id: x.rowId, crmEmpresaId: null }, data: { crmEmpresaId: v.crmEmpresaId } })).count
     }
 
     // Contratos
@@ -269,7 +272,9 @@ export async function aplicarImportacion(db: PrismaClient, plan: PlanImportacion
     for (const { f } of plan.facturacion.filter((x) => x.clase === 'ACTUALIZADO')) await tx.ispFacturacionMensualArea1.update({ where: { codigoCliente_anio_mes: { codigoCliente: f.codigoCliente, anio: f.anio, mes: f.mes } }, data: { importeBase: f.importeBase, ultimaImportacionId: importacionId } })
 
     // Propuestas: se conservan las decisiones humanas; las pendientes que ya no aplican pasan a OBSOLETO.
-    const existentes = await tx.ispVinculoArea1.findMany({ select: { id: true, ispClienteRowId: true, tipo: true, destinoId: true, estado: true } })
+    const existentes = await tx.ispVinculoArea1.findMany({ select: { id: true, ispClienteRowId: true, tipo: true, destinoId: true, estado: true, motivo: true, confianza: true } })
+    let propuestasReactivadas = 0
+    let propuestasActualizadas = 0
     const clave = (a: string, t: string, d: string) => `${a}|${t}|${d}`
     const ex = new Map(existentes.map((e) => [clave(e.ispClienteRowId, e.tipo, e.destinoId), e]))
     const vigentes = new Set<string>()
@@ -280,14 +285,22 @@ export async function aplicarImportacion(db: PrismaClient, plan: PlanImportacion
         vigentes.add(k)
         const e = ex.get(k)
         if (!e) crear.push({ id: createId(), ispClienteRowId: x.rowId, tipo: p.tipo, destinoId: p.destinoId, motivo: p.motivo, confianza: p.confianza, detalle: (p.detalle || undefined) as Prisma.InputJsonValue | undefined, ultimaImportacionId: importacionId })
-        else if (e.estado === 'PENDIENTE' || e.estado === 'OBSOLETO') await tx.ispVinculoArea1.update({ where: { id: e.id }, data: { motivo: p.motivo, confianza: p.confianza, estado: 'PENDIENTE', ultimaImportacionId: importacionId } })
+        else if (e.estado === 'PENDIENTE' || e.estado === 'OBSOLETO') {
+          await tx.ispVinculoArea1.update({ where: { id: e.id }, data: { motivo: p.motivo, confianza: p.confianza, estado: 'PENDIENTE', ultimaImportacionId: importacionId } })
+          // Cambio de negocio real: OBSOLETO → PENDIENTE, o motivo/confianza distintos. Solo el journal no cuenta.
+          if (e.estado === 'OBSOLETO') propuestasReactivadas++
+          else if (e.motivo !== p.motivo || String(e.confianza) !== String(p.confianza)) propuestasActualizadas++
+        }
       }
     }
     for (const l of lotes(crear)) await tx.ispVinculoArea1.createMany({ data: l })
     const obsoletas = existentes.filter((e) => e.estado === 'PENDIENTE' && !vigentes.has(clave(e.ispClienteRowId, e.tipo, e.destinoId))).map((e) => e.id)
     for (const l of lotes(obsoletas)) await tx.ispVinculoArea1.updateMany({ where: { id: { in: l } }, data: { estado: 'OBSOLETO', ultimaImportacionId: importacionId } })
 
-    return { importacionId, resumen: plan.resumen, propuestasNuevas: crear.length, propuestasObsoletas: obsoletas.length }
+    const r: ResultadoAplicarIsp = { importacionId, resumen: plan.resumen, propuestasNuevas: crear.length, propuestasObsoletas: obsoletas.length, propuestasReactivadas, propuestasActualizadas, vinculosDirectos }
+    // Recibo de auditoría del Área 4 en la misma transacción: si falla, se revierte la importación.
+    if (dentroTx) await dentroTx(tx, r)
+    return r
   }, { timeout: 180000, maxWait: 15000 })
 }
 
