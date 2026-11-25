@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, Fragment } from 'react';
 import { FilterTable, IoShell, Note, Toast, TopBar, eur, monthLabel, MESES, MESES_LARGO } from '@/components/io-ui/kit';
 import { AlertAction, ExternalCostsEditor, RulesEditor, type Mutate } from './Editors';
 import { Comparison, SystemState } from './Legacy';
+import Desglose, { type DesgloseSel } from './Desglose';
 import { Chip, Heat, Rank, Spark, Trend, mg, type HeatRow, type MV, type RankRow } from './charts';
 import { TIPO_NOMBRE, clientTipo, compareRows, groupAlerts, monthProducts, monthsOf, productMonthMargin, rowTotals, totalsOf, type AlertGroup } from './io-model';
 import { array, financialColumns, numeric, type Mode, type Report, type Row } from './view-model';
@@ -16,6 +17,8 @@ const mlong = (ym: string) => `${cap(MESES_LARGO[Number(ym.slice(5, 7)) - 1])} $
 const pctF = (v: number | null | undefined, d = 1) => (v == null || !Number.isFinite(v) ? '—' : (v < 0 ? '−' : '') + Math.abs(v * 100).toLocaleString('es-ES', { minimumFractionDigits: d, maximumFractionDigits: d }) + ' %');
 const f100 = (v: number | null | undefined) => (v == null ? null : v / 100);
 const Dot = () => <span className="dot" title="Incluye coste estimado" />;
+type Abrir = (s: DesgloseSel) => void;
+const Lnk = ({ onClick, title, children }: { onClick: () => void; title: string; children: React.ReactNode }) => <button type="button" className="lnk" title={title} onClick={e => { e.stopPropagation(); onClick(); }}>{children}</button>;
 type Preset = { prod?: string; flag?: string; n: number };
 
 export default function RentabilidadClient({ initialReport }: { initialReport: Report }) {
@@ -23,6 +26,7 @@ export default function RentabilidadClient({ initialReport }: { initialReport: R
   const [busy, setBusy] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState('');
   const [focusType, setFocusType] = useState<string | null>(null); const [openProd, setOpenProd] = useState<string | null>(null);
   const [preset, setPreset] = useState<Preset>({ n: 0 }); const [acc, setAcc] = useState('');
+  const [desg, setDesg] = useState<DesgloseSel | null>(null);
   const operation = useRef(false);
   const mode: Mode = report.mode === 'contratado' ? 'contratado' : 'real';
   const period = report.period; const months = useMemo(() => monthsOf(period), [period]); const mi = Number(period.slice(5, 7)) - 1;
@@ -117,8 +121,9 @@ export default function RentabilidadClient({ initialReport }: { initialReport: R
       {busy && <Note>{busy}</Note>}
       {error && <Note tone="bad"><b>No se ha podido completar.</b> {error}</Note>}
       {view === 'resumen' && <Resumen report={report} mode={mode} groups={groups} months={months} mi={mi} showAlerts={showAlerts} showClients={showClients} goProduct={p => { setOpenProd(p); go('productos'); }} />}
-      {view === 'productos' && <Productos report={report} mode={mode} months={months} mi={mi} openProd={openProd} setOpenProd={setOpenProd} showClients={showClients} />}
-      {view === 'clientes' && <Clientes key={preset.n} report={report} mode={mode} preset={preset} />}
+      {view === 'productos' && <Productos report={report} mode={mode} months={months} mi={mi} openProd={openProd} setOpenProd={setOpenProd} showClients={showClients} abrir={setDesg} />}
+      {view === 'clientes' && <Clientes key={preset.n} report={report} mode={mode} preset={preset} abrir={setDesg} />}
+      {desg && <Desglose month={period} sel={desg} onClose={() => setDesg(null)} />}
       {view === 'meses' && <Meses report={report} mode={mode} months={months} mi={mi} />}
       {view === 'alertas' && <Alertas report={report} groups={groups} focusType={focusType} mutate={mutate} busy={!!busy} showClients={showClients} />}
       {view === 'excel' && <Excel report={report} mode={mode} />}
@@ -175,29 +180,29 @@ function Resumen({ report, mode, groups, months, mi, showAlerts, showClients, go
 }
 
 /* ───────────── Por producto ───────────── */
-function Productos({ report, mode, months, mi, openProd, setOpenProd, showClients }: { report: Report; mode: Mode; months: string[]; mi: number; openProd: string | null; setOpenProd: (p: string | null) => void; showClients: (p: { prod?: string }) => void }) {
+function Productos({ report, mode, months, mi, openProd, setOpenProd, showClients, abrir }: { report: Report; mode: Mode; months: string[]; mi: number; openProd: string | null; setOpenProd: (p: string | null) => void; showClients: (p: { prod?: string }) => void; abrir: Abrir }) {
   const period = report.period; const prevM = shiftMonth(period, -1);
   const rows = array(report.products).map(p => ({ p, name: String(p.product), t: rowTotals(p, mode) })).filter(r => (r.t.income ?? 0) !== 0 || (r.t.cost ?? 0) !== 0).sort((a, b) => (b.t.margin ?? -1e12) - (a.t.margin ?? -1e12));
   const tot = totalsOf(rows.map(r => r.p), mode);
   const clientsOf = (name: string) => { const m = new Map<string, { name: string; i: number; c: number; n: number; est: boolean }>(); for (const c of array(report.clients)) for (const k of array(c.contracts)) { if (k.product !== name) continue; const t = rowTotals(k, mode); const x = m.get(String(c.clientCode)) ?? { name: String(c.clientName), i: 0, c: 0, n: 0, est: false }; x.i += t.income ?? 0; x.c += t.cost ?? 0; x.n++; x.est ||= t.estimated; m.set(String(c.clientCode), x); } return Array.from(m.values()).sort((a, b) => b.i - a.i); };
-  return <section className="view"><div className="panel"><h2>Por producto · {MESES_LARGO[mi]} {period.slice(0, 4)}</h2><p className="help">Pulsa una fila para ver los clientes de ese producto.</p>
-    <div className="tablewrap"><table><thead><tr><th>Producto</th><th className="n">Ingreso</th><th className="n">Coste</th><th className="n">Margen</th><th className="n">Margen %</th><th className="n hide-sm">vs mes anterior</th><th className="hide-sm">12 meses</th></tr></thead><tbody>
+  return <section className="view"><div className="panel"><h2>Por producto · {MESES_LARGO[mi]} {period.slice(0, 4)}</h2><p className="help">Pulsa una fila para ver los clientes de ese producto. Las cifras subrayadas (ingreso, coste y contratos) se pueden pulsar para ver de dónde salen.</p>
+    <div className="tablewrap"><table><thead><tr><th>Producto</th><th className="n">Ingreso</th><th className="n">Coste</th><th className="n hide-sm">Contratos</th><th className="n">Margen</th><th className="n">Margen %</th><th className="n hide-sm">vs mes anterior</th><th className="hide-sm">12 meses</th></tr></thead><tbody>
       {rows.map(r => { const mpv = f100(r.t.marginPct); const prevItem = monthProducts(report, prevM).find(x => x.product === r.name); const ppv = prevItem ? f100(rowTotals(prevItem, mode).marginPct) : null; const open = openProd === r.name;
         const spark = months.map(m => f100(productMonthMargin(report, r.name, m, mode).value));
         const cl = open ? clientsOf(r.name) : [];
         return <Fragment key={r.name}>
-          <tr className="rowclick" onClick={() => setOpenProd(open ? null : r.name)}><td>{open ? '▾' : '▸'} {r.name}</td><td className="n">{eur(r.t.income)}</td><td className="n">{eur(r.t.cost)}{r.t.estimated && mode === 'real' && <Dot />}</td><td className="n">{eur(r.t.margin)}</td><td className="n"><Chip m={mpv} /></td>
+          <tr className="rowclick" onClick={() => setOpenProd(open ? null : r.name)}><td>{open ? '▾' : '▸'} {r.name}</td><td className="n">{mode === 'real' ? <Lnk title="Ver las líneas de factura que suman este ingreso" onClick={() => abrir({ tipo: 'producto', clave: r.name, nombre: r.name, vista: 'facturado' })}>{eur(r.t.income)}</Lnk> : eur(r.t.income)}</td><td className="n">{mode === 'real' ? <Lnk title="Ver de qué facturas de proveedor sale este coste" onClick={() => abrir({ tipo: 'producto', clave: r.name, nombre: r.name, vista: 'coste' })}>{eur(r.t.cost)}</Lnk> : eur(r.t.cost)}{r.t.estimated && mode === 'real' && <Dot />}</td><td className="n hide-sm">{numeric(r.p.contracts) ? <Lnk title="Ver la lista de contratos" onClick={() => abrir({ tipo: 'producto', clave: r.name, nombre: r.name, vista: 'contratos' })}>{Number(r.p.contracts).toLocaleString('es-ES')}</Lnk> : <span className="muted">0</span>}</td><td className="n">{eur(r.t.margin)}</td><td className="n"><Chip m={mpv} /></td>
             <td className="n hide-sm">{mpv == null || ppv == null ? '—' : <span className={mpv >= ppv ? 'up' : 'down'}>{mpv >= ppv ? '▲' : '▼'} {Math.abs((mpv - ppv) * 100).toLocaleString('es-ES', { maximumFractionDigits: 1 })} pts</span>}</td><td className="hide-sm"><Spark vals={spark} cur={mi} /></td></tr>
-          {open && !cl.length && <tr className="sub"><td colSpan={7} className="muted">Sin contratos asociados en el listado (ingreso por serie o comisión).</td></tr>}
-          {open && cl.slice(0, 15).map(c => <tr className="sub" key={c.name}><td>{c.name} <span className="muted">· {c.n} contr.</span></td><td className="n">{eur(c.i, 2)}</td><td className="n">{eur(c.c, 2)}{c.est && mode === 'real' && <Dot />}</td><td className="n">{eur(c.i - c.c, 2)}</td><td className="n"><Chip m={mg(c.i, c.c)} /></td><td colSpan={2} className="small muted hide-sm">{mode === 'real' ? 'facturado en el mes' : 'cuota contratada'}</td></tr>)}
-          {open && cl.length > 15 && <tr className="sub"><td colSpan={7} className="muted">y {cl.length - 15} clientes más · <a href="#clientes" onClick={e => { e.preventDefault(); showClients({ prod: r.name }); }}>ver todos</a></td></tr>}
+          {open && !cl.length && <tr className="sub"><td colSpan={8} className="muted">Sin contratos asociados en el listado (ingreso por serie o comisión).</td></tr>}
+          {open && cl.slice(0, 15).map(c => <tr className="sub" key={c.name}><td>{c.name} <span className="muted">· {c.n} contr.</span></td><td className="n">{eur(c.i, 2)}</td><td className="n">{eur(c.c, 2)}{c.est && mode === 'real' && <Dot />}</td><td className="hide-sm" /><td className="n">{eur(c.i - c.c, 2)}</td><td className="n"><Chip m={mg(c.i, c.c)} /></td><td colSpan={3} className="small muted hide-sm">{mode === 'real' ? 'facturado en el mes' : 'cuota contratada'}</td></tr>)}
+          {open && cl.length > 15 && <tr className="sub"><td colSpan={8} className="muted">y {cl.length - 15} clientes más · <a href="#clientes" onClick={e => { e.preventDefault(); showClients({ prod: r.name }); }}>ver todos</a></td></tr>}
         </Fragment>; })}
-      <tr className="tot"><td>Total</td><td className="n">{eur(tot.income)}</td><td className="n">{eur(tot.cost)}</td><td className="n">{eur(tot.margin)}</td><td className="n"><Chip m={f100(tot.marginPct)} /></td><td className="hide-sm" /><td className="hide-sm" /></tr></tbody></table></div></div></section>;
+      <tr className="tot"><td>Total</td><td className="n">{eur(tot.income)}</td><td className="n">{eur(tot.cost)}</td><td className="hide-sm" /><td className="n">{eur(tot.margin)}</td><td className="n"><Chip m={f100(tot.marginPct)} /></td><td className="hide-sm" /><td className="hide-sm" /></tr></tbody></table></div></div></section>;
 }
 
 /* ───────────── Por cliente ───────────── */
 const PS = 40;
-function Clientes({ report, mode, preset }: { report: Report; mode: Mode; preset: Preset }) {
+function Clientes({ report, mode, preset, abrir }: { report: Report; mode: Mode; preset: Preset; abrir: Abrir }) {
   const [q, setQ] = useState(''); const [tipo, setTipo] = useState(''); const [prod, setProd] = useState(preset.prod ?? ''); const [flag, setFlag] = useState(preset.flag ?? '');
   const [page, setPage] = useState(0); const [sort, setSort] = useState<{ k: string; dir: 'asc' | 'desc' }>({ k: 'i', dir: 'desc' }); const [open, setOpen] = useState<Set<string>>(new Set());
   const all = useMemo(() => array(report.clients).map(c => { const t = rowTotals(c, mode); return { c, code: String(c.clientCode), name: String(c.clientName), tipo: clientTipo(c), n: array(c.contracts).length, i: t.income, co: t.cost, m: t.margin, mp: f100(t.marginPct), est: t.estimated }; }).filter(r => r.n), [report, mode]);
@@ -211,7 +216,7 @@ function Clientes({ report, mode, preset }: { report: Report; mode: Mode; preset
   const pages = Math.max(1, Math.ceil(rows.length / PS)); const pg = Math.min(page, pages - 1);
   const th = (k: string, l: string, n?: boolean) => <th className={`sort ${n ? 'n' : ''}`} data-dir={sort.k === k ? sort.dir : undefined} onClick={() => setSort(s => s.k === k ? { k, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { k, dir: k === 'name' ? 'asc' : 'desc' })}>{l}</th>;
   const toggle = (code: string) => setOpen(s => { const x = new Set(s); if (x.has(code)) x.delete(code); else x.add(code); return x; });
-  return <section className="view"><div className="panel"><h2>Por cliente</h2><p className="help">{mode === 'real' ? 'Ingreso facturado y coste asignado en el mes.' : 'Cuota mensual contratada y coste asignado.'} Pulsa la flecha de un cliente para ver sus contratos.</p>
+  return <section className="view"><div className="panel"><h2>Por cliente</h2><p className="help">{mode === 'real' ? 'Ingreso facturado y coste asignado en el mes.' : 'Cuota mensual contratada y coste asignado.'} Pulsa la flecha de un cliente para ver sus contratos, o una cifra subrayada para ver de dónde sale.</p>
     <div className="row" style={{ marginBottom: 10 }}>
       <input className="search" type="search" placeholder="Buscar cliente o contrato" aria-label="Buscar cliente o contrato" value={q} onChange={e => { setQ(e.target.value); setPage(0); }} />
       <select className="f" aria-label="Tipo de cliente" value={tipo} onChange={e => { setTipo(e.target.value); setPage(0); }}><option value="">Todos los tipos</option><option value="E">Empresas</option><option value="R">Particulares</option><option value="P">Sector público</option></select>
@@ -219,7 +224,7 @@ function Clientes({ report, mode, preset }: { report: Report; mode: Mode; preset
       <select className="f" aria-label="Margen" value={flag} onChange={e => { setFlag(e.target.value); setPage(0); }}><option value="">Todos</option><option value="neg">Margen negativo</option><option value="low">Margen bajo 20 %</option></select></div>
     <div className="tablewrap"><table><thead><tr><th />{th('name', 'Cliente')}<th className="hide-sm">Tipo</th><th className="n hide-sm">Contratos</th>{th('i', mode === 'real' ? 'Facturado' : 'Cuota mensual', true)}{th('c', 'Coste asignado', true)}{th('m', 'Margen', true)}{th('mp', 'Margen %', true)}<th /></tr></thead><tbody>
       {rows.slice(pg * PS, pg * PS + PS).map(r => { const o = open.has(r.code); return <Fragment key={r.code}>
-        <tr><td><button className="expand" type="button" aria-expanded={o} aria-label="Ver contratos" onClick={() => toggle(r.code)}>{o ? '▾' : '▸'}</button></td><td className="cname" title={r.name}>{r.name}</td><td className="hide-sm"><span className={`tag ${r.tipo}`}>{TIPO_NOMBRE[r.tipo]}</span></td><td className="n hide-sm">{r.n}</td><td className="n">{eur(r.i, 2)}</td><td className="n">{eur(r.co, 2)}{r.est && mode === 'real' && <Dot />}</td><td className="n">{eur(r.m, 2)}</td><td className="n"><Chip m={r.mp} /></td>
+        <tr><td><button className="expand" type="button" aria-expanded={o} aria-label="Ver contratos" onClick={() => toggle(r.code)}>{o ? '▾' : '▸'}</button></td><td className="cname" title={r.name}>{r.name}</td><td className="hide-sm"><span className={`tag ${r.tipo}`}>{TIPO_NOMBRE[r.tipo]}</span></td><td className="n hide-sm"><Lnk title="Ver la lista de contratos" onClick={() => abrir({ tipo: 'cliente', clave: r.code, nombre: r.name, vista: 'contratos' })}>{r.n}</Lnk></td><td className="n">{mode === 'real' ? <Lnk title="Ver las líneas de factura que suman este ingreso" onClick={() => abrir({ tipo: 'cliente', clave: r.code, nombre: r.name, vista: 'facturado' })}>{eur(r.i, 2)}</Lnk> : eur(r.i, 2)}</td><td className="n">{mode === 'real' ? <Lnk title="Ver de qué facturas de proveedor sale este coste" onClick={() => abrir({ tipo: 'cliente', clave: r.code, nombre: r.name, vista: 'coste' })}>{eur(r.co, 2)}</Lnk> : eur(r.co, 2)}{r.est && mode === 'real' && <Dot />}</td><td className="n">{eur(r.m, 2)}</td><td className="n"><Chip m={r.mp} /></td>
           <td><a className="btn small" href={`/admin/subida-precios?cliente=${encodeURIComponent(r.name)}`}>Simular subida</a></td></tr>
         {o && array(r.c.contracts).map((k, i) => { const t = rowTotals(k, mode); return <tr className="sub" key={`${k.contractCode}-${i}`}><td /><td colSpan={3}><span className="muted">{k.contractCode ? `Nº ${k.contractCode}` : 'Sin nº'}</span> · {String(k.tariff ?? '—')} <span className="muted">· {String(k.product)}</span></td><td className="n">{eur(t.income, 2)}</td><td className="n">{eur(t.cost, 2)}{t.estimated && mode === 'real' && <Dot />}</td><td className="n">{eur(t.margin, 2)}</td><td className="n"><Chip m={f100(t.marginPct)} /></td><td /></tr>; })}
       </Fragment>; })}

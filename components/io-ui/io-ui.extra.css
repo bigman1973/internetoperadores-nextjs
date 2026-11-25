@@ -90,3 +90,15 @@
 .io-ui select.tsel{padding:2px 6px;font-size:12px;border:1px solid var(--line);cursor:pointer}
 .io-ui .tablewrap td .btn.small{padding:2px 8px}
 .io-ui .prodchart svg{max-width:900px}
+/* Rentabilidad: cifras pulsables y panel lateral de desglose */
+.io-ui button.lnk{background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;border-bottom:1px dotted var(--muted);font-variant-numeric:tabular-nums}
+.io-ui button.lnk:hover,.io-ui button.lnk:focus-visible{color:var(--accent-fg,var(--accent));border-bottom-color:var(--accent)}
+.io-ui .drawer-back{position:fixed;inset:0;background:rgba(20,20,20,.38);z-index:60;display:flex;justify-content:flex-end}
+.io-ui .drawer{background:var(--surface);color:inherit;width:min(820px,100vw);height:100%;overflow-y:auto;padding:16px 18px 28px;box-shadow:-8px 0 24px rgba(0,0,0,.18);display:flex;flex-direction:column;gap:12px}
+.io-ui .drawer .dhead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.io-ui .drawer .dhead h2{margin:2px 0 0;font-size:18px}
+.io-ui .drawer .dcheck{padding:8px 12px;border:1px solid var(--line);border-left-width:3px;border-radius:var(--r);font-size:13px}
+.io-ui .drawer .dcheck.ok{border-left-color:var(--good)}
+.io-ui .drawer .dcheck.warn{border-left-color:var(--warn)}
+.io-ui .drawer .dtable td.concepto{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:560px){.io-ui .drawer{padding:12px 10px 24px}.io-ui .drawer .dtable td.concepto{max-width:150px}}
