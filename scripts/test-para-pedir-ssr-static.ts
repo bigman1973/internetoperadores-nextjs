@@ -7,10 +7,9 @@ const page = readFileSync(resolve('app/admin/finanzas/para-pedir/page.tsx'), 'ut
 const workspace = readFileSync(resolve('components/finanzas/easy/newParaPedirWorkspace.tsx'), 'utf8');
 const route = readFileSync(resolve('app/api/admin/finanzas/modo-facil/para-pedir/route.ts'), 'utf8');
 
-assert.match(page, /assertFinanceEasyRuntime\(\)/);
-assert.match(page, /requireB4FinanceAccess\('lectura', await requireAuth\('admin'\)\)/);
-assert.match(page, /readParaPedirProjection\(parseParaPedirInput\(\{ limit: '20', offset: '0' \}\)\)/);
-assert.match(page, /initialData=\{\{ \.\.\.initialData, stagingOnly: context\.stagingOnly \}\}/);
+// Encargo J: la página antigua redirige a la pantalla única; el workspace y la API se conservan.
+assert.match(page, /redirect\(destinoConciliar\(/);
+assert.doesNotMatch(page, /NewParaPedirWorkspace|readParaPedirProjection/, 'la página ya no monta su propia pantalla');
 assert.match(workspace, /const \[data, setData\] = useState<ParaPedirRead>\(initialData\)/);
 assert.match(workspace, /if \(skipInitialRead\.current\) \{ skipInitialRead\.current = false; return; \}/);
 assert.match(workspace, /await Promise\.all\(\[import\('xlsx'\), import\('\.\/para-pedir-xlsx'\)\]\)/);

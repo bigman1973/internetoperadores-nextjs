@@ -10,7 +10,7 @@ const MAIN_LOADING_SHA256 = '6fcb5e7f3d3d6163d726b3cfa273a04c4afdf31377e9fbed162
 function main() {
   const loading = readFileSync(resolve('app/admin/loading.tsx'))
   assert.equal(createHash('sha256').update(loading).digest('hex'), MAIN_LOADING_SHA256, 'loading global debe quedar exactamente como main')
-  const page = readFileSync(resolve('app/admin/finanzas/conciliar/page.tsx'), 'utf8')
+  const page = readFileSync(resolve('app/admin/finanzas/conciliar/ConciliarClasica.tsx'), 'utf8')
   const workspace = readFileSync(resolve('components/finanzas/conciliar/ConciliarWorkspace.tsx'), 'utf8')
   assert.match(page, /const initialData = await readConciliarProjection\(input\)/)
   assert(page.indexOf('const initialData = await readConciliarProjection(input)') < page.indexOf('return <><link'), 'la proyección SSR debe leerse antes de emitir el workspace')

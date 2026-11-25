@@ -7,6 +7,7 @@ import { HttpGuardError, readJsonLimited, sameOrigin } from '@/lib/finanzas/sync
 import { ConciliarValidationError, parseConciliarCommand, parseConciliarGetInput, type ConciliarCommand } from '@/lib/finanzas/conciliar-contract'
 import { conciliarDbErrorResponse } from '@/lib/finanzas/conciliar-errors'
 import { readConciliarProjection, readConciliarRow } from '@/lib/finanzas/conciliar-projection-read'
+import { guardaCuadreConciliar } from '@/lib/finanzas/conciliar-cuadre'
 import { acceptsConciliarNdjson, streamConciliarConfirmation } from '@/lib/finanzas/conciliar-stream'
 
 export const dynamic = 'force-dynamic'
@@ -160,6 +161,11 @@ export async function POST(request: NextRequest) {
     const access = await requireB4FinanceAccess(reviewPreview ? 'lectura' : 'escritura', await getServerSession(authOptions))
     if ('response' in access) return access.response
     phase('command-ready')
+    // Encargo J: nada se confirma mientras la cuenta del movimiento no cuadre. Sólo bloquea; no cambia ningún cálculo.
+    if (!reviewPreview) {
+      const bloqueo = await guardaCuadreConciliar(parsed)
+      if (bloqueo) return privateJson(bloqueo, 409)
+    }
     const { runConciliarAction, runConciliarReviewPreview, conciliarActionErrorResponse } = await import('@/lib/finanzas/conciliar-actions')
     phase('action-start')
     if (reviewPreview) {
