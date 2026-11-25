@@ -5,7 +5,7 @@ import { assertRuleProduct, failure, readJson, reply, ruleSchema } from '../_sha
 export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireRentabilidadAdmin(); if ('error' in auth) return auth.error;
+    const auth = await requireRentabilidadAdmin({ write: true }); if ('error' in auth) return auth.error;
     const rule = ruleSchema.parse(await readJson(req)); assertRuleProduct(rule);
     return reply({ ok: true, result: await saveRule(rule, auth.userId), requiresRecalculation: true });
   } catch (error) { return failure(error); }

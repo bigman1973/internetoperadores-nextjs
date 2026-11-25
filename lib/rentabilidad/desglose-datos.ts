@@ -1,19 +1,18 @@
 /**
  * Lectura (solo SELECT) de los datos que explican una cifra de Rentabilidad.
- * Misma protección que el resto del módulo: solo la base aislada de staging.
+ * Base aislada io_staging_finanzas o producción expresamente habilitada solo para lectura.
  * No escribe, no recalcula y no toca la foto guardada.
  */
 import { Prisma } from '@prisma/client'
-import { monthSchema, RentabilidadError } from './types'
+import { monthSchema } from './types'
 import { shiftMonth } from './engine'
-import { assertRentabilidadConfiguration } from './store'
+import { assertRentabilidadReadConfiguration, assertRentabilidadReadIdentity } from './store'
 import { codigosContratos, construirDesglose, idsFacturasRecibidas, seriesDelProducto, type DatosDesglose, type DesgloseResultado, type DesgloseTipo, type DesgloseVista } from './desglose'
 
 async function db() {
-  assertRentabilidadConfiguration()
+  assertRentabilidadReadConfiguration()
   const prisma = (await import('../prisma')).prisma
-  const rows = await prisma.$queryRaw<{ db: string; usuario: string }[]>(Prisma.sql`SELECT current_database() AS db, current_user AS usuario LIMIT 1`)
-  if (rows.length !== 1 || rows[0].db !== 'io_staging_finanzas' || rows[0].usuario !== 'io_staging_finanzas') throw new RentabilidadError('RENTABILIDAD_STAGING_REQUIRED', 404)
+  await assertRentabilidadReadIdentity(prisma)
   return prisma
 }
 const normCif = (v: unknown) => (v === null || v === undefined ? '' : String(v)).toUpperCase().replace(/[^A-Z0-9]/g, '')

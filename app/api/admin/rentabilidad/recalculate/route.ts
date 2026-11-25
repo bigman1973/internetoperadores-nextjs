@@ -10,7 +10,7 @@ export const maxDuration = 300;
 const schema = z.object({ month: monthSchema, mode: z.enum(['real', 'contratado']).default('real'), kind: z.enum(['PROYECCION', 'CIERRE']).default('PROYECCION') }).strict();
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireRentabilidadAdmin(); if ('error' in auth) return auth.error;
+    const auth = await requireRentabilidadAdmin({ write: true }); if ('error' in auth) return auth.error;
     const input = schema.parse(await readJson(req));
     const result = await rebuildRentabilidadReport(input.month, auth.userId, input.kind);
     const live = await getRentabilidadReport(input.month);

@@ -7,7 +7,7 @@ import { assertProduct, externalSchema, failure, parseQuery, readJson, reply } f
 export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireRentabilidadAdmin(); if ('error' in auth) return auth.error;
+    const auth = await requireRentabilidadAdmin({ write: true }); if ('error' in auth) return auth.error;
     const raw = await readJson(req);
     const input = externalSchema.parse(raw);
     const { month } = parseQuery(req);

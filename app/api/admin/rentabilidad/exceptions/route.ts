@@ -5,7 +5,7 @@ import { assertProduct, assertRuleProduct, exceptionSchema, failure, readJson, r
 export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireRentabilidadAdmin(); if ('error' in auth) return auth.error;
+    const auth = await requireRentabilidadAdmin({ write: true }); if ('error' in auth) return auth.error;
     const input = exceptionSchema.parse(await readJson(req));
     if (input.productoId) assertProduct(input.productoId);
     if (input.rule) assertRuleProduct(input.rule);

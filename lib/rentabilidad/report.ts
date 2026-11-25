@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { facturaEconomicaSQL } from '@/lib/finanzas/invoice-economic-filter';
-import { readInputs, saveSnapshot, listSnapshots, appendRun, listRecentRuns, getRuleHistory, getExternalCostHistory, listResolvedExceptions } from './store';
+import { assertRentabilidadConfiguration, assertRentabilidadReadConfiguration, readInputs, saveSnapshot, listSnapshots, appendRun, listRecentRuns, getRuleHistory, getExternalCostHistory, listResolvedExceptions } from './store';
 import { activeInMonth, allocate, canonicalProduct, classifyContract, classifyIncomeLine, hash, imputeInvoices, invoiceRule, money, normalize, periodicity, PRODUCT_LABELS, shiftMonth } from './engine';
 import { INITIAL_COST_RULES } from './defaults';
 import { compactReportPresentation } from './presentation';
@@ -369,16 +369,18 @@ async function operationalSources(month:string) {
   return {invoices:JSON.parse(JSON.stringify(invoices)),ggcc:JSON.parse(JSON.stringify(ggcc)),series};
 }
 export async function rebuildRentabilidadReport(month:string,actorId:number,kind='PROYECCION') {
+  assertRentabilidadConfiguration();
   month=checkedMonth(month);const input=await readInputs(),extra=await operationalSources(month),report=calculateReport(input,month,'real',extra);
   const { ensureExceptions }=await import('./store');await ensureExceptions(report.alerts,actorId);
   const snapshot=await saveSnapshot(month,report,actorId,kind);await appendRun({actorId,process:kind==='CIERRE'?'MONTHLY_CLOSE':'RECALCULATE',estado:report.summary.month.pending||report.summary.month.estimatedCost?'PROVISIONAL':'COMPLETADO',month,snapshotId:snapshot.id,version:snapshot.version,idempotent:snapshot.idempotente,sourceHash:report.controls.sourceHash});return {...report,snapshot};
 }
 export async function getRentabilidadReport(month?:string,mode='real'):Promise<any> {
+  const readOnly=assertRentabilidadReadConfiguration()==='production-read-only';
   const period=checkedMonth(month);
   const [snapshots,runs,ruleHistory,externalCostHistory,resolved]=await Promise.all([listSnapshots(period),listRecentRuns(50),getRuleHistory(undefined,100),getExternalCostHistory(undefined,100),listResolvedExceptions(100)]);
   const latest=snapshots.find((s:any)=>s.kind==='PROYECCION')||snapshots[0];
   const flatten=(rows:any[])=>rows.map(r=>({...r.payload,key:r.key,version:r.version,kind:r.kind,actorId:r.actorId,createdAt:r.createdAt,sourceHash:r.sourceHash}));
-  const live={runs:runs.map(r=>({...r.payload,id:r.id,process:r.process,sourceHash:r.sourceHash,createdAt:r.createdAt})).reverse(),syncStatus:rentabilidadAutomationStatus(runs),ruleHistory:flatten(ruleHistory),externalCostHistory:flatten(externalCostHistory),resolvedExceptions:flatten(resolved),snapshots:snapshots.map((s:any)=>({id:s.id,month:s.month,version:s.version,kind:s.kind,createdAt:s.createdAt,sourceHash:s.sourceHash}))};
-  if(!latest)return {period,mode,summary:null,products:[],monthly:[],clients:[],contracts:[],comparison:[],alerts:[],rules:[],externalCosts:[],controls:{},references:[],notices:['Aún no hay una proyección preparada para este mes. Recalcular solo para el superadmin.'],...live};
+  const live={readOnly,runs:runs.map(r=>({...r.payload,id:r.id,process:r.process,sourceHash:r.sourceHash,createdAt:r.createdAt})).reverse(),syncStatus:rentabilidadAutomationStatus(runs),ruleHistory:flatten(ruleHistory),externalCostHistory:flatten(externalCostHistory),resolvedExceptions:flatten(resolved),snapshots:snapshots.map((s:any)=>({id:s.id,month:s.month,version:s.version,kind:s.kind,createdAt:s.createdAt,sourceHash:s.sourceHash}))};
+  if(!latest)return {period,mode,summary:null,products:[],monthly:[],clients:[],contracts:[],comparison:[],alerts:[],rules:[],externalCosts:[],controls:{},references:[],notices:[readOnly?'Aún no hay una proyección preparada para este mes. En producción solo se consultan informes guardados; no se recalcula.':'Aún no hay una proyección preparada para este mes. Recalcular solo para el superadmin.'],...live};
   return compactReportPresentation(applyReportMode({...latest.payload,period,...live},mode));
 }

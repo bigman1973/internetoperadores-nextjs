@@ -29,6 +29,8 @@ export default function RentabilidadClient({ initialReport }: { initialReport: R
   const [desg, setDesg] = useState<DesgloseSel | null>(null);
   const operation = useRef(false);
   const mode: Mode = report.mode === 'contratado' ? 'contratado' : 'real';
+  const readOnly = initialReport.readOnly === true || report.readOnly === true;
+  const readOnlyMessage = 'Modo solo lectura en producción. Puedes consultar, exportar y ver el desglose. No se guardan cambios ni se recalcula o sincroniza.';
   const period = report.period; const months = useMemo(() => monthsOf(period), [period]); const mi = Number(period.slice(5, 7)) - 1;
   useEffect(() => { if (!message) return; const t = setTimeout(() => setMessage(''), 7000); return () => clearTimeout(t); }, [message]);
   /* Enlaces #resumen, #alertas… como en la maqueta */
@@ -37,6 +39,7 @@ export default function RentabilidadClient({ initialReport }: { initialReport: R
 
   /* ── Lógica de datos: la misma de antes (mismas APIs, mismas confirmaciones) ── */
   async function request(path: string, body?: Row) {
+    if (body && readOnly) throw new Error(readOnlyMessage);
     const res = await fetch(`/api/admin/rentabilidad${path}`, { method: body ? 'POST' : 'GET', cache: 'no-store', credentials: 'same-origin', ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}) });
     let json: Row; try { json = await res.json(); } catch { throw new Error('El servidor no ha devuelto un resultado claro. Mira «Estado» antes de repetir la operación.'); }
     if (!res.ok) { if (json.run?.id) setReport(current => ({ ...current, runs: [...array(current.runs).filter(run => run.id !== json.run.id), json.run] })); throw new Error(typeof json.error === 'string' ? json.error : 'No se ha podido completar la operación.'); }
@@ -44,19 +47,21 @@ export default function RentabilidadClient({ initialReport }: { initialReport: R
   }
   function begin(label: string) { if (operation.current) return false; operation.current = true; setBusy(label); setError(''); setMessage(''); return true; }
   function end() { operation.current = false; setBusy(''); }
-  function apply(data: Row) { setReport(data as Report); window.history.replaceState(null, '', `/admin/rentabilidad?${new URLSearchParams({ month: data.period, mode: data.mode })}${window.location.hash}`); }
+  function apply(data: Row) { setReport(current => ({ ...(data as Report), readOnly: initialReport.readOnly === true || current.readOnly === true || data.readOnly === true })); window.history.replaceState(null, '', `/admin/rentabilidad?${new URLSearchParams({ month: data.period, mode: data.mode })}${window.location.hash}`); }
   async function load(nextMonth: string, nextMode: Mode) {
     if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(nextMonth)) { setError('Elige un mes válido.'); return; }
     if (!begin(`Cargando ${mlong(nextMonth)}…`)) return;
     try { apply(await request(`?${new URLSearchParams({ month: nextMonth, mode: nextMode })}`)); } catch (failure) { setError((failure as Error).message); } finally { end(); }
   }
   async function recalculate(kind: 'PROYECCION' | 'CIERRE' = 'PROYECCION') {
+    if (readOnly) { setError(readOnlyMessage); return; }
     if (kind === 'CIERRE' && !window.confirm(`¿Guardar el cierre de ${mlong(period)}? Lo que aún no tenga factura seguirá marcado como pendiente. No modifica la contabilidad.`)) return;
     if (!begin(kind === 'CIERRE' ? 'Guardando el cierre…' : 'Recalculando…')) return;
     try { apply(await request('/recalculate', { month: period, mode, kind })); setMessage(kind === 'CIERRE' ? 'Cierre guardado. Lo pendiente sigue marcado como provisional.' : 'Recálculo terminado. Los datos están al día.'); }
     catch (failure) { setError((failure as Error).message); } finally { end(); }
   }
   const mutate: Mutate = async (path, body, success) => {
+    if (readOnly) { setError(readOnlyMessage); return false; }
     if (!begin('Guardando y recalculando…')) return false; let saved = false;
     try {
       await request(`/${path}`, body); saved = true;
@@ -66,6 +71,7 @@ export default function RentabilidadClient({ initialReport }: { initialReport: R
     } catch (failure) { setError((failure as Error).message); return saved; } finally { end(); }
   };
   async function sync() {
+    if (readOnly) { setError(readOnlyMessage); return; }
     if (!begin('Comprobando las sincronizaciones…')) return;
     try { await request('/sync', { month: period }); apply(await request(`?${new URLSearchParams({ month: period, mode })}`)); setMessage('Comprobación terminada. El resultado está en «Estado de las sincronizaciones».'); }
     catch (failure) { setError((failure as Error).message); } finally { end(); }
@@ -103,7 +109,7 @@ export default function RentabilidadClient({ initialReport }: { initialReport: R
           <button type="button" aria-pressed={mode === 'contratado'} disabled={!!busy} onClick={() => mode !== 'contratado' && void load(period, 'contratado')} title="Lo que dicen los contratos firmados">Contratado</button></div>
         <button type="button" className={pill.c} onClick={() => showAlerts(pend.length ? 'FACTURA_PROVEEDOR_PENDIENTE' : undefined)}>{pill.t}</button>
         <select className="f" aria-label="Acciones" value={acc} disabled={!!busy} onChange={e => action(e.target.value)}>
-          <option value="">Acciones</option><option value="recalc">Recalcular el mes</option><option value="cierre">Guardar cierre del mes</option><option value="excel">Exportar a Excel</option><option value="sync">Comprobar sincronizaciones</option><option value="reglas">Reglas y costes de proveedor</option><option value="estado">Estado de las sincronizaciones</option></select>
+          <option value="">Acciones</option>{!readOnly && <><option value="recalc">Recalcular el mes</option><option value="cierre">Guardar cierre del mes</option><option value="sync">Comprobar sincronizaciones</option></>}<option value="excel">Exportar a Excel</option><option value="reglas">Reglas y costes de proveedor</option><option value="estado">Estado de las sincronizaciones</option></select>
       </>}
       tabs={<nav className="tabs" aria-label="Vistas">{VIEWS.map(v => <a key={v} href={`#${v}`} data-v={v} aria-current={view === v ? 'page' : undefined} onClick={e => { e.preventDefault(); go(v); }}>{LABELS[v]}{v === 'alertas' && <> <span className="tag">{groups.length}</span></>}</a>)}</nav>}>
       <div className="kpis">
@@ -118,6 +124,8 @@ export default function RentabilidadClient({ initialReport }: { initialReport: R
       </div>
     </TopBar>
     <main className="wrap">
+      {readOnly && <Note>{readOnlyMessage}</Note>}
+      {!report.summary && <Note>{readOnly ? 'Aún no hay una proyección preparada para este mes. En producción no se recalcula.' : 'Aún no hay una proyección preparada para este mes.'}</Note>}
       {busy && <Note>{busy}</Note>}
       {error && <Note tone="bad"><b>No se ha podido completar.</b> {error}</Note>}
       {view === 'resumen' && <Resumen report={report} mode={mode} groups={groups} months={months} mi={mi} showAlerts={showAlerts} showClients={showClients} goProduct={p => { setOpenProd(p); go('productos'); }} />}
@@ -125,16 +133,35 @@ export default function RentabilidadClient({ initialReport }: { initialReport: R
       {view === 'clientes' && <Clientes key={preset.n} report={report} mode={mode} preset={preset} abrir={setDesg} />}
       {desg && <Desglose month={period} sel={desg} onClose={() => setDesg(null)} />}
       {view === 'meses' && <Meses report={report} mode={mode} months={months} mi={mi} />}
-      {view === 'alertas' && <Alertas report={report} groups={groups} focusType={focusType} mutate={mutate} busy={!!busy} showClients={showClients} />}
+      {view === 'alertas' && <Alertas report={report} groups={groups} focusType={focusType} mutate={mutate} busy={!!busy} readOnly={readOnly} showClients={showClients} />}
       {view === 'excel' && <Excel report={report} mode={mode} />}
       {(view === 'reglas' || view === 'estado') && <section className="view">
         <div className="panel"><div className="row" style={{ justifyContent: 'space-between' }}><h2>{view === 'reglas' ? 'Reglas y costes de proveedor' : 'Estado de las sincronizaciones'}</h2><button type="button" className="btn small" onClick={() => go('resumen')}>Volver al resumen</button></div>
-          <div className="legacy" style={{ marginTop: 10 }}>{view === 'reglas'
+          <div className="legacy" style={{ marginTop: 10 }}>{readOnly ? <ReadOnlyRecords report={report} view={view} /> : view === 'reglas'
             ? <><p className="muted">Las reglas dicen a qué producto va cada factura de proveedor; los costes de Vola son los que paga otra sociedad del grupo. Cada cambio crea una versión nueva y se conserva la anterior.</p><RulesEditor report={report} mutate={mutate} busy={!!busy} /><ExternalCostsEditor report={report} mutate={mutate} busy={!!busy} /></>
             : <SystemState report={report} busy={!!busy} sync={sync} />}</div></div></section>}
     </main>
     <Toast text={message} />
   </IoShell>;
+}
+
+/** Read-only alternatives never mount editors or the manual-sync control. */
+function ReadOnlyRecords({ report, view }: { report: Report; view: 'reglas' | 'estado' }) {
+  const tables = view === 'reglas' ? [
+    { title: 'Reglas del informe guardado', rows: array(report.rules) },
+    { title: 'Costes externos del informe guardado', rows: array(report.externalCosts) },
+    { title: 'Historial de reglas', rows: array(report.ruleHistory) },
+    { title: 'Historial de costes externos', rows: array(report.externalCostHistory) },
+  ] : [
+    { title: 'Registro de ejecuciones guardadas', rows: array(report.runs).slice().reverse() },
+    { title: 'Informes y cierres guardados', rows: array(report.snapshots) },
+  ];
+  return <><p className="muted">Consulta de registros guardados. No hay recálculos, cierres, sincronizaciones ISP ni cron habilitados en producción.</p>{tables.map(table => <section key={table.title}><h3>{table.title}</h3><FilterTable rows={table.rows} pageSize={10} rowKey={r => String(r.id ?? `${r.key}:${r.version}`)} ariaLabel={table.title} cols={[
+    { key: 'key', label: 'Registro', render: r => String(r.key ?? r.process ?? r.kind ?? '—') },
+    { key: 'provider', label: 'Proveedor / mes', render: r => String(r.provider ?? r.proveedor ?? r.proveedorNombre ?? r.month ?? r.mes ?? '—') },
+    { key: 'status', label: 'Estado / versión', render: r => String(r.estado ?? r.status ?? r.version ?? '—') },
+    { key: 'createdAt', label: 'Fecha', render: r => r.createdAt ? new Date(r.createdAt).toLocaleString('es-ES') : '—' },
+  ]} /></section>)}</>;
 }
 
 /* ───────────── Alertas (marcado .alert de la maqueta) ───────────── */
@@ -161,7 +188,7 @@ function Resumen({ report, mode, groups, months, mi, showAlerts, showClients, go
         <Trend data={data} cur={mi} /></div>
       <div style={{ display: 'grid', gap: 18, minWidth: 0 }}>
         <div className="panel"><h2>Lo que hay que mirar</h2>
-          <div className="alerts">{top.map(g => <AlertRow key={g.type} g={g} label={g.type === 'MARGEN_NEGATIVO' ? 'Ver clientes' : 'Ver y resolver'} onClick={() => open(g)} />)}{!top.length && <div className="empty">No hay nada pendiente de revisar.</div>}</div>
+          <div className="alerts">{top.map(g => <AlertRow key={g.type} g={g} label={g.type === 'MARGEN_NEGATIVO' ? 'Ver clientes' : report.readOnly ? 'Ver alertas' : 'Ver y resolver'} onClick={() => open(g)} />)}{!top.length && <div className="empty">No hay nada pendiente de revisar.</div>}</div>
           <p className="small muted" style={{ margin: '10px 0 0' }}><a href="#alertas" onClick={e => { e.preventDefault(); showAlerts(); }}>Ver todas las alertas</a></p></div>
         {n && d && n.i != null && <div className="panel"><h2>Previsión {MESES_LARGO[mi + 1]}–{MESES_LARGO[mi + 2]}</h2><p className="help">Con la cuota actual. Puede cambiar.</p>
           <div className="tablewrap" style={{ border: 0 }}><table><thead><tr><th /><th className="n">{cap(MESES[mi + 1])}</th><th className="n">{cap(MESES[mi + 2])}</th></tr></thead><tbody>
@@ -243,19 +270,19 @@ function Meses({ report, mode, months, mi }: { report: Report; mode: Mode; month
 }
 
 /* ───────────── Alertas ───────────── */
-function Alertas({ report, groups, focusType, mutate, busy, showClients }: { report: Report; groups: AlertGroup[]; focusType: string | null; mutate: Mutate; busy: boolean; showClients: (p: { flag?: string }) => void }) {
+function Alertas({ report, groups, focusType, mutate, busy, readOnly, showClients }: { report: Report; groups: AlertGroup[]; focusType: string | null; mutate: Mutate; busy: boolean; readOnly: boolean; showClients: (p: { flag?: string }) => void }) {
   const [open, setOpen] = useState<string | null>(focusType); const resolved = array(report.resolvedExceptions);
   useEffect(() => setOpen(focusType), [focusType]);
-  return <section className="view"><div className="panel"><h2>Alertas</h2><p className="help">Agrupadas por tipo, con lo que hay que hacer. Al resolver una se guarda como regla y no vuelve a salir.</p>
+  return <section className="view"><div className="panel"><h2>Alertas</h2><p className="help">{readOnly ? 'Consulta de alertas guardadas. En modo solo lectura no se resuelven ni se reabren.' : 'Agrupadas por tipo, con lo que hay que hacer. Al resolver una se guarda como regla y no vuelve a salir.'}</p>
     <div className="alerts">{groups.map(g => <Fragment key={g.type}>
-      <AlertRow g={g} open={open === g.type} label={g.type === 'MARGEN_NEGATIVO' ? 'Ver clientes' : open === g.type ? 'Ocultar' : 'Ver y resolver'} onClick={() => g.type === 'MARGEN_NEGATIVO' ? showClients({ flag: 'neg' }) : setOpen(open === g.type ? null : g.type)} />
+      <AlertRow g={g} open={open === g.type} label={g.type === 'MARGEN_NEGATIVO' ? 'Ver clientes' : open === g.type ? 'Ocultar' : readOnly ? 'Ver alertas' : 'Ver y resolver'} onClick={() => g.type === 'MARGEN_NEGATIVO' ? showClients({ flag: 'neg' }) : setOpen(open === g.type ? null : g.type)} />
       {open === g.type && <div className="tablewrap"><FilterTable rows={g.items} pageSize={10} rowKey={a => String(a.key)} ariaLabel={g.title} searchText={a => `${a.title} ${a.contractCode ?? ''} ${a.product ?? ''}`} search="Buscar…"
         cols={[{ key: 'title', label: 'Qué pasa', render: a => <span style={{ whiteSpace: 'normal' }}>{String(a.title)}</span> }, { key: 'product', label: 'Producto', hideSm: true, render: a => String(a.product ?? a.suggestedProduct ?? '—') }, { key: 'amount', label: 'Importe', n: true, hideSm: true, value: a => numeric(a.amount), render: a => a.amount == null ? '—' : eur(numeric(a.amount), 2) },
-          { key: 'act', label: '', noSort: true, render: a => <div className="legacy" style={{ minWidth: 150 }}><AlertAction alert={a} report={report} mutate={mutate} busy={busy} /></div> }]} /></div>}
+          ...(!readOnly ? [{ key: 'act', label: '', noSort: true, render: (a: Row) => <div className="legacy" style={{ minWidth: 150 }}><AlertAction alert={a} report={report} mutate={mutate} busy={busy} /></div> }] : [])]} /></div>}
     </Fragment>)}{!groups.length && <div className="empty">No hay nada pendiente de revisar.</div>}</div></div>
-    {!!resolved.length && <details className="how"><summary>Ya resueltas ({resolved.length}) · se pueden reabrir</summary><div style={{ marginTop: 8 }}>
+    {!!resolved.length && <details className="how"><summary>Ya resueltas ({resolved.length}){!readOnly && ' · se pueden reabrir'}</summary><div style={{ marginTop: 8 }}>
       <FilterTable rows={resolved} pageSize={10} rowKey={r => String(r.key ?? r.id)} ariaLabel="Alertas resueltas" cols={[{ key: 'title', label: 'Alerta', render: r => <span style={{ whiteSpace: 'normal' }}>{String(r.title)}</span> }, { key: 'createdAt', label: 'Fecha', hideSm: true, render: r => r.createdAt ? new Date(r.createdAt).toLocaleDateString('es-ES') : '—' },
-        { key: 'act', label: '', noSort: true, render: r => <button type="button" className="btn small" disabled={busy} onClick={() => void mutate('exceptions', { exceptionKey: String(r.key), action: 'REABRIR' }, 'Alerta reabierta. Queda constancia del cambio y no se borra nada.')}>Reabrir</button> }]} /></div></details>}
+        ...(!readOnly ? [{ key: 'act', label: '', noSort: true, render: (r: Row) => <button type="button" className="btn small" disabled={busy} onClick={() => void mutate('exceptions', { exceptionKey: String(r.key), action: 'REABRIR' }, 'Alerta reabierta. Queda constancia del cambio y no se borra nada.')}>Reabrir</button> }] : [])]} /></div></details>}
   </section>;
 }
 

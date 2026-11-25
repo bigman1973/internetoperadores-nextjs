@@ -11,7 +11,7 @@ export const maxDuration = 300;
 const schema = z.object({ month: monthSchema }).strict();
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireRentabilidadAdmin(); if ('error' in auth) return auth.error;
+    const auth = await requireRentabilidadAdmin({ write: true }); if ('error' in auth) return auth.error;
     const { month } = schema.parse(await readJson(req));
     const availability = ispAvailability();
     if (!availability.lines || process.env.RENTABILIDAD_SYNC_APPROVED !== '1') {

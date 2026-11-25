@@ -21,6 +21,35 @@ export function assertRentabilidadConfiguration(env:Record<string,string|undefin
   } catch { /* never include URL/credential in errors */ }
   if (!valid || env.FINANCE_STAGING_SANDBOX !== '1' || env.VERCEL_ENV === 'production' || env.IO_PRODUCTION_READ_ONLY === '1') throw new RentabilidadError('RENTABILIDAD_STAGING_REQUIRED', 404)
 }
+export type RentabilidadReadMode = 'staging' | 'production-read-only'
+/** Separate opt-in for prepared reads. Never use this guard for writers, ISP or automation.
+ * Production requires RENTABILIDAD_PRODUCTION_READ_ONLY=1, VERCEL_ENV=production,
+ * the current railway/postgres identity and FINANCE_STAGING_SANDBOX absent or not 1. */
+export function assertRentabilidadReadConfiguration(env: Record<string, string | undefined> = process.env): RentabilidadReadMode {
+  if (env.VERCEL_ENV !== 'production') { assertRentabilidadConfiguration(env); return 'staging' }
+  let valid = false
+  try {
+    const url = new URL(env.DATABASE_URL ?? '')
+    valid = ['postgres:', 'postgresql:'].includes(url.protocol) && url.pathname === '/railway' && decodeURIComponent(url.username) === 'postgres'
+  } catch { /* never include URL/credential in errors */ }
+  if (!valid || env.RENTABILIDAD_PRODUCTION_READ_ONLY !== '1' || env.FINANCE_STAGING_SANDBOX === '1') throw new RentabilidadError('RENTABILIDAD_READ_CONFIGURATION_REQUIRED', 404)
+  return 'production-read-only'
+}
+/** Runtime connection proof shared by prepared readers, drilldowns and live admin auth. */
+export async function assertRentabilidadReadIdentity(tx: Pick<Tx, '$queryRaw'>, env: Record<string, string | undefined> = process.env): Promise<RentabilidadReadMode> {
+  const mode = assertRentabilidadReadConfiguration(env)
+  const rows = await tx.$queryRaw<{ db: string; usuario: string }[]>(Prisma.sql`SELECT current_database() AS db, current_user AS usuario LIMIT 1`)
+  const db = mode === 'production-read-only' ? 'railway' : 'io_staging_finanzas'
+  const user = mode === 'production-read-only' ? 'postgres' : 'io_staging_finanzas'
+  if (rows.length !== 1 || rows[0].db !== db || rows[0].usuario !== user) throw new RentabilidadError(mode === 'production-read-only' ? 'RENTABILIDAD_READ_CONFIGURATION_REQUIRED' : 'RENTABILIDAD_STAGING_REQUIRED', 404)
+  return mode
+}
+async function readDatabase() {
+  assertRentabilidadReadConfiguration()
+  const db = (await import('../prisma')).prisma
+  await assertRentabilidadReadIdentity(db)
+  return db
+}
 async function database() { assertRentabilidadConfiguration(); return (await import('../prisma')).prisma }
 async function assertIsolated(tx: Pick<Tx, '$queryRaw'>) {
   assertRentabilidadConfiguration()
@@ -538,7 +567,7 @@ export async function saveSnapshot(month: string, raw: any, actorId: number, kin
 }
 export async function listSnapshots(month?: string):Promise<JsonRecord[]> {
   if (month) monthSchema.parse(month)
-  const db = await database(); await assertIsolated(db)
+  const db = await readDatabase()
   const rows = await db.$queryRaw<JsonRecord[]>(Prisma.sql`
     SELECT id,month,kind,version,source_hash AS "sourceHash",payload,created_at AS "createdAt"
     FROM (SELECT DISTINCT ON (month,kind) id,month,kind,version,source_hash,payload,created_at
@@ -557,14 +586,14 @@ function withIsoCreatedAt(row: JsonRecord): JsonRecord {
 /** Screen reads never call readInputs or scan billed lines. At most 100 rows per page. */
 export async function listRecentRuns(limit = 50, offset = 0): Promise<JsonRecord[]> {
   const page = boundedHistoryPage(limit, offset)
-  const db = await database(); await assertIsolated(db)
+  const db = await readDatabase()
   const rows = await db.$queryRaw<JsonRecord[]>(Prisma.sql`SELECT id,process,source_hash AS "sourceHash",payload,created_at AS "createdAt" FROM rentabilidad_ejecuciones ORDER BY created_at DESC,id DESC LIMIT ${page.limit} OFFSET ${page.offset}`)
   return rows.map(withIsoCreatedAt)
 }
 async function versionHistory(kinds: RentabilidadKind[], key?: string, limit = 100, offset = 0): Promise<JsonRecord[]> {
   if (key != null) keySchema.parse(key)
   const page = boundedHistoryPage(limit, offset)
-  const db = await database(); await assertIsolated(db)
+  const db = await readDatabase()
   const rows = await db.$queryRaw<JsonRecord[]>(Prisma.sql`
     SELECT id,kind,stable_key AS key,version,source_hash AS "sourceHash",payload,actor_id AS "actorId",created_at AS "createdAt"
     FROM rentabilidad_versiones WHERE kind IN (${Prisma.join(kinds)}) ${key != null ? Prisma.sql`AND stable_key=${key}` : Prisma.empty}
@@ -579,7 +608,7 @@ export async function getExternalCostHistory(key?: string, limit = 100, offset =
 }
 export async function listResolvedExceptions(limit = 100, offset = 0): Promise<JsonRecord[]> {
   const page = boundedHistoryPage(limit, offset)
-  const db = await database(); await assertIsolated(db)
+  const db = await readDatabase()
   // Filter AFTER selecting latest: a previously resolved but now reopened case must not appear here.
   const rows = await db.$queryRaw<JsonRecord[]>(Prisma.sql`
     SELECT id,kind,key,version,"sourceHash",payload,"actorId","createdAt" FROM (
