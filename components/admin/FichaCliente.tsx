@@ -5,7 +5,7 @@
  * Correo, IA y reunión reutilizan las rutas de contacto (a59b2880/2df60a2d): POST /actividades y GET /m365/borrador.
  * La IA solo propone: el envío lo hace siempre la persona con «Enviar».
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { EventoFicha, FichaCliente as Ficha } from '@/lib/area1-ficha-cliente'
 
 type Conexion = { enabled: boolean; connected: boolean; email: string | null; mail?: boolean }
@@ -38,11 +38,12 @@ function Bars({ meses, a, b }: { meses: string[]; a: number[]; b?: number[] }) {
   </svg>
 }
 
-function Timeline({ eventos, onOpen }: { eventos: EventoFicha[]; onOpen: (c: Cajon) => void }) {
+function Timeline({ eventos, onOpen, pie }: { eventos: EventoFicha[]; onOpen: (c: Cajon) => void; pie?: ReactNode }) {
   const [filter, setFilter] = useState('all')
   const lista = eventos.filter((e) => filter === 'all' || e.cat === filter)
   return <>
     <div className="chipsf">{FIL.map((f) => <button key={f[0]} type="button" data-f={f[0]} aria-pressed={f[0] === filter} onClick={() => setFilter(f[0])}>{f[1]}</button>)}</div>
+    {pie}
     <div className="tl">
       {lista.length === 0 && <p className="small muted" style={{ margin: '8px 0 0' }}>sin dato: no hay actividad registrada{filter === 'all' ? '' : ' de este tipo'}.</p>}
       {lista.map((e) => <div className="ev" key={e.id}><span className={`ic ${e.cat}`}>{ICON[e.cat]}</span><div>
@@ -77,6 +78,27 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
       .catch(() => vivo && setAi({ puntos: null, error: 'Resumen con IA no disponible.' }))
     return () => { vivo = false }
   }, [ficha.empresa.id])
+
+  // Correos recibidos de Outlook: solo lectura, se piden al pulsar y no se guardan en la ficha.
+  const outlookCorreo = m365.conexion.enabled && m365.conexion.connected && !!m365.conexion.mail
+  const [recibidos, setRecibidos] = useState<{ estado: 'idle' | 'cargando' | 'ok' | 'error'; eventos: EventoFicha[]; msg: string | null }>({ estado: 'idle', eventos: [], msg: null })
+  async function cargarRecibidos() {
+    setRecibidos((r) => ({ ...r, estado: 'cargando', msg: null }))
+    try {
+      const r = await fetch(`/api/admin/crm/empresas/${encodeURIComponent(ficha.empresa.id)}/correos-recibidos`, { cache: 'no-store' })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok || !Array.isArray(d.eventos)) throw new Error(d.error || 'No se han podido leer los correos de Outlook.')
+      const n = d.eventos.length
+      setRecibidos({ estado: 'ok', eventos: d.eventos, msg: d.direcciones === 0 ? 'sin dato: ninguna persona de la ficha tiene email.' : n ? `${n} correo${n === 1 ? '' : 's'} recibido${n === 1 ? '' : 's'} en tu Outlook (últimos ${d.dias} días). Solo lectura: no se guardan en la ficha.` : `Ningún correo de estas personas en tu Outlook en los últimos ${d.dias} días.` })
+    } catch (e) { setRecibidos({ estado: 'error', eventos: [], msg: e instanceof Error ? e.message : 'No se han podido leer los correos de Outlook.' }) }
+  }
+  const eventos = useMemo(() => recibidos.eventos.length ? [...ficha.eventos, ...recibidos.eventos].sort((a, b) => b.fechaIso.localeCompare(a.fechaIso)) : ficha.eventos, [ficha.eventos, recibidos.eventos])
+  const pieOutlook = !m365.conexion.enabled ? null
+    : !outlookCorreo ? <p className="small muted" style={{ margin: '6px 0 0' }}><a href={m365.connectUrl}>{m365.conexion.connected ? 'Conceder permiso de correo' : 'Conectar mi Outlook'}</a> para ver aquí los correos que te envía el cliente (solo lectura).</p>
+      : <p className="small muted" style={{ margin: '6px 0 0', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button className="btn small" type="button" onClick={cargarRecibidos} disabled={recibidos.estado === 'cargando'}>{recibidos.estado === 'cargando' ? 'Leyendo tu Outlook…' : recibidos.estado === 'idle' ? 'Ver correos recibidos en mi Outlook' : 'Actualizar correos recibidos'}</button>
+        {recibidos.msg && <span>{recibidos.msg}</span>}
+      </p>
 
   // Compositor
   const tipos = ['Nota', 'Llamada', 'Correo', 'Reunión', 'Tarea'] as const
@@ -138,7 +160,7 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
           </div>
         </div>
         <nav className="tabs" aria-label="Secciones de la ficha">
-          {([['resumen', 'Resumen', null], ['actividad', 'Actividad', ficha.eventos.length], ['contratos', 'Contratos y servicios', ficha.contratos.length], ['facturacion', 'Facturación', null], ['negocios', 'Negocios', ficha.negocios.length], ['personas', 'Personas', ficha.personas.length], ['rentabilidad', 'Rentabilidad y subida', null]] as Array<[Vista, string, number | null]>).map(([v, t, n]) =>
+          {([['resumen', 'Resumen', null], ['actividad', 'Actividad', eventos.length], ['contratos', 'Contratos y servicios', ficha.contratos.length], ['facturacion', 'Facturación', null], ['negocios', 'Negocios', ficha.negocios.length], ['personas', 'Personas', ficha.personas.length], ['rentabilidad', 'Rentabilidad y subida', null]] as Array<[Vista, string, number | null]>).map(([v, t, n]) =>
             <a key={v} href={`#${v}`} data-v={v} aria-current={vista === v ? 'page' : 'false'} onClick={(ev) => { ev.preventDefault(); show(v) }}>{t}{n != null && <> <span className="tag">{n}</span></>}</a>)}
         </nav>
       </div>
@@ -169,7 +191,7 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
                 <textarea placeholder={tipoComp === 'Tarea' ? 'Escribe la tarea (vence mañana).' : tipoComp === 'Llamada' ? 'Resume la llamada.' : tipoComp === 'Correo' || tipoComp === 'Reunión' ? `Pulsa Guardar para abrir el panel de ${tipoComp === 'Correo' ? 'correo' : 'reunión'}.` : 'Escribe una nota. Usa @ para mencionar a un compañero.'} value={textoComp} onChange={(ev) => setTextoComp(ev.target.value)} />
                 <div className="row" style={{ justifyContent: 'flex-end', marginTop: 8 }}><button className="btn small primary" type="button" disabled={guardando} onClick={guardarComp}>{guardando ? 'Guardando…' : 'Guardar'}</button></div>
               </div>
-              <Timeline eventos={ficha.eventos} onOpen={setCajon} />
+              <Timeline eventos={eventos} onOpen={setCajon} pie={pieOutlook} />
             </div>
           </div>
           <aside className="side">
@@ -209,7 +231,7 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
       </section>
 
       <section className="view" id="v-actividad" hidden={vista !== 'actividad'}>
-        <div className="panel"><h2>Toda la actividad</h2><p className="help">Correos de Outlook, reuniones, llamadas, notas, tareas, cambios en ISP Gestión e historial importado de HubSpot.</p><Timeline eventos={ficha.eventos} onOpen={setCajon} /></div>
+        <div className="panel"><h2>Toda la actividad</h2><p className="help">Correos de Outlook, reuniones, llamadas, notas, tareas, cambios en ISP Gestión e historial importado de HubSpot.</p><Timeline eventos={eventos} onOpen={setCajon} pie={pieOutlook} /></div>
       </section>
 
       <section className="view" id="v-contratos" hidden={vista !== 'contratos'}>

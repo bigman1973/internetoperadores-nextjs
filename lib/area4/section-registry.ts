@@ -2374,6 +2374,12 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         request: { requiredActions: { GET: ["V", "E"], HEAD: ["V", "E"] } },
       },
       {
+        path: "/api/admin/crm/empresas/[id]/correos-recibidos",
+        kind: "api",
+        actions: ["V"],
+        request: { requiredActions: { GET: ["V"], HEAD: ["V"] } },
+      },
+      {
         path: "/api/admin/crm/empresas/buscar-clientes",
         kind: "api",
         actions: ["V","E","C","X"],
