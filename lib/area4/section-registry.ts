@@ -494,6 +494,7 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
       { path: '/api/admin/crm/empresas/[id]', kind: 'api' },
       { path: '/api/admin/crm/empresas/[id]/clientes', kind: 'api' },
       { path: '/api/admin/crm/empresas/[id]/contactos', kind: 'api' },
+      { path: '/api/admin/crm/empresas/[id]/resumen-ia', kind: 'api' },
       { path: '/api/admin/crm/empresas/buscar-clientes', kind: 'api' },
       { path: '/api/admin/crm/empresas/buscar-contactos', kind: 'api' },
       { path: '/api/admin/crm/empresas/sync', kind: 'api' },
