@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { aplicarIspConRecibo, ErrorImportacionNoAuditada, ErrorAuditoriaImportacion, ORIGEN_RECIBO_HUBSPOT, ORIGEN_RECIBO_ISP, reciboHubspot, reciboIspError, reciboIspExito, registrarReciboImportacion } from '../lib/area1-import-recibo'
+import { propietarioImportacion, aplicarIspConRecibo, ErrorImportacionNoAuditada, ErrorAuditoriaImportacion, ORIGEN_RECIBO_HUBSPOT, ORIGEN_RECIBO_ISP, reciboHubspot, reciboIspError, reciboIspExito, registrarReciboImportacion } from '../lib/area1-import-recibo'
 let ok = 0
 const t = async (n: string, f: () => any) => { await f(); ok++; console.log('ok', n) }
 const fakeDb = (fallar = false) => { const filas: any[] = []; return { filas, auditoriaPermisosArea4: { create: async ({ data }: any) => { if (fallar) throw new Error('boom con datos@x.com'); filas.push(data); return data } } } as any }
@@ -60,6 +60,31 @@ async function main() {
     await assert.rejects(registrarReciboImportacion(fakeDb(), { actorId: 1, origen: ORIGEN_RECIBO_ISP, despues: { resultado: 'ERROR', conteos: {}, duracionMs: 1 } }), ErrorAuditoriaImportacion)
     const db = fakeDb(); await registrarReciboImportacion(db, { actorId: 1, origen: ORIGEN_RECIBO_HUBSPOT, despues: { resultado: 'ERROR', journalId: 'j', conteos: {}, duracionMs: 1 } })
     assert.equal(db.filas[0].operacion, 'CRM_IMPORTACION_HUBSPOT'); assert.equal(db.filas[0].origen, 'crm.hubspot.historial')
+  })
+  await t('Propietario: vivo y sin actuación → actorId del principal', async () => {
+    const r = await propietarioImportacion({ requireOwner: async () => ({ ok: true, principal: { id: 42 }, session: { user: { id: '999' } } }) })
+    assert.equal(r.ok, true); assert.equal(r.actorId, 42, 'nunca el id de la sesión/JWT')
+  })
+  await t('Propietario: con «Actuar como» → 403 antes de despachar', async () => {
+    let despachado = false
+    const r = await propietarioImportacion({ requireOwner: async () => ({ ok: true, principal: { id: 42 }, session: { impersonation: { actorId: 42, targetId: 7 } } }) })
+    if (r.ok) despachado = true
+    assert.equal(r.ok, false); assert.equal(r.response?.status, 403); assert.equal(despachado, false)
+    assert.deepEqual(await r.response!.json(), { error: 'No disponible durante actuación' })
+  })
+  await t('Propietario: sin sesión o no propietario → respuesta del Área 4 tal cual', async () => {
+    const r401 = new Response(null, { status: 401 }), r403 = new Response(null, { status: 403 })
+    assert.equal((await propietarioImportacion({ requireOwner: async () => ({ ok: false, response: r401 }) })).response, r401)
+    assert.equal((await propietarioImportacion({ requireOwner: async () => ({ ok: false, response: r403 }) })).response, r403)
+    assert.equal((await propietarioImportacion({ requireOwner: async () => ({ ok: true, principal: { id: 0 }, session: {} }) })).ok, false)
+  })
+  await t('Handlers: propietarioImportacion antes de servicios/negocio en ambas rutas', () => {
+    const fs = require('node:fs')
+    const isp = fs.readFileSync('app/api/admin/crm/isp/importar/route.ts', 'utf8')
+    assert.ok(isp.indexOf('propietarioImportacion()') < isp.indexOf('obtenerBajas(prisma') && isp.indexOf('propietarioImportacion()') > 0)
+    assert.ok(isp.indexOf('propietarioImportacion()') < isp.indexOf('leerFicheroIsp(buffer)'))
+    const hs = fs.readFileSync('app/api/admin/crm/hubspot/historial/route.ts', 'utf8')
+    assert.ok(hs.indexOf('propietarioImportacion()') > 0 && hs.indexOf('propietarioImportacion()') < hs.indexOf("ejecutar('importar'"))
   })
   console.log(`\n${ok} pruebas OK`)
 }

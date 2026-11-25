@@ -17,9 +17,8 @@ export type DespuesRecibo = {
 }
 export const ORIGEN_RECIBO_ISP = 'crm.isp.aplicar'
 export const ORIGEN_RECIBO_HUBSPOT = 'crm.hubspot.historial'
-// Cast temporal: el Área 4 añade estas dos operaciones al tipo; al llegar su commit se puede quitar el cast.
-export const OPERACION_ISP = 'CRM_IMPORTACION_ISP' as unknown as Area4AuditOperation
-export const OPERACION_HUBSPOT = 'CRM_IMPORTACION_HUBSPOT' as unknown as Area4AuditOperation
+export const OPERACION_ISP: Area4AuditOperation = 'CRM_IMPORTACION_ISP'
+export const OPERACION_HUBSPOT: Area4AuditOperation = 'CRM_IMPORTACION_HUBSPOT'
 
 export class ErrorAuditoriaImportacion extends Error {
   constructor() { super('AUDITORIA_NO_REGISTRADA') }
@@ -162,14 +161,28 @@ export async function aplicarIspConRecibo<P extends Parameters<typeof reciboIspE
   }
 }
 
-/** Propietario canónico vivo, sin «Actuar como». Devuelve el id o la respuesta de rechazo. */
+/**
+ * Propietario canónico vivo, sin «Actuar como». Se llama en ambos handlers ANTES de cualquier
+ * servicio o negocio. El rechazo de session.impersonation es explícito aquí aunque la frontera
+ * común también lo aplique (no suprimir al integrar la rama del Área 4).
+ */
 export type PropietarioImportacion = { ok: boolean; actorId?: number; response?: Response }
-export async function propietarioImportacion(): Promise<PropietarioImportacion> {
-  const [{ requireArea4Owner }, { default: prisma }, { NextResponse }] = await Promise.all([import('@/lib/area4/live-admin'), import('@/lib/prisma'), import('next/server')])
-  const auth = await requireArea4Owner(prisma)
-  if (auth.ok !== true) return { ok: false, response: (auth as { response: Response }).response }
-  if ((auth.session as { impersonation?: unknown } | null)?.impersonation) {
-    return { ok: false, response: NextResponse.json({ error: 'Sal de «Actuar como» para importar.' }, { status: 403 }) }
+type AutorizacionOwner = { ok: boolean; response?: Response; principal?: { id: number }; session?: unknown }
+export async function propietarioImportacion(deps?: {
+  requireOwner?: () => Promise<AutorizacionOwner>
+  rechazar?: (cuerpo: { error: string }, status: number) => Response
+}): Promise<PropietarioImportacion> {
+  const requireOwner = deps?.requireOwner || (async () => {
+    const [{ requireArea4Owner }, { default: prisma }] = await Promise.all([import('@/lib/area4/live-admin'), import('@/lib/prisma')])
+    return (await requireArea4Owner(prisma)) as unknown as AutorizacionOwner
+  })
+  const rechazar = deps?.rechazar || ((cuerpo, status) => Response.json(cuerpo, { status }))
+  const auth = await requireOwner()
+  if (auth.ok !== true) return { ok: false, response: auth.response }
+  if ((auth.session as { impersonation?: unknown } | null | undefined)?.impersonation) {
+    return { ok: false, response: rechazar({ error: 'No disponible durante actuación' }, 403) }
   }
-  return { ok: true, actorId: (auth as { principal: { id: number } }).principal.id }
+  const actorId = auth.principal?.id
+  if (!Number.isSafeInteger(actorId) || (actorId as number) <= 0) return { ok: false, response: rechazar({ error: 'No autorizado' }, 401) }
+  return { ok: true, actorId }
 }
