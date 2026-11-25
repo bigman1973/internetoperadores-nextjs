@@ -429,6 +429,35 @@ export async function cargarFichaCliente(empresaId: string, nivel: NivelResumen,
 // ---------- «Lo que hay que saber» con IA (caché diaria en area1_crm_ficha_ia) ----------
 type ClienteLlmFicha = { chat: { completions: { create: (args: Record<string, unknown>) => Promise<{ choices: Array<{ message?: { content?: string | null } }> }> } } }
 export const MODELO_FICHA_IA = () => process.env.AREA1_CRM_IA_MODEL || 'gpt-4.1-mini'
+/**
+ * Correos recibidos de Outlook (solo lectura) como eventos de la actividad. No se guardan: se piden al abrir y se muestran.
+ * Se enlazan con la persona de la ficha por su email; el extracto es el que da Outlook (bodyPreview), sin el cuerpo completo.
+ */
+export function eventosDeRecibidos(
+  correos: Array<{ id: string; recibido: string | null; de: string | null; deNombre: string | null; asunto: string | null; extracto: string | null }>,
+  personas: Array<{ id: string; nombre: string; email: string | null }>,
+  hoy: Date,
+): EventoFicha[] {
+  const porEmail = new Map(personas.filter((p) => p.email).map((p) => [String(p.email).trim().toLowerCase(), p]))
+  return correos.filter((c) => c.recibido && !Number.isNaN(Date.parse(c.recibido))).map((c) => {
+    const p = c.de ? porEmail.get(c.de) : undefined
+    const fecha = new Date(c.recibido as string)
+    return {
+      id: `outlook-recibido:${c.id}`,
+      cat: 'mail' as const,
+      tipo: 'Correo recibido',
+      quien: p?.nombre || c.deNombre || c.de || SIN_DATO,
+      titulo: c.asunto || '(sin asunto)',
+      texto: c.extracto || '',
+      cuando: cuando(fecha, hoy, true),
+      fechaIso: fecha.toISOString(),
+      fuente: 'Outlook' as const,
+      contactoId: p?.id || null,
+      etiqueta: 'Solo lectura',
+      acciones: p ? ['responder' as const, 'ia' as const] : [],
+    }
+  })
+}
 export function construirPromptFicha(ctx: ContextoResumenIa) {
   return [
     { role: 'system', content: 'Eres el asistente comercial de Internet Operadores (operador de telecomunicaciones y servicios IT). Escribes en español de España, claro y breve. Devuelves SOLO JSON {"puntos":[...]} con exactamente 4 frases (máx. 30 palabras cada una) sobre lo que un comercial debe saber hoy de este cliente. Usa SOLO los datos dados; si falta un dato, no lo inventes ni lo supongas (puedes decir que no consta). Nunca menciones costes, márgenes ni rentabilidad. No incluyas correos ni teléfonos.' },
