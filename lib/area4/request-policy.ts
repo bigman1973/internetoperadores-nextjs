@@ -9,6 +9,12 @@ export function area4CommandBodyLimit(path: string, method: string): number | nu
 }
 
 function isClosedReadOnlyReviewPreview(path: string, method: string, body: unknown): boolean {
+  if (method === 'POST' && area4RegisteredSurface(path, 'api')?.surface.request?.readOnlyReview === 'isp-closed-simulation') {
+    // Only the bounded multipart decoder produces this minimal command in the
+    // middleware. Boolean previews never downgrade a different API.
+    return Boolean(body && typeof body === 'object' && !Array.isArray(body)
+      && Object.keys(body).length === 1 && (body as { modo?: unknown }).modo === 'simular')
+  }
   if (method !== 'POST' || area4RegisteredSurface(path, 'api')?.surface.request?.readOnlyReview !== 'conciliar-closed-review-preview') return false
   try {
     const command = parseConciliarCommand(body)

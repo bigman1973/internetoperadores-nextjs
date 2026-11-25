@@ -47,7 +47,9 @@ test('source4d03 exacto: 439 descriptores y 79 identidades literales, SHA256 loc
   const matches = allMatches.filter(match => match.surface.baselineDescriptor !== undefined)
   assert.equal(matches.length, 439)
   assert.equal(AREA4_SECTION_REGISTRY.length, 79)
-  assert.ok(matches.every(match => match.baseline === true))
+  const changedContracts = ['/api/admin/crm/hubspot/historial', '/api/admin/crm/isp/importar']
+  assert.deepEqual(matches.filter(match => !match.baseline).map(match => match.surface.path).sort(), changedContracts)
+  assert.equal(matches.filter(match => match.baseline).length, 437)
   assert.ok(allMatches.filter(match => match.surface.baselineDescriptor === undefined).every(match => !match.baseline), 'las altas nuevas no entran en la evidencia source4d03')
   const expectedSurfaces = '46f6730c0eb75836ee9fbf311d6ebb38b1b5e70babedc56591f6d6c97854a92f'
   const expectedIdentities = '1fd44a77bd14022b2e72de292e7081daf5b7590ec2f8c11c6416844afba0470c'
@@ -58,7 +60,8 @@ test('source4d03 exacto: 439 descriptores y 79 identidades literales, SHA256 loc
   for (const match of matches) {
     assert.deepEqual(Object.keys(match).sort(), ['baseline', 'descriptor', 'id', 'section', 'surface'])
     assert.equal(match.id, `${match.surface.kind}:${match.surface.path}`)
-    assert.equal(match.descriptor, match.surface.baselineDescriptor)
+    if (changedContracts.includes(match.surface.path)) assert.notEqual(match.descriptor, match.surface.baselineDescriptor)
+    else assert.equal(match.descriptor, match.surface.baselineDescriptor)
     assert.equal(area4RegisteredSurface(match.surface.path, match.surface.kind)?.id, match.id)
   }
 })
@@ -263,6 +266,24 @@ test('REVIEW_PREVIEW solo V tras parseo cerrado real; preview falsificado no reb
   assert.deepEqual(area4RequestCapabilities({ ...input, body: preview }), ['lectura'])
   assert.deepEqual(area4RequestCapabilities({ ...input, body: { ...preview, idempotencyKey: 'extra-no-admitido' } }), ['lectura', 'escritura', 'confirmar'])
   assert.deepEqual(area4RequestCapabilities({ ...input, path: '/api/admin/crm/pipelines', body: preview }), ['lectura', 'escritura', 'confirmar'])
+})
+
+test('importaciones reales: HubSpot POST VEC y solo el comando mínimo ISP simular conserva V', () => {
+  const isp = { path: '/api/admin/crm/isp/importar', method: 'POST' }
+  const hub = { path: '/api/admin/crm/hubspot/historial', method: 'POST' }
+  assert.deepEqual(area4RequestCapabilities({ ...isp, body: { modo: 'simular' } }), ['lectura'])
+  for (const body of [undefined, { modo: 'aplicar' }, { modo: 'simular', preview: true }, { modo: 'otro' }]) {
+    assert.deepEqual(area4RequestCapabilities({ ...isp, body }), ['lectura', 'escritura', 'confirmar'])
+  }
+  for (const body of [undefined, { confirmar: true }, { confirmar: false }, { modo: 'simular' }]) {
+    assert.deepEqual(area4RequestCapabilities({ ...hub, body }), ['lectura', 'escritura', 'confirmar'])
+  }
+  assert.deepEqual(area4RequestCapabilities({ path: '/api/admin/crm/pipelines', method: 'POST', body: { modo: 'simular', confirmar: true } }), ['lectura', 'escritura'], 'no heurística global basada en modo o booleanos')
+  for (const path of [isp.path, hub.path]) {
+    assert.equal(area4RegisteredSurface(path, 'api')?.baseline, false)
+    for (const method of ['GET', 'HEAD']) assert.deepEqual(area4RequestCapabilities({ path, method }), ['lectura'])
+    assert.deepEqual(area4RequestCapabilities({ path, method: 'OPTIONS' }), [])
+  }
 })
 
 test('los consumidores no conservan catálogos independientes de rutas, filas, etiquetas ni selectores', () => {

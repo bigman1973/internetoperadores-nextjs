@@ -506,6 +506,45 @@ async function area4RegisteredAdminApiBoundary(request) {
     const surfaceMatch = registry.area4RegisteredSurface(pathname, isApi ? 'api' : 'page');
     if (!surfaceMatch) return privateBoundary({ error: 'Superficie administrativa no registrada' }, 403);
     const isImpersonating = token.impersonation !== undefined && token.impersonation !== null;
+    // Claude 25/11: exact registered imports, ONLY the isolated staging branch.
+    // This precedes every adoption/legacy/owner escape hatch. The handler repeats
+    // the live owner check and owns the transactional RESULT, not this attempt.
+    if (isApi && request.method === 'POST' && surfaceMatch.surface.request?.stagingImport) {
+      const imports = await import('@/lib/area4/crm-staging-import');
+      const contract = imports.area4CrmStagingImportContract(pathname, request.method);
+      if (!contract || !imports.area4CrmStagingImportEnabled(process.env)) {
+        return privateBoundary({ error: 'Esta importación solo está habilitada en el staging aislado.' }, 403);
+      }
+      if (isImpersonating || !policy.isArea4Owner(principal)) {
+        return privateBoundary({ error: 'Solo el propietario real puede importar, sin actuación.' }, 403);
+      }
+      if (!imports.area4CrmStagingImportOriginAllowed(request)) {
+        return privateBoundary({ error: 'La importación debe confirmarse desde esta misma página.', codigo: 'ORIGIN_NOT_ALLOWED' }, 403);
+      }
+      const maximumBytes = contract === 'isp-multipart-v1'
+        ? surfaceMatch.surface.request.multipartBodyLimit : surfaceMatch.surface.request.commandBodyLimit;
+      if (!Number.isSafeInteger(maximumBytes) || maximumBytes <= 0) return privateBoundary({ error: 'No se pudo verificar el límite de importación.' }, 503);
+      const command = contract === 'isp-multipart-v1'
+        ? await imports.readArea4IspStagingCommand(request, maximumBytes)
+        : await imports.readArea4HubspotStagingCommand(request, maximumBytes);
+      if (command.errorStatus) return privateBoundary({ error: 'No se pudo verificar la confirmación de importación.' }, command.errorStatus);
+      if (contract === 'hubspot-confirm-v1' && (command.body?.confirmar !== true || Object.keys(command.body).length !== 1)) {
+        return privateBoundary({ error: 'Confirma expresamente la importación del historial.' }, 400);
+      }
+      const capabilities = requestPolicy.area4RequestCapabilities({ path: pathname, method: request.method, body: command.body });
+      for (const capability of capabilities) {
+        if (!policy.evaluateArea4Capability({ principal, grants: [], codigoArea, capability, isImpersonating })) {
+          return privateBoundary({ error: `Sin permiso de ${capability}` }, 403);
+        }
+      }
+      if (capabilities.includes('confirmar')) {
+        const { appendArea4Audit } = await import('@/lib/area4/audit');
+        await prisma.$transaction(tx => appendArea4Audit(tx, { actorId: principal.id, objetivoUsuarioId: null,
+          operacion: 'CONFIRMACION_SOLICITADA', areaCodigo: codigoArea,
+          despues: { fase: 'ANTES_DEL_HANDLER', resultado: 'INTENTO', metodo: request.method, capacidad: 'confirmar' }, origen: pathname }));
+      }
+      return null;
+    }
     if (policy.isArea4OwnerOnlyArea(codigoArea)) {
       return ownAcl || (!isImpersonating && policy.isArea4Owner(principal)) ? null : privateBoundary({ error: 'Solo Víctor puede acceder a esta sección' }, 403);
     }
@@ -600,8 +639,15 @@ export async function middleware(request) {
   if (process.env.FINANCE_STAGING_SANDBOX === '1' && request.nextUrl.pathname.startsWith('/api/')) {
     const path = request.nextUrl.pathname;
     const mutating = !['GET', 'HEAD', 'OPTIONS'].includes(request.method);
+    const imports = request.method === 'POST' && path.startsWith('/api/admin/crm/')
+      ? await import('@/lib/area4/crm-staging-import') : null;
+    const crmImportAllowed = imports !== null && imports.area4CrmStagingImportEnabled(process.env)
+      && imports.area4CrmStagingImportContract(path, request.method) !== null;
     // Se amplía por bloques validados, nunca por toda el área financiera.
     const allowed = path === '/api/admin/finanzas/sincronizar-onedrive'
+      // Only these registered POSTs pass the sandbox; live owner, V/E/C,
+      // confirmation and durable audit are mandatory below, before dispatch.
+      || crmImportAllowed
       // El control valida su propia sesión real, CSRF/origen y entorno; esta
       // excepción no habilita ninguna API de negocio durante actuación.
       || path === '/api/admin/actuar-como'

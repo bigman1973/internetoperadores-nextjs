@@ -2,8 +2,10 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { runInNewContext } from 'node:vm'
+import ts from 'typescript'
 import { impersonationRequestAllowed, isSensitiveImpersonationPath } from '../lib/impersonation-policy'
 import { appendArea4Audit } from '../lib/area4/audit'
+import * as crmStagingImport from '../lib/area4/crm-staging-import'
 
 // Runs the exact sandbox block copied from current middleware source in a VM.
 // This is not an HTTP acceptance test, and it never executes any handler.
@@ -12,34 +14,42 @@ const start = source.indexOf("  if (process.env.FINANCE_STAGING_SANDBOX === '1' 
 const end = source.indexOf('\n  const path = request.nextUrl.pathname;', start)
 assert.ok(start >= 0 && end > start, 'la guarda real debe existir; no sustituirla por una simulación del resultado')
 const block = source.slice(start, end)
-function gate(sandbox: string | undefined, path: string, method: string): { status: number } | null {
-  return runInNewContext(`(function(request) { ${block}\n return null; })(request)`, {
-    process: { env: { FINANCE_STAGING_SANDBOX: sandbox } },
+const code = ts.transpileModule(`(async function(request) { ${block}\n return null; })(request)`, {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText
+async function gate(sandbox: string | undefined, path: string, method: string): Promise<{ status: number } | null> {
+  return await runInNewContext(code, {
+    process: { env: { FINANCE_STAGING_SANDBOX: sandbox, VERCEL_ENV: 'preview', VERCEL_GIT_COMMIT_REF: 'staging',
+      DATABASE_URL: 'postgresql://io_staging_finanzas:synthetic@fixture.invalid/io_staging_finanzas' } },
     request: { nextUrl: { pathname: path }, method },
     NextResponse: { json: (_body: unknown, options: { status: number }) => ({ status: options.status }) },
     isAuthorizedP2Path: () => false,
+    require(name: string) {
+      if (name === '@/lib/area4/crm-staging-import') return crmStagingImport
+      throw new Error(`Unexpected sandbox module: ${name}`)
+    },
   })
 }
 const activity = '/api/admin/crm/contactos/synthetic-contact/actividades'
 const event = `${activity}/synthetic-activity/m365`
 const draft = '/api/admin/crm/contactos/synthetic-contact/m365/borrador'
 
-test('CRM hold B/C pendiente: ambos POST y mutaciones vecinas siguen cerrados en el sandbox real', () => {
+test('CRM hold B/C pendiente: ambos POST y mutaciones vecinas siguen cerrados en el sandbox real', async () => {
   for (const path of [activity, event, draft, `${event}/vecina`, `${activity}/synthetic-activity/outlook`]) {
-    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) assert.equal(gate('1', path, method)?.status, 403, `${method} ${path}`)
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) assert.equal((await gate('1', path, method))?.status, 403, `${method} ${path}`)
   }
 })
-test('el hold no inventa permisos GET/HEAD/OPTIONS ni extiende la excepción al perfil de producción', () => {
+test('el hold no inventa permisos GET/HEAD/OPTIONS ni extiende la excepción al perfil de producción', async () => {
   for (const path of [activity, event, draft]) {
-    for (const method of ['GET', 'HEAD', 'OPTIONS']) assert.equal(gate('1', path, method), null)
-    assert.equal(gate(undefined, path, 'POST'), null, 'ausencia del gate no significa autorización del handler')
+    for (const method of ['GET', 'HEAD', 'OPTIONS']) assert.equal(await gate('1', path, method), null)
+    assert.equal(await gate(undefined, path, 'POST'), null, 'ausencia del gate no significa autorización del handler')
   }
-  assert.equal(gate('1', '/api/admin/usuarios/propuestas', 'POST'), null, 'se conserva la API propia validada')
+  assert.equal(await gate('1', '/api/admin/usuarios/propuestas', 'POST'), null, 'se conserva la API propia validada')
 })
 test('segmento m365 es sensible durante actuación: ambas rutas reales y cualquier vecina quedan denegadas', () => {
   for (const path of [event, draft, '/api/admin/crm/m365/vecina']) {
     assert.equal(isSensitiveImpersonationPath(path), true)
-    for (const method of ['GET', 'HEAD', 'OPTIONS', 'POST']) assert.equal(impersonationRequestAllowed(path, method), false)
+    for (const method of ['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE']) assert.equal(impersonationRequestAllowed(path, method), false)
   }
   assert.equal(isSensitiveImpersonationPath('/api/admin/crm/contactos/synthetic-contact/datos'), false, 'no se bloquea todo CRM por presentar M365')
 })
