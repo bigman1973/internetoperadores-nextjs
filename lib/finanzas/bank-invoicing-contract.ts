@@ -14,10 +14,15 @@ export interface B7GetQuery {
   /** Año natural de FacturaEmitida.fecha, p. ej. 2026. null = todos los años. */
   anio: number | null
   estado: PaymentState | null
+  /** Filtro opcional de la pantalla: serie de la factura (CLL, INST, DRAX...). Solo filtra; no calcula. */
+  serie?: string | null
+  /** Filtro opcional de la pantalla: estado de cobro tal y como lo clasifica la analitica. Solo filtra; no calcula. */
+  cobro?: B7Cobro | null
   limit: number
   offset: number
 }
-
+export type B7Cobro = 'confirmado' | 'por_confirmar' | 'sin_extracto' | 'revision'
+export const B7_COBROS: readonly B7Cobro[] = ['confirmado', 'por_confirmar', 'sin_extracto', 'revision']
 export interface B7ReadDto {
   recurso: 'facturacionBancoB7'
   query: B7GetQuery
@@ -55,7 +60,7 @@ function validMonth(value: string): boolean {
 
 /** Strict, read-only GET contract: ?q=&mes=YYYY-MM&estado=&limit=1..100&offset=0..100000. */
 export function parseB7GetQuery(params: URLSearchParams): B7GetQuery {
-  const permitted = new Set(['q', 'mes', 'anio', 'estado', 'limit', 'offset'])
+  const permitted = new Set(['q', 'mes', 'anio', 'estado', 'serie', 'cobro', 'limit', 'offset'])
   const keys: string[] = []
   params.forEach((_value, key) => keys.push(key))
   for (const key of keys) {
@@ -74,11 +79,17 @@ export function parseB7GetQuery(params: URLSearchParams): B7GetQuery {
   if (rawState !== null && !validStates.includes(rawState as PaymentState)) {
     throw new B7QueryError('B7_QUERY_INVALIDA', 'estado no es válido.')
   }
+  const rawSerie = params.get('serie')
+  if (rawSerie !== null && !/^[A-Za-z0-9 ._-]{1,30}$/.test(rawSerie)) throw new B7QueryError('B7_QUERY_INVALIDA', 'serie no es valida.')
+  const rawCobro = params.get('cobro')
+  if (rawCobro !== null && !B7_COBROS.includes(rawCobro as B7Cobro)) throw new B7QueryError('B7_QUERY_INVALIDA', 'cobro no es valido.')
   return {
     q: q || null,
     mes: rawMonth,
     anio: rawYear === null ? (rawMonth === null ? null : Number(rawMonth.slice(0, 4))) : Number(rawYear),
     estado: rawState as PaymentState | null,
+    ...(rawSerie !== null ? { serie: rawSerie } : {}),
+    ...(rawCobro !== null ? { cobro: rawCobro as B7Cobro } : {}),
     limit: parseBoundedInteger(params.get('limit'), B7_PAGE_DEFAULT, 1, B7_PAGE_MAX, 'limit'),
     offset: parseBoundedInteger(params.get('offset'), 0, 0, B7_OFFSET_MAX, 'offset'),
   }
