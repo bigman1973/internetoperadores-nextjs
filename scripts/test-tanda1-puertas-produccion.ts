@@ -59,7 +59,13 @@ const con = leer('lib/outlook-user-connection.ts')
 caso('Con M365 apagado solo se piden scopes de calendario', /m365Habilitado\(\) \? M365_SCOPES_TODOS : M365_SCOPES_CALENDARIO/.test(con) && !/OUTLOOK_SCOPES/.test(con))
 caso('Estado de conexión: mail=false si M365 apagado', /mail: m365Habilitado\(\) && /.test(con))
 caso('Compositor oculta canal Mi Outlook/IA si M365 apagado', /outlookConnection\.m365 !== false && <Area1M365Correo/.test(leer('components/admin/CrmActivityComposer.tsx')))
-caso('Cronología oculta acciones M365 si apagado', /outlookConnection\.m365 !== false && \(activity\.type === 'CORREO'/.test(leer('components/admin/CrmContactoWorkspace.tsx')))
+{
+  const w = leer('components/admin/CrmContactoWorkspace.tsx')
+  caso('Cronología oculta acciones M365 si apagado (prop m365Activo, sin variable fuera de ámbito)',
+    /m365Activo=\{outlookConnection\.m365 !== false\}/.test(w) && /canWrite && m365Activo && \(activity\.type === 'CORREO'/.test(w) && /function ActivityCard\(\{[^}]*m365Activo/.test(w))
+  const cuerpo = w.slice(w.indexOf('function ActivityCard('), w.indexOf('function ActivityCard(') + 6000)
+  caso('ActivityCard no usa outlookConnection directamente', !/outlookConnection/.test(cuerpo.split('\nfunction ', 2)[0]))
+}
 
 console.log(`\n${ok}/${ok + ko} correctas`)
 if (ko) process.exit(1)
