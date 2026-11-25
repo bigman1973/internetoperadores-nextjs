@@ -4,7 +4,6 @@ import { useSession } from 'next-auth/react';
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { ReceiptPercentIcon, ClockIcon, DocumentTextIcon, ExclamationTriangleIcon, InformationCircleIcon } from '@heroicons/react/24/outline';
-import AvisosGastos from '@/components/area5/AvisosGastos';
 import { useImpersonation } from '@/components/empleado/ImpersonationContext';
 import EmployeeTimesheetSummary from '@/components/imputaciones/EmployeeTimesheetSummary';
 import type { ResumenPersonalImputaciones } from '@/lib/imputaciones-diarias';
@@ -60,7 +59,6 @@ export default function EmpleadoPage() {
         <p className="text-gray-500 mt-1">Portal de empleado de Internet Operadores</p>
       </div>
 
-      <AvisosGastos compacto />
       {/* Avisos prioritarios al iniciar sesión */}
       {loadingAlertas ? (
         <div className="mb-6 min-h-[620px] animate-pulse rounded-2xl border border-slate-200 bg-white p-4 sm:min-h-[400px]" aria-label="Cargando avisos y resumen de imputaciones" role="status">

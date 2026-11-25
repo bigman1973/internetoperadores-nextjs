@@ -15,7 +15,6 @@ import {
   DocumentTextIcon,
   ClockIcon,
   ChatBubbleLeftEllipsisIcon,
-  BanknotesIcon,
 } from '@heroicons/react/24/outline';
 import { useImpersonation } from './ImpersonationContext';
 
@@ -48,9 +47,6 @@ function esEmpleadoAprobador(email?: string | null, categoria?: string | null): 
 export default function EmpleadoSidebar({ user, canAccessAdmin }: EmpleadoSidebarProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
-  // Área 5: acceso a «Revisar gastos» solo para David y Víctor (lo decide el servidor, no el rol).
-  const [area5, setArea5] = useState<{ revisor: boolean; pendientesRevision: number; noLeidos: number }>({ revisor: false, pendientesRevision: 0, noLeidos: 0 });
-  useEffect(() => { fetch('/api/empleado/mis-gastos/avisos', { cache: 'no-store' }).then(r => (r.ok ? r.json() : null)).then(d => d && setArea5(d)).catch(() => {}); }, [pathname]);
   const { impersonatedEmail, impersonatedEmpleado, getQueryParam } = useImpersonation();
 
   const esAprobador = ROLES_APROBADOR.includes(user.role || '') ||
@@ -76,7 +72,6 @@ export default function EmpleadoSidebar({ user, canAccessAdmin }: EmpleadoSideba
     { href: '/empleado/nominas', label: isImpersonating ? 'Nóminas' : 'Mis Nóminas', icon: DocumentTextIcon },
     { href: '/empleado/imputaciones', label: 'Imputación de Horas', icon: ClockIcon },
     { href: '/empleado/gastos', label: isImpersonating ? 'Tickets de Gasto' : 'Mis Tickets de Gasto', icon: ReceiptPercentIcon },
-    { href: '/empleado/mis-gastos', label: area5.noLeidos > 0 ? `Mis gastos (${area5.noLeidos})` : 'Mis gastos', icon: BanknotesIcon },
     { href: `/peticiones${getQueryParam() ? `?${getQueryParam()}` : ''}`, label: 'Peticiones y Mejoras', icon: ChatBubbleLeftEllipsisIcon },
   ];
 
@@ -88,9 +83,6 @@ export default function EmpleadoSidebar({ user, canAccessAdmin }: EmpleadoSideba
     });
   }
 
-  if (area5.revisor && !isImpersonating) {
-    navItems.push({ href: '/admin/gastos-nominas', label: area5.pendientesRevision > 0 ? `Revisar gastos (${area5.pendientesRevision})` : 'Revisar gastos', icon: CheckBadgeIcon });
-  }
   return (
     <>
       {/* Mobile toggle */}
