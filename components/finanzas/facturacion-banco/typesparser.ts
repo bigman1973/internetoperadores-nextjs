@@ -207,8 +207,6 @@ function analytics(value: unknown): B7Analytics | null {
       cliente: text(r.cliente, `${path}.cliente`),
       facturado: cents(r.facturado, `${path}.facturado`),
       facturas: safeInteger(r.facturas, `${path}.facturas`, 0),
-      cobrado: cents(r.cobrado, `${path}.cobrado`),
-      revision: cents(r.revision, `${path}.revision`),
       pendienteReal: cents(r.pendienteReal, `${path}.pendienteReal`),
       sinExtracto: cents(r.sinExtracto, `${path}.sinExtracto`),
       sociedades: safeInteger(r.sociedades, `${path}.sociedades`, 0),

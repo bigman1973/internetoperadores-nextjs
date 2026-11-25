@@ -1,11 +1,9 @@
-import FacturacionClient from './FacturacionClient'
+import BankInvoicingWorkspace from '@/components/finanzas/facturacion-banco/BankInvoicingWorkspace'
+import DeferredMonthlyInvoicing from './DeferredMonthlyInvoicing'
 
 export const dynamic = 'force-dynamic'
 
-/**
- * Facturación (maqueta aprobada). El cálculo de cobro sigue siendo el de B7 y el resumen ISP;
- * esta pantalla solo los presenta. Los componentes anteriores se conservan por si hubiera que volver atrás.
- */
+/** B7 conserva íntegramente KPIs/cobros; el bloque restaurado es sólo histórico. */
 export default function FacturacionPage() {
-  return <FacturacionClient />
+  return <div className="space-y-6"><BankInvoicingWorkspace /><DeferredMonthlyInvoicing /></div>
 }
