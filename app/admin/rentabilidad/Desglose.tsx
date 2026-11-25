@@ -46,7 +46,6 @@ export default function Desglose({ month, sel, onClose }: { month: string; sel: 
   const vista = sel.vista; const filas = data?.filas ?? [];
   const sinFactura = vista === 'facturado' ? (data?.cobertura?.sinFactura ?? 0) : 0;
   const exportar = async () => { if (!data) return; setExp(true); try { await exportTable(`${TITULO[vista]} ${sel.nombre}`, COLS[vista], filas, month); } finally { setExp(false); } };
-  const colsTot = vista === 'facturado' ? (sel.tipo === 'producto' ? 6 : 5) : (sel.tipo === 'cliente' ? 5 : 4);
   return <div className="drawer-back" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
     <aside className="drawer" role="dialog" aria-modal="true" aria-label={`${TITULO[vista]} de ${sel.nombre}`}>
       <header className="dhead"><div><div className="eyebrow">{TITULO[vista]} · {monthLabel(month)}</div><h2>{sel.nombre}</h2></div>
@@ -60,7 +59,7 @@ export default function Desglose({ month, sel, onClose }: { month: string; sel: 
             : <>Suma del detalle <b>{eur(data.sumaDetalle, 2)}</b> · cifra de la tabla <b>{eur(data.cifraTabla, 2)}</b> · {data.cuadra ? '✔ cuadra' : <b>diferencia {eur(data.diferencia, 2)}</b>}</>}
         </div>
         <div className="tablewrap dtable"><table><thead><tr>
-          {vista === 'facturado' && <><th>Fecha</th><th>Nº de factura</th><th>Concepto</th><th>Contrato</th>{sel.tipo === 'producto' && <th className="hide-sm">Cliente</th>}<th className="n">Línea</th><th className="n">Este mes</th></>}
+          {vista === 'facturado' && <><th>Fecha</th><th>Nº de factura</th><th>Concepto</th><th>Contrato</th>{sel.tipo === 'producto' && <th className="hide-sm">Cliente</th>}<th className="n hide-sm">Línea</th><th className="n">Este mes</th></>}
           {vista === 'coste' && <><th>Proveedor</th><th>Nº de factura</th><th>Concepto</th>{sel.tipo === 'cliente' && <th>Contrato</th>}<th className="n hide-sm">Total factura</th><th className="hide-sm">Regla de reparto</th><th className="n">Asignado</th></>}
           {vista === 'contratos' && <><th>Nº</th>{sel.tipo === 'producto' && <th>Cliente</th>}<th>Tarifa</th><th className="n">Cuota</th><th>Alta</th><th>Baja</th><th>Estado ISP</th></>}
         </tr></thead>
@@ -69,13 +68,14 @@ export default function Desglose({ month, sel, onClose }: { month: string; sel: 
             {vista === 'facturado' && filas.map((f, i) => <tr key={i} className={f.ajuste ? 'sub' : undefined}><td>{f.ajuste ? '' : dato(fechaEs(f.fecha))}</td>
               <td>{f.factura ? f.factura : f.facturaNota ? <span className="muted small" title={f.facturaNota}>una de varias</span> : f.ajuste ? '' : SD}</td>
               <td className="concepto" title={f.concepto ?? ''}>{f.concepto ? String(f.concepto).slice(0, 90) : SD}</td><td>{f.contrato ?? (f.ajuste ? '' : <span className="muted">serie</span>)}</td>
-              {sel.tipo === 'producto' && <td className="hide-sm">{f.cliente ?? ''}</td>}<td className="n">{f.importeFactura == null ? '' : eur(f.importeFactura, 2)}{f.periodicidad && f.periodicidad !== 'Mensual' && <span className="muted small"> · {String(f.periodicidad).toLowerCase()}</span>}</td><td className="n">{eur(f.importe, 2)}</td></tr>)}
+              {sel.tipo === 'producto' && <td className="hide-sm">{f.cliente ?? ''}</td>}<td className="n hide-sm">{f.importeFactura == null ? '' : eur(f.importeFactura, 2)}{f.periodicidad && f.periodicidad !== 'Mensual' && <span className="muted small"> · {String(f.periodicidad).toLowerCase()}</span>}</td><td className="n">{eur(f.importe, 2)}</td></tr>)}
             {vista === 'coste' && filas.map((f, i) => <tr key={i}><td>{dato(f.proveedor)}</td><td>{f.factura ? f.factura : f.origen && f.origen !== 'Factura de proveedor' ? <span className="muted small">{f.origen}</span> : SD}</td>
               <td className="concepto" title={f.concepto ?? ''}>{f.concepto ? String(f.concepto).slice(0, 80) : SD}</td>{sel.tipo === 'cliente' && <td>{f.contrato ?? ''}</td>}
               <td className="n hide-sm">{f.totalFactura == null ? <span className="muted">—</span> : eur(f.totalFactura, 2)}</td><td className="hide-sm small">{dato(f.regla)}</td>
               <td className="n">{eur(f.importe, 2)}{f.estado !== 'REAL' && <Dot />}</td></tr>)}
             {vista === 'contratos' && filas.map((f, i) => <tr key={i}><td>{f.contrato}</td>{sel.tipo === 'producto' && <td>{f.cliente ?? ''}</td>}<td>{dato(f.tarifa)}</td><td className="n">{f.cuota == null ? SD : eur(f.cuota, 2)}</td><td>{dato(fechaEs(f.alta))}</td><td>{dato(fechaEs(f.baja))}</td><td>{dato(f.estadoIsp)}</td></tr>)}
-            {vista !== 'contratos' && !!filas.length && <tr className="tot"><td colSpan={colsTot}>Total</td><td className="n">{eur(data.sumaDetalle, 2)}</td></tr>}
+            {vista === 'facturado' && !!filas.length && <tr className="tot"><td colSpan={4}>Total</td>{sel.tipo === 'producto' && <td className="hide-sm" />}<td className="hide-sm" /><td className="n">{eur(data.sumaDetalle, 2)}</td></tr>}
+            {vista === 'coste' && !!filas.length && <tr className="tot"><td colSpan={sel.tipo === 'cliente' ? 4 : 3}>Total</td><td className="hide-sm" colSpan={2} /><td className="n">{eur(data.sumaDetalle, 2)}</td></tr>}
           </tbody></table></div>
         {vista === 'facturado' && sinFactura > 0 && <p className="small muted">El nº de factura de venta no viene en las líneas de ISP: solo se muestra cuando el cliente tiene una única factura ese día. En {sinFactura.toLocaleString('es-ES')} líneas no se ha encontrado y se indica «sin dato».</p>}
         {!!data.notas?.length && <details className="how" open={data.notas.length <= 2}><summary>Cómo leer este detalle</summary><ul>{data.notas.map((n, i) => <li key={i}>{n}</li>)}</ul></details>}

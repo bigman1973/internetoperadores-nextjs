@@ -216,7 +216,7 @@
 .io-ui .drawer .dcheck.ok{border-left-color:var(--good)}
 .io-ui .drawer .dcheck.warn{border-left-color:var(--warn)}
 .io-ui .drawer .dtable td.concepto{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-@media (max-width:560px){.io-ui .drawer{padding:12px 10px 24px}.io-ui .drawer .dtable td.concepto{max-width:150px}}
+@media (max-width:560px){.io-ui .drawer{padding:12px 10px 24px}.io-ui .drawer .dtable td.concepto{max-width:64px}.io-ui .drawer .dtable th,.io-ui .drawer .dtable td{padding:6px 6px;font-size:12px}.io-ui .drawer .dtable td.n,.io-ui .drawer .dtable th.n{white-space:nowrap}}
 
 /* Bloque style propio de maqueta_rentabilidad_aprobada.html (copia literal, prefijada por .io-ui) */
 .io-ui .seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
