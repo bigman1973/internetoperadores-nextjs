@@ -1,7 +1,10 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
 import prisma from '@/lib/prisma'
+import { M365_SCOPES_TODOS, scopesParaRenovar, tienePermiso, type M365Necesidad } from '@/lib/area1-m365'
 
-const OUTLOOK_SCOPES = ['offline_access', 'User.Read', 'Calendars.ReadWrite'] as const
+// Área 1 · M365: se piden calendario + correo (delegados). Las conexiones antiguas (solo calendario)
+// siguen renovándose con sus scopes; para correo se pide «Conceder permiso de correo» (reconexión).
+const OUTLOOK_SCOPES = M365_SCOPES_TODOS
 const GRAPH_ROOT = 'https://graph.microsoft.com/v1.0'
 const ALLOWED_DOMAINS = ['internetoperadores.com', 'lfgd.es', 'farmsplanet.es', 'elypseadvisory.com']
 const ALLOWED_PUBLIC_HOSTS = new Set(['www.internetoperadores.com', 'staging.internetoperadores.com'])
@@ -29,6 +32,8 @@ export type OutlookConnectionStatus = {
   email: string | null
   connectedAt: string | null
   lastError: string | null
+  /** Área 1 · la conexión incluye Mail.Send + Mail.ReadWrite */
+  mail: boolean
 }
 
 export function isOutlookUserIntegrationEnabled() {
@@ -158,7 +163,7 @@ export async function saveOutlookUserConnection(
 export async function getOutlookConnectionStatus(userId: number): Promise<OutlookConnectionStatus> {
   const connection = await prisma.outlookConexion.findUnique({
     where: { usuarioId: userId },
-    select: { email: true, conectadoAt: true, ultimoError: true, revocadoAt: true },
+    select: { email: true, conectadoAt: true, ultimoError: true, revocadoAt: true, scopes: true },
   })
   return {
     enabled: isOutlookUserIntegrationEnabled(),
@@ -166,13 +171,17 @@ export async function getOutlookConnectionStatus(userId: number): Promise<Outloo
     email: connection && !connection.revocadoAt ? connection.email : null,
     connectedAt: connection && !connection.revocadoAt ? connection.conectadoAt.toISOString() : null,
     lastError: connection?.ultimoError || null,
+    mail: Boolean(connection && !connection.revocadoAt && tienePermiso(connection.scopes, 'correo')),
   }
 }
 
-export async function getOutlookUserAccessToken(userId: number, expectedEmail: string) {
+export async function getOutlookUserAccessToken(userId: number, expectedEmail: string, necesidad: M365Necesidad = 'calendario') {
   const connection = await prisma.outlookConexion.findUnique({ where: { usuarioId: userId } })
-  if (!connection || connection.revocadoAt) throw new Error('Conecta tu cuenta de Outlook antes de crear la reunión.')
+  if (!connection || connection.revocadoAt) throw new Error(necesidad === 'correo' ? 'Conecta tu cuenta de Outlook antes de enviar desde tu buzón.' : 'Conecta tu cuenta de Outlook antes de crear la reunión.')
   if (connection.email !== expectedEmail.trim().toLowerCase()) throw new Error('La conexión de Outlook no corresponde al usuario autenticado.')
+  if (!tienePermiso(connection.scopes, necesidad)) {
+    throw new Error(necesidad === 'correo' ? 'Tu conexión de Outlook aún no incluye el permiso de correo. Pulsa «Conceder permiso de correo».' : 'Tu conexión de Outlook no incluye el permiso de calendario. Vuelve a conectarla.')
+  }
 
   let refreshToken: string
   try {
@@ -190,7 +199,7 @@ export async function getOutlookUserAccessToken(userId: number, expectedEmail: s
       client_secret: clientSecret(),
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
-      scope: OUTLOOK_SCOPES.join(' '),
+      scope: scopesParaRenovar(connection.scopes),
     }),
     cache: 'no-store',
     signal: AbortSignal.timeout(15_000),

@@ -8,6 +8,7 @@ import { canAccessCrmRelated } from '@/lib/crm-empresas-auth'
 import { CRM_BUSINESS_UNIT_PROPERTY, crmBusinessUnitLabel, getCrmBusinessUnitOptions } from '@/lib/crm-unidades-negocio'
 import { getDefaultEmailSender } from '@/lib/email'
 import { getOutlookConnectionStatus } from '@/lib/outlook-user-connection'
+import { avisoAislamiento } from '@/lib/area1-m365'
 import {
   formatCrmContactPropertyValue,
   friendlyPropertyLabel,
@@ -245,6 +246,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
       }))}
       emailSender={getDefaultEmailSender()}
       outlookConnection={outlookConnection}
+      m365Aviso={avisoAislamiento()}
       qualityIssues={qualityIssues}
       history={asHistory(contact.historialCambios).reverse().map((entry) => ({
         date: entry.fecha ? formatDateTime(new Date(entry.fecha)) : null,
@@ -302,11 +304,16 @@ function asStringRecord(value: unknown): Record<string, string | null> {
 function asActivityMetadata(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   const metadata = value as Record<string, unknown>
-  const publicMetadata = Object.fromEntries(['remitente', 'para', 'cc', 'ubicacion', 'guardadoEnEnviados', 'estadoGraph', 'codigoGraph', 'estadoCalendario', 'reunionTeams', 'modoAsistido', 'canalPreparado']
+  const publicMetadata = Object.fromEntries(['remitente', 'para', 'cc', 'ubicacion', 'guardadoEnEnviados', 'estadoGraph', 'codigoGraph', 'estadoCalendario', 'reunionTeams', 'modoAsistido', 'canalPreparado', 'canal', 'borradorIa']
     .filter((key) => metadata[key] !== undefined)
     .map((key) => [key, metadata[key]]))
   if (typeof metadata.outlookWebLink === 'string') publicMetadata.outlookDisponible = true
   if (typeof metadata.teamsJoinUrl === 'string') publicMetadata.teamsDisponible = true
+  // Área 1 · M365: solo indicadores, nunca identificadores de Graph en el cliente
+  if (typeof metadata.outlookEventId === 'string') publicMetadata.outlookSincronizable = true
+  if (typeof metadata.outlookConversationId === 'string') publicMetadata.hiloOutlook = true
+  const aislamiento = metadata.aislamiento as { accion?: unknown } | undefined
+  if (aislamiento && typeof aislamiento.accion === 'string') publicMetadata.aislamientoAccion = aislamiento.accion
   return publicMetadata
 }
 
