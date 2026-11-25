@@ -31,7 +31,11 @@ export function parseArguments(argv) {
 }
 function run(argv, output, name) {
   const log = join(output, `${name}.log`);
-  const result = spawnSync(argv[0], argv.slice(1), { cwd: ROOT, encoding: 'utf8', timeout: 180000, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, FINANCE_STAGING_SANDBOX: '1', FINANCE_GRAPH_DELTA_ENABLED: '0' } });
+  // Con FINANCE_STAGING_SANDBOX=1, lib/prisma.ts exige una URL aislada de io_staging_finanzas.
+  // En un CI limpio no hay DATABASE_URL: se usa una URL ficticia de loopback solo en el entorno hijo.
+  const childEnv = { ...process.env, FINANCE_STAGING_SANDBOX: '1', FINANCE_GRAPH_DELTA_ENABLED: '0' };
+  if (!process.env.DATABASE_URL) childEnv.DATABASE_URL = 'postgresql://io_staging_finanzas:ficticia@127.0.0.1:9/io_staging_finanzas';
+  const result = spawnSync(argv[0], argv.slice(1), { cwd: ROOT, encoding: 'utf8', timeout: 180000, maxBuffer: 16 * 1024 * 1024, env: childEnv });
   writeFileSync(log, (result.stdout ?? '') + (result.stderr ?? ''), { mode: 0o600 });
   return { ok: result.status === 0 && !result.error, log, stdout: result.stdout ?? '' };
 }
