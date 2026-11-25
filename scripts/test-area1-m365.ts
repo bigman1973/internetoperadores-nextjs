@@ -1,7 +1,7 @@
 /* Batería Área 1 · Microsoft 365 (sin red, sin BD, sin datos personales). */
 import { readFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
-import { aislarAsistentes, bloqueoActuacion, bloqueoCanalCorreo, canalCorreoInicial, aislarCorreo, avisoAislamiento, M365_SCOPES_TODOS, m365CorreoPrueba, m365Modo, scopesParaRenovar, tienePermiso } from '../lib/area1-m365'
+import { aislarAsistentes, bloqueoActuacion, bloqueoCanalCorreo, canalCorreoInicial, aislarCorreo, avisoAislamiento, M365_SCOPES_TODOS, m365CorreoPrueba, m365Modo, calendarioBloqueadoEnPruebas, RESULTADO_CALENDARIO_AISLADO, scopesParaRenovar, tienePermiso } from '../lib/area1-m365'
 import { enviarCorreoComoUsuario, leerEventoOutlook, leerHiloCorreo } from '../lib/area1-m365-graph'
 import { construirPromptBorrador, generarBorrador, interpretarRespuesta, limpiarPeticion, type ContextoBorrador } from '../lib/area1-m365-borrador'
 
@@ -118,6 +118,19 @@ async function main() {
     ['app/api/admin/crm/contactos/[id]/m365/borrador/route.ts', /bloqueoActuacion\(session\)/],
     ['app/api/admin/crm/contactos/[id]/actividades/route.ts', /\(type === 'CORREO' \|\| requestedOutlook\) \? bloqueoActuacion\(session\)/],
   ] as const) { const src = readFileSync(f, 'utf8'); t(`actuar como bloqueado antes de Graph/IA: ${f.split('/').slice(-3).join('/')}`, re.test(src) && src.search(re) < Math.max(src.indexOf('getOutlookUserAccessToken('), src.indexOf('generarBorrador('), 0) + (src.includes('getOutlookUserAccessToken(') || src.includes('generarBorrador(') ? 0 : 1e9)) }
+  // Opción C (Víctor, 25/11): syncOutlook bloqueado en pruebas salvo M365_STAGING_CALENDARIO=1
+  t('opción C: staging sin variable → calendario bloqueado', calendarioBloqueadoEnPruebas({ VERCEL_ENV: 'preview' }) === true && calendarioBloqueadoEnPruebas({}) === true && calendarioBloqueadoEnPruebas({ VERCEL_ENV: 'preview', M365_STAGING_CALENDARIO: '0' }) === true)
+  t('opción C: staging con M365_STAGING_CALENDARIO=1 → permitido (invitados siguen aislados)', calendarioBloqueadoEnPruebas({ VERCEL_ENV: 'preview', M365_STAGING_CALENDARIO: '1' }) === false && (() => { const e = { VERCEL_ENV: 'preview', M365_STAGING_CALENDARIO: '1', M365_STAGING_TEST_EMAIL: 'prueba@internetoperadores.com' }; const r = aislarAsistentes([{ email: 'cliente@externo-demo.es' }], e); const sin = aislarAsistentes([{ email: 'cliente@externo-demo.es' }], { VERCEL_ENV: 'preview', M365_STAGING_CALENDARIO: '1' }); return r.accion === 'desviado' && r.asistentes.every((x) => x.email === 'prueba@internetoperadores.com') && sin.asistentes.length === 0 })())
+  t('opción C: producción intacta (nunca bloquea, con o sin variable)', calendarioBloqueadoEnPruebas({ VERCEL_ENV: 'production' }) === false && calendarioBloqueadoEnPruebas({ VERCEL_ENV: 'production', M365_STAGING_CALENDARIO: '0' }) === false)
+  {
+    const src = readFileSync('app/api/admin/crm/contactos/[id]/actividades/route.ts', 'utf8')
+    t('opción C: la ruta decide antes de pedir estado/token y guarda CALENDARIO_NO_CREADO_AISLADO', RESULTADO_CALENDARIO_AISLADO === 'CALENDARIO_NO_CREADO_AISLADO'
+      && /const calendarioAislado = requestedOutlook && calendarioBloqueadoEnPruebas\(\)/.test(src)
+      && src.indexOf('const calendarioAislado') < src.indexOf('getOutlookConnectionStatus(authorId)')
+      && /requestedOutlook && !calendarioAislado \? await getOutlookConnectionStatus/.test(src)
+      && /syncOutlook = Boolean\(requestedOutlook && !calendarioAislado/.test(src)
+      && src.includes('calendarioAislado ? RESULTADO_CALENDARIO_AISLADO'))
+  }
   console.log(`\nResultado: ${ok}/${ok + ko}`)
   if (ko) process.exit(1)
 }

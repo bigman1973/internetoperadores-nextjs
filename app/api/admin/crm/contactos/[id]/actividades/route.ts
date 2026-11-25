@@ -7,7 +7,7 @@ import { getDefaultEmailSender, sendCrmEmail } from '@/lib/email'
 import { createOutlookUserCalendarEvent } from '@/lib/outlook-calendar'
 import { getOutlookConnectionStatus, getOutlookUserAccessToken } from '@/lib/outlook-user-connection'
 import prisma from '@/lib/prisma'
-import { aislarAsistentes, aislarCorreo, bloqueoActuacion } from '@/lib/area1-m365'
+import { aislarAsistentes, aislarCorreo, bloqueoActuacion, calendarioBloqueadoEnPruebas, RESULTADO_CALENDARIO_AISLADO } from '@/lib/area1-m365'
 import { enviarCorreoComoUsuario } from '@/lib/area1-m365-graph'
 import { verificarPermisoServer } from '@/lib/permisos'
 
@@ -137,8 +137,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const requestedOutlook = type === 'REUNION' && body.syncOutlook === true
   const actuacion = (type === 'CORREO' || requestedOutlook) ? bloqueoActuacion(session) : null
   if (actuacion) return NextResponse.json({ error: actuacion }, { status: 403 })
-  const outlookStatus = requestedOutlook ? await getOutlookConnectionStatus(authorId) : null
-  const syncOutlook = Boolean(requestedOutlook && outlookStatus?.enabled && outlookStatus.connected)
+  // Opción C: en pruebas (modo aislado sin M365_STAGING_CALENDARIO=1) la reunión solo se guarda en la ficha.
+  const calendarioAislado = requestedOutlook && calendarioBloqueadoEnPruebas()
+  const outlookStatus = requestedOutlook && !calendarioAislado ? await getOutlookConnectionStatus(authorId) : null
+  const syncOutlook = Boolean(requestedOutlook && !calendarioAislado && outlookStatus?.enabled && outlookStatus.connected)
   const onlineMeeting = syncOutlook && body.onlineMeeting === true
   const inviteAttendees = syncOutlook && body.inviteAttendees === true
   // Área 1 · M365: correo desde el buzón del usuario (delegado). Si no, buzón corporativo de la app (lib/email.ts).
@@ -166,8 +168,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (activityDate.getTime() < Date.now() - 5 * 60 * 1000) return NextResponse.json({ error: 'La reunión de Outlook debe programarse en el futuro.' }, { status: 400 })
     if (!durationMinutes || durationMinutes < 5) return NextResponse.json({ error: 'Indica una duración mínima de 5 minutos.' }, { status: 400 })
   }
-  if (requestedOutlook && !outlookStatus?.enabled) return NextResponse.json({ error: 'Outlook individual aún está pendiente de activación en Microsoft 365.' }, { status: 503 })
-  if (requestedOutlook && !outlookStatus?.connected) return NextResponse.json({ error: 'Conecta tu cuenta de Outlook antes de crear la reunión en tu agenda.' }, { status: 428 })
+  if (requestedOutlook && !calendarioAislado && !outlookStatus?.enabled) return NextResponse.json({ error: 'Outlook individual aún está pendiente de activación en Microsoft 365.' }, { status: 503 })
+  if (requestedOutlook && !calendarioAislado && !outlookStatus?.connected) return NextResponse.json({ error: 'Conecta tu cuenta de Outlook antes de crear la reunión en tu agenda.' }, { status: 428 })
   if (viaOutlookMail && !mailStatus?.enabled) return NextResponse.json({ error: 'Outlook individual aún está pendiente de activación en Microsoft 365.' }, { status: 503 })
   if (viaOutlookMail && !mailStatus?.connected) return NextResponse.json({ error: 'Conecta tu cuenta de Outlook antes de enviar desde tu buzón.' }, { status: 428 })
   if (viaOutlookMail && !mailStatus?.mail) return NextResponse.json({ error: 'Tu conexión de Outlook aún no incluye el permiso de correo. Pulsa «Conceder permiso de correo».' }, { status: 428 })
@@ -289,6 +291,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         metadata.estadoCalendario = 'PENDIENTE'
         metadata.reunionTeams = onlineMeeting
       }
+      if (calendarioAislado) {
+        metadata.estadoCalendario = 'NO_CREADO_AISLADO'
+        metadata.aislamiento = { modo: 'aislado', accion: 'calendario_no_creado', motivo: 'Pruebas: no creada en Outlook' }
+      }
       if (preparedExternalChannel) {
         metadata.modoAsistido = true
         metadata.canalPreparado = type
@@ -303,7 +309,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
           metadatos: Object.keys(metadata).length ? metadata : undefined,
           fechaActividad: type === 'CORREO' ? new Date() : activityDate,
           direccion: type === 'CORREO' ? 'SALIENTE' : direction,
-          resultado: type === 'CORREO' ? 'ENVIO_PENDIENTE' : syncOutlook ? 'CALENDARIO_PENDIENTE' : preparedExternalChannel ? 'CANAL_PREPARADO' : result || (type === 'TAREA' ? 'PENDIENTE' : 'REGISTRADA'),
+          resultado: type === 'CORREO' ? 'ENVIO_PENDIENTE' : syncOutlook ? 'CALENDARIO_PENDIENTE' : calendarioAislado ? RESULTADO_CALENDARIO_AISLADO : preparedExternalChannel ? 'CANAL_PREPARADO' : result || (type === 'TAREA' ? 'PENDIENTE' : 'REGISTRADA'),
           duracionSegundos: durationMinutes == null ? null : durationMinutes * 60,
           origen: 'LOCAL',
           clientRequestId,
