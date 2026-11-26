@@ -112,7 +112,14 @@ async function main() {
     "      if (request.method === 'POST' && (m365LegacyMailRouteFromPath(path) || crmActivityPath)) {\n        return NextResponse.json(m365LegacyPendingBody(), { status: 503, headers: { 'Cache-Control': 'private, no-store' } });\n      }\n",
     "    if (externalPath && !isAuthorizedP2Path(path) && !assistantReportCronAllowed && !rentabilidadAnalyticAllowed\n      && request.method === 'POST' && m365LegacyMailRouteFromPath(path)) {\n      return NextResponse.json(m365LegacyPendingBody(), { status: 503, headers: { 'Cache-Control': 'private, no-store' } });\n    }\n",
   ]
-  const normalizeAuthorizedM365 = (source: string) => approvedM365ProxyAdditions.reduce((value, addition) => value.replace(addition, ''), normalizeProxy(source))
+  // Claude 26/11 18:10: sólo dos contratos exactos de vínculos staging.
+  // Revertir estos dos reemplazos literales; el resto se compara byte a byte.
+  // Su ejecución completa (incluidos owner, origen y auditoría) tiene batería nativa.
+  const approvedVinculosProxyReplacements = [
+    ["      const localVinculos = contract === 'isp-vinculos-v1' || contract === 'isp-vinculos-bloque-v1';\n      if (!imports.area4CrmStagingImportOriginAllowed(request)\n        || (localVinculos && request.headers.get('sec-fetch-site') !== 'same-origin')) {\n", "      if (!imports.area4CrmStagingImportOriginAllowed(request)) {\n"],
+    ["        : contract === 'hubspot-confirm-v1'\n          ? await imports.readArea4HubspotStagingCommand(request, maximumBytes)\n          : contract === 'isp-vinculos-v1'\n            ? await imports.readArea4IspVinculosStagingCommand(request, maximumBytes)\n            : contract === 'isp-vinculos-bloque-v1'\n              ? await imports.readArea4IspVinculosBloqueStagingCommand(request, maximumBytes)\n              : { errorStatus: 400 };\n", "        : await imports.readArea4HubspotStagingCommand(request, maximumBytes);\n"],
+  ]
+  const normalizeAuthorizedM365 = (source: string) => approvedM365ProxyAdditions.reduce((value, addition) => value.replace(addition, ''), approvedVinculosProxyReplacements.reduce((value, [current, previous]) => value.replace(current, previous), normalizeProxy(source)))
   t('lib/email.ts y todas las guardas previas del proxy intactas salvo cierre M365 autorizado', diffEmail.trim() === '' && normalizeAuthorizedM365(baselineProxy) === normalizeAuthorizedM365(readFileSync('proxy.js', 'utf8')))
 
   // Canal por defecto: Mi Outlook (decisión de Víctor 25/11)

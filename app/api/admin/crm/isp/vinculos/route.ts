@@ -3,7 +3,10 @@ import { importacionesCrmCerradas } from '@/lib/area1-puertas-produccion'
 import type { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { autorizarSuperadminIsp } from '@/lib/crm-isp-auth'
-import { resolverVinculos } from '@/lib/crm-isp-import'
+import { ErrorVinculo, resolverVinculoEnTx } from '@/lib/crm-isp-import'
+import { propietarioImportacion } from '@/lib/area1-import-recibo'
+import { appendArea4Audit } from '@/lib/area4/audit'
+import { readArea4IspVinculosStagingCommand } from '@/lib/area4/crm-staging-import'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -64,11 +67,40 @@ export async function POST(request: Request) {
   if (importacionesCrmCerradas()) return NextResponse.json({ error: 'No disponible.' }, { status: 404 })
   const auth = await autorizarSuperadminIsp()
   if (!auth.actor) return NextResponse.json({ error: 'No autorizado.' }, { status: auth.status })
-  const body = await request.json().catch(() => ({}))
-  const accion = body?.accion
-  const ids: unknown = body?.ids
-  if (accion !== 'CONFIRMAR' && accion !== 'DESCARTAR') return NextResponse.json({ error: 'Acción no válida.' }, { status: 400 })
-  if (!Array.isArray(ids) || !ids.length || ids.length > 200 || ids.some((x) => typeof x !== 'string' || x.length > 64)) return NextResponse.json({ error: 'Selecciona entre 1 y 200 propuestas.' }, { status: 400 })
-  const resultados = await resolverVinculos(prisma, [...new Set(ids as string[])], accion, auth.actor.email)
-  return NextResponse.json({ ok: resultados.filter((r) => r.ok).length, errores: resultados.filter((r) => !r.ok) })
+  const owner = await propietarioImportacion()
+  if (!owner.ok || !owner.actorId) return owner.response!
+  const command = await readArea4IspVinculosStagingCommand(request, 16384)
+  if (command.errorStatus || !command.body) return NextResponse.json({ error: 'Selecciona entre 1 y 200 propuestas y una acción válida.' }, { status: command.errorStatus || 400 })
+  const { accion, ids } = command.body
+  const actor = auth.actor.email
+  const resultados: Array<{ id: string; ok: boolean; codigo?: string }> = []
+  // Preserve the native per-proposal transactions and partial-result semantics.
+  // Only an actual committed resolution is counted; no ficha/link forecasts.
+  const receipt = (tx: Prisma.TransactionClient, resultado: 'EXITO' | 'ERROR', codigo?: string) => appendArea4Audit(tx, {
+    actorId: owner.actorId!, objetivoUsuarioId: null, operacion: 'CRM_IMPORTACION_ISP', areaCodigo: 'admin.crm',
+    origen: 'crm.isp.vinculos', despues: { fase: 'RESULTADO', resultado, accion,
+      propuestasResueltas: resultado === 'EXITO' ? 1 : 0, ...(codigo ? { codigo } : {}) },
+  })
+  for (const id of new Set(ids)) {
+    try {
+      await prisma.$transaction(async tx => {
+        await resolverVinculoEnTx(tx, id, accion, actor)
+        // A failed RESULT receipt rolls back this proposal before ERROR audit.
+        await receipt(tx, 'EXITO')
+      }, { maxWait: 5000, timeout: 30000 })
+      resultados.push({ id, ok: true })
+    } catch (e) {
+      const codigo = e instanceof ErrorVinculo ? e.codigo : 'ERROR'
+      try {
+        await prisma.$transaction(tx => receipt(tx, 'ERROR', codigo), { maxWait: 5000, timeout: 5000 })
+      } catch {
+        // Previous successful proposals may already be committed and audited.
+        // Never claim total rollback or success when the failure is unaudited.
+        return NextResponse.json({ error: 'No se pudo registrar el recibo de la propuesta fallida.', codigo: 'NO_AUDITADO',
+          ok: resultados.filter(r => r.ok).length }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
+      }
+      resultados.push({ id, ok: false, codigo })
+    }
+  }
+  return NextResponse.json({ ok: resultados.filter((r) => r.ok).length, errores: resultados.filter((r) => !r.ok) }, { headers: { 'Cache-Control': 'no-store' } })
 }

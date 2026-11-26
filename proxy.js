@@ -519,7 +519,9 @@ async function area4RegisteredAdminApiBoundary(request) {
       if (isImpersonating || !policy.isArea4Owner(principal)) {
         return privateBoundary({ error: 'Solo el propietario real puede importar, sin actuación.' }, 403);
       }
-      if (!imports.area4CrmStagingImportOriginAllowed(request)) {
+      const localVinculos = contract === 'isp-vinculos-v1' || contract === 'isp-vinculos-bloque-v1';
+      if (!imports.area4CrmStagingImportOriginAllowed(request)
+        || (localVinculos && request.headers.get('sec-fetch-site') !== 'same-origin')) {
         return privateBoundary({ error: 'La importación debe confirmarse desde esta misma página.', codigo: 'ORIGIN_NOT_ALLOWED' }, 403);
       }
       const maximumBytes = contract === 'isp-multipart-v1'
@@ -527,7 +529,13 @@ async function area4RegisteredAdminApiBoundary(request) {
       if (!Number.isSafeInteger(maximumBytes) || maximumBytes <= 0) return privateBoundary({ error: 'No se pudo verificar el límite de importación.' }, 503);
       const command = contract === 'isp-multipart-v1'
         ? await imports.readArea4IspStagingCommand(request, maximumBytes)
-        : await imports.readArea4HubspotStagingCommand(request, maximumBytes);
+        : contract === 'hubspot-confirm-v1'
+          ? await imports.readArea4HubspotStagingCommand(request, maximumBytes)
+          : contract === 'isp-vinculos-v1'
+            ? await imports.readArea4IspVinculosStagingCommand(request, maximumBytes)
+            : contract === 'isp-vinculos-bloque-v1'
+              ? await imports.readArea4IspVinculosBloqueStagingCommand(request, maximumBytes)
+              : { errorStatus: 400 };
       if (command.errorStatus) return privateBoundary({ error: 'No se pudo verificar la confirmación de importación.' }, command.errorStatus);
       if (contract === 'hubspot-confirm-v1' && (command.body?.confirmar !== true || Object.keys(command.body).length !== 1)) {
         return privateBoundary({ error: 'Confirma expresamente la importación del historial.' }, 400);

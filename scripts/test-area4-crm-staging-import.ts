@@ -27,9 +27,9 @@ const HASH = 'a'.repeat(64) // Syntax fixture only; the native handler must veri
 const STAGE: Record<string, string | undefined> = {
   AREA4_OWNER_USER_ID: '3', FINANCE_STAGING_SANDBOX: '1', VERCEL_ENV: 'preview',
   VERCEL_GIT_COMMIT_REF: 'staging',
-  DATABASE_URL: 'postgresql://io_staging_finanzas:synthetic@fixture.invalid/io_staging_finanzas',
+  DATABASE_URL: 'postgresql://io_staging_finanzas:synthetic@127.0.0.1:1/io_staging_finanzas',
   FINANCE_DEPLOYMENT_READ_ONLY: '0', IO_PRODUCTION_READ_ONLY: '0',
-  FINANCE_EXTERNAL_ACTIONS_DISABLED: '0', FINANCE_BACKGROUND_SYNC_ENABLED: '0',
+  FINANCE_EXTERNAL_ACTIONS_DISABLED: '1', FINANCE_BACKGROUND_SYNC_ENABLED: '0',
   FINANCE_ONEDRIVE_SYNC_ENABLED: '0', FINANCE_ISP_SYNC_ENABLED: '0',
   FINANCE_MODEL_PRODUCTION_ENABLED: '0',
 }
@@ -194,7 +194,7 @@ function attempt(path: string) {
   assert.doesNotMatch(JSON.stringify(receipt), /synthetic\.xlsx|hashEsperado|confirmacion|conteos|journalId|EXITO/)
 }
 
-test('registro real: dos contratos exactos, pendientes, límites y baseline histórico intacto', () => {
+test('registro real: cuatro contratos exactos, pendientes, límites y baseline histórico intacto', () => {
   assert.equal(crmStagingImport.area4CrmStagingImportContract(ISP, 'POST'), 'isp-multipart-v1')
   assert.equal(crmStagingImport.area4CrmStagingImportContract(HUB, 'POST'), 'hubspot-confirm-v1')
   const isp = registry.area4RegisteredSurface(ISP, 'api')!
@@ -202,7 +202,8 @@ test('registro real: dos contratos exactos, pendientes, límites y baseline hist
   assert.equal(isp.baseline, false)
   assert.equal(hub.baseline, false)
   assert.deepEqual(registry.AREA4_SECTION_REGISTRY.flatMap(section => section.surfaces)
-    .filter(surface => surface.request?.stagingImport).map(surface => surface.path).sort(), [HUB, ISP].sort())
+    .filter(surface => surface.request?.stagingImport).map(surface => surface.path).sort(),
+    [HUB, ISP, '/api/admin/crm/isp/vinculos', '/api/admin/crm/isp/vinculos/bloque'].sort())
   assert.equal(isp.surface.request?.multipartBodyLimit, MULTIPART_LIMIT)
   assert.equal(isp.surface.request?.readOnlyReview, 'isp-closed-simulation')
   assert.equal(hub.surface.request?.commandBodyLimit, 16 * 1024)
@@ -325,7 +326,7 @@ test('origen exacto HTTPS requerido: host hermano same-site, cross-site o cabece
 })
 
 const neighbours = [
-  '/api/admin/crm/isp/vinculos', '/api/admin/crm/isp/importar/vecina', '/api/admin/crm/hubspot/historial/vecina',
+  '/api/admin/crm/isp/vinculos/vecina', '/api/admin/crm/isp/importar/vecina', '/api/admin/crm/hubspot/historial/vecina',
   '/api/admin/crm/hubspot/vinculos', '/api/admin/crm/contactos/synthetic/actividades',
   '/api/admin/crm/contactos/synthetic/actividades/synthetic/m365',
   '/api/admin/crm/contactos/synthetic/m365/borrador', '/api/admin/crm/m365/vecina',
@@ -340,6 +341,14 @@ test('vecinos, vínculos, M365 y variantes no canónicas nunca heredan la excepc
     const response = await invoke(path, json({ confirmar: true }))
     denied(response, path === '/api/admin/crm/contactos/synthetic/actividades' ? 503 : 403)
     if (path === '/api/admin/crm/contactos/synthetic/actividades') assert.equal((await response!.json()).code, m365LegacyPolicy.M365_LEGACY_PENDING_CODE)
+  }
+  assert.equal(entries.length, 0)
+})
+
+test('la nueva excepción vínculos no acepta payloads de importación ni confirmar:true', async () => {
+  for (const path of ['/api/admin/crm/isp/vinculos', '/api/admin/crm/isp/vinculos/bloque']) {
+    denied(await invoke(path, json({ confirmar: true })), 400)
+    denied(await invoke(path, apply()), 415)
   }
   assert.equal(entries.length, 0)
 })

@@ -31,7 +31,7 @@ export type Area4Surface = Readonly<{
   path: string; kind: Area4SurfaceKind; actions?: readonly Area4ActionLetter[];
   request?: Readonly<{ commandBodyLimit?: number; multipartBodyLimit?: number;
     readOnlyReview?: 'conciliar-closed-review-preview' | 'isp-closed-simulation';
-    stagingImport?: 'isp-multipart-v1' | 'hubspot-confirm-v1';
+    stagingImport?: 'isp-multipart-v1' | 'hubspot-confirm-v1' | 'isp-vinculos-v1' | 'isp-vinculos-bloque-v1';
     requiredActions?: Readonly<Partial<Record<'GET' | 'HEAD' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS', readonly Area4ActionLetter[]>>> }>;
   baselineDescriptor?: string; menu?: readonly Area4SurfaceMenu[];
   availability?: Readonly<{ stagingOnly?: boolean; needsFinance?: boolean; conciliarOnly?: boolean; financeSuffix?: boolean; replacedByConciliar?: boolean; closedByGate?: "crmImportaciones" }>;
@@ -2494,14 +2494,14 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         path: "/api/admin/crm/isp/vinculos",
         kind: "api",
         actions: ["V","E","C","X"],
-        request: {"commandBodyLimit":8388608},
+        request: { commandBodyLimit: 16384, stagingImport: "isp-vinculos-v1", requiredActions: { GET: ["V"], HEAD: ["V"], POST: ["C"] } },
         baselineDescriptor: "[1,\"crm-isp\",\"admin.crm\",\"api\",\"/api/admin/crm/isp/vinculos\",[\"V\",\"E\",\"C\",\"X\"],[[\"V\",\"lectura\"],[\"E\",\"escritura\"],[\"C\",\"confirmar\"],[\"X\",\"exportar\"]],{\"commandBodyLimit\":8388608},{\"safeMethods\":[\"GET\",\"HEAD\",\"OPTIONS\"],\"selectors\":[\"action\",\"accion\"],\"confirmActions\":[\"confirmar\",\"confirmar_traspasos_propios_manual\",\"aprobar\",\"aprobar_extra\",\"aprobar_gasto\",\"validar\",\"asociar_devolucion\",\"asociar_facturas\",\"vincular_factura_interes\",\"vincular_compra\",\"vincular_personal\",\"imputar\",\"imputar-a-ventas\",\"imputar-todas-proveedor\",\"aplicar-similares\",\"guardar-lineas\",\"RESOLVER_CUARENTENA\",\"RESOLVER_HISTORICA\"],\"exportActions\":[\"exportar\",\"export\",\"download\",\"descargar\",\"pdf\",\"excel\",\"csv\"],\"confirmPathSegments\":[\"confirmar\",\"aprobar\",\"validar\",\"confirmacion\"],\"exportPathSegments\":[\"exportar\",\"exportar-a3\",\"export\",\"exportaciones\",\"excel\",\"csv\"],\"exportFinalSegment\":\"pdf\",\"singleDocumentException\":\"/api/admin/finanzas/conciliar/documento\"}]",
       },
       {
         path: "/api/admin/crm/isp/vinculos/bloque",
         kind: "api",
         actions: ["V", "C"],
-        request: { requiredActions: { GET: ["V"], HEAD: ["V"], POST: ["C"] } },
+        request: { commandBodyLimit: 16384, stagingImport: "isp-vinculos-bloque-v1", requiredActions: { GET: ["V"], HEAD: ["V"], POST: ["C"] } },
       },
     ],
   },
