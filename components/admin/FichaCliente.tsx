@@ -369,8 +369,10 @@ function Drawer({ cajon, ficha, m365, puedeEscribir, onClose, onOpen, toast }: {
   const [hora, setHora] = useState('10:00')
   const [dur, setDur] = useState('30')
   const [invitados, setInvitados] = useState<string[]>(conEmail[0] ? [conEmail[0].id] : [])
-  const [enOutlook, setEnOutlook] = useState(m365.conexion.enabled)
-  const [teams, setTeams] = useState(m365.conexion.enabled)
+  // Al cerrar la salida CRM, una reunión nueva empieza sólo en la ficha.
+  // Una elección Outlook posterior sigue siendo explícita y nunca se transforma en éxito local.
+  const [enOutlook, setEnOutlook] = useState(m365.conexion.enabled && m365.conexion.envios !== false)
+  const [teams, setTeams] = useState(m365.conexion.enabled && m365.conexion.envios !== false)
   async function crearReunion() {
     setError(null)
     setPendiente(false)

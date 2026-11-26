@@ -124,6 +124,9 @@ function ui(kind: 'composer-mail' | 'composer-meet' | 'drawer-mail' | 'drawer-me
     input(n => n.type === 'textarea').props.onChange({ target: { value: 'Borrador conservado' } })
     input(n => n.type === 'input' && n.props.type === 'number').props.onChange({ target: { value: '30' } })
     input(n => n.type === 'input' && n.props.type === 'checkbox').props.onChange({ target: { checked: options.sync !== false } })
+  } else if (options.sync === true) {
+    // El cierre ahora inicia la ficha en local; estos casos eligen Outlook explícitamente.
+    input(n => n.type === 'input' && n.props.type === 'checkbox').props.onChange({ target: { checked: true } })
   }
   render()
   return {
@@ -185,7 +188,7 @@ async function main() {
   for (const kind of ['composer-mail', 'composer-meet', 'drawer-mail', 'drawer-meet'] as const) {
     for (const response of pendingBodies) {
       await test(`${kind}: pendiente exacto sin éxito, conserva contenido y reintento habilitado ${response.code || response.codigo || 'sandbox'}`, async () => {
-        const f = ui(kind, { responses: [response, { success: true, linkedToOutlook: true, acceptedByMicrosoft: true }] })
+        const f = ui(kind, { sync: true, responses: [response, { success: true, linkedToOutlook: true, acceptedByMicrosoft: true }] })
         await f.submit(); assertPending(f, kind !== 'drawer-meet')
         assert.equal(f.counters.payloads.length, 1)
         if (kind.endsWith('meet')) assert.equal(f.counters.payloads[0].syncOutlook, true)
@@ -218,6 +221,18 @@ async function main() {
       assert.ok(!f.all.some(n => n.props?.role === 'status'))
     })
   }
+  await test('ficha reunión inicial local con salida CRM cerrada: sin Graph, Teams ni invitados externos', async () => {
+    const f = ui('drawer-meet', { responses: [{ success: true }] })
+    const boxes = f.all.filter(n => n.type === 'input' && n.props.type === 'checkbox')
+    assert.equal(boxes[0].props.checked, false); assert.equal(boxes[1].props.checked, false)
+    await f.submit()
+    assert.equal(f.counters.payloads[0].syncOutlook, false)
+    assert.equal(f.counters.payloads[0].onlineMeeting, false)
+    assert.equal(f.counters.payloads[0].inviteAttendees, false)
+    assert.equal(f.counters.closed, 1)
+    assert.deepEqual(f.counters.toasts, ['Reunión guardada en la ficha.'])
+    assert.ok(!f.all.some(n => n.props?.role === 'status'))
+  })
   await test('compositor NOTA permanece operativo y sin aviso envío al cerrar CRM', async () => {
     const f = ui('composer-mail', { type: 'NOTA', responses: [{ success: true }] }); await f.submit()
     assert.equal(f.counters.payloads[0].type, 'NOTA'); assert.equal(f.counters.created, 1)
