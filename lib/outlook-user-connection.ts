@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
 import prisma from '@/lib/prisma'
+import { enviosCrmHabilitados } from '@/lib/area1-puertas-produccion'
 import { M365_SCOPES_CALENDARIO, M365_SCOPES_TODOS, m365Habilitado, scopesParaRenovar, tienePermiso, type M365Necesidad } from '@/lib/area1-m365'
 
 // Área 1 · M365: se piden calendario + correo (delegados). Las conexiones antiguas (solo calendario)
@@ -37,6 +38,8 @@ export type OutlookConnectionStatus = {
   mail: boolean
   /** Área 1 · Microsoft 365 en la ficha (correo, IA, respuestas) disponible en este entorno */
   m365: boolean
+  /** Área 1 · envío de correo y reunión en Outlook activos (en producción: AREA1_ENVIOS_CRM_PRODUCCION=1) */
+  envios: boolean
 }
 
 export function isOutlookUserIntegrationEnabled() {
@@ -176,6 +179,7 @@ export async function getOutlookConnectionStatus(userId: number): Promise<Outloo
     lastError: connection?.ultimoError || null,
     mail: m365Habilitado() && Boolean(connection && !connection.revocadoAt && tienePermiso(connection.scopes, 'correo')),
     m365: m365Habilitado(),
+    envios: enviosCrmHabilitados(),
   }
 }
 

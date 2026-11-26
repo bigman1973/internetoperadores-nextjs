@@ -10,6 +10,7 @@ import prisma from '@/lib/prisma'
 import { aislarAsistentes, aislarCorreo, bloqueoActuacion, calendarioBloqueadoEnPruebas, RESULTADO_CALENDARIO_AISLADO, m365Habilitado } from '@/lib/area1-m365'
 import { enviarCorreoComoUsuario } from '@/lib/area1-m365-graph'
 import { verificarPermisoServer } from '@/lib/permisos'
+import { ENVIOS_PENDIENTES, enviosCrmHabilitados } from '@/lib/area1-puertas-produccion'
 
 const ACTIVITY_TYPES = new Set(['LLAMADA', 'CORREO', 'REUNION', 'NOTA', 'TAREA', 'WHATSAPP', 'LINKEDIN', 'SMS', 'CORREO_POSTAL'])
 const DIRECTIONS = new Set(['ENTRANTE', 'SALIENTE'])
@@ -135,6 +136,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const authorName = session.user.name || session.user.email || 'Administrador'
   const authorEmail = session.user.email?.trim().toLowerCase() || ''
   const requestedOutlook = type === 'REUNION' && body.syncOutlook === true
+  // Producción: envío de correo y reunión en Outlook cerrados hasta activarlos (antes de pedir token o conexión).
+  if ((type === 'CORREO' || requestedOutlook) && !enviosCrmHabilitados()) {
+    return NextResponse.json({ error: type === 'CORREO' ? 'Pendiente de activar: el envío de correo desde el CRM aún no está activo. Puedes registrarlo como nota.' : 'Pendiente de activar: la creación de reuniones en Outlook aún no está activa. Guarda la reunión solo en la ficha.', codigo: ENVIOS_PENDIENTES }, { status: 409 })
+  }
   const actuacion = (type === 'CORREO' || requestedOutlook) ? bloqueoActuacion(session) : null
   if (actuacion) return NextResponse.json({ error: actuacion }, { status: 403 })
   // Opción C: en pruebas (modo aislado sin M365_STAGING_CALENDARIO=1) la reunión solo se guarda en la ficha.

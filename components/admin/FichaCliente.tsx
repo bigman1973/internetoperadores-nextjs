@@ -8,7 +8,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { EventoFicha, FichaCliente as Ficha } from '@/lib/area1-ficha-cliente'
 
-type Conexion = { enabled: boolean; connected: boolean; email: string | null; mail?: boolean; m365?: boolean }
+type Conexion = { enabled: boolean; connected: boolean; email: string | null; mail?: boolean; m365?: boolean; envios?: boolean }
+const PENDIENTE_CORREO = 'Pendiente de activar: el envío de correo desde el CRM aún no está activo. Puedes registrarlo como nota.'
+const PENDIENTE_REUNION = 'Pendiente de activar: la reunión en Outlook aún no está activa. La reunión se guardará solo en la ficha.'
 type M365 = { aviso: string | null; conexion: Conexion; corporativo: string; connectUrl: string }
 type Vista = 'resumen' | 'actividad' | 'contratos' | 'facturacion' | 'negocios' | 'personas' | 'rentabilidad'
 const VISTAS: Vista[] = ['resumen', 'actividad', 'contratos', 'facturacion', 'negocios', 'personas', 'rentabilidad']
@@ -93,7 +95,7 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
     } catch (e) { setRecibidos({ estado: 'error', eventos: [], msg: e instanceof Error ? e.message : 'No se han podido leer los correos de Outlook.' }) }
   }
   const eventos = useMemo(() => recibidos.eventos.length ? [...ficha.eventos, ...recibidos.eventos].sort((a, b) => b.fechaIso.localeCompare(a.fechaIso)) : ficha.eventos, [ficha.eventos, recibidos.eventos])
-  const pieOutlook = !m365.conexion.enabled ? null
+  const pieOutlook = !m365.conexion.enabled || m365.conexion.m365 === false ? null
     : !outlookCorreo ? <p className="small muted" style={{ margin: '6px 0 0' }}><a href={m365.connectUrl}>{m365.conexion.connected ? 'Conceder permiso de correo' : 'Conectar mi Outlook'}</a> para ver aquí los correos que te envía el cliente (solo lectura).</p>
       : <p className="small muted" style={{ margin: '6px 0 0', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <button className="btn small" type="button" onClick={cargarRecibidos} disabled={recibidos.estado === 'cargando'}>{recibidos.estado === 'cargando' ? 'Leyendo tu Outlook…' : recibidos.estado === 'idle' ? 'Ver correos recibidos en mi Outlook' : 'Actualizar correos recibidos'}</button>
@@ -348,6 +350,7 @@ function Drawer({ cajon, ficha, m365, puedeEscribir, onClose, onOpen, toast }: {
     if (!p?.email) return setError('Elige a quién escribes (la persona necesita correo).')
     if (!asunto.trim()) return setError('Escribe el asunto del correo.')
     if (!cuerpo.trim()) return setError('Escribe el contenido del correo.')
+    if (m365.conexion.envios === false) return setError(PENDIENTE_CORREO)
     if (viaOutlook && !outlookListo) return setError('Conecta tu Outlook con permiso de correo o elige «Buzón corporativo».')
     setOcupado('enviar')
     try {
@@ -365,8 +368,9 @@ function Drawer({ cajon, ficha, m365, puedeEscribir, onClose, onOpen, toast }: {
   const [hora, setHora] = useState('10:00')
   const [dur, setDur] = useState('30')
   const [invitados, setInvitados] = useState<string[]>(conEmail[0] ? [conEmail[0].id] : [])
-  const [enOutlook, setEnOutlook] = useState(m365.conexion.enabled)
-  const [teams, setTeams] = useState(m365.conexion.enabled)
+  const reunionPendiente = m365.conexion.envios === false
+  const [enOutlook, setEnOutlook] = useState(m365.conexion.enabled && !reunionPendiente)
+  const [teams, setTeams] = useState(m365.conexion.enabled && !reunionPendiente)
   async function crearReunion() {
     setError(null)
     const ids = invitados.length ? invitados : ficha.personas[0] ? [ficha.personas[0].id] : []
@@ -389,9 +393,10 @@ function Drawer({ cajon, ficha, m365, puedeEscribir, onClose, onOpen, toast }: {
     <label>Título</label><input value={titulo} onChange={(e) => setTitulo(e.target.value)} />
     <label>Cuándo</label><div className="row"><input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} style={{ flex: '1 1 140px' }} /><input type="time" value={hora} onChange={(e) => setHora(e.target.value)} style={{ flex: '1 1 90px' }} /><select value={dur} onChange={(e) => setDur(e.target.value)} style={{ flex: '1 1 100px' }}><option value="30">30 min</option><option value="45">45 min</option><option value="60">1 h</option></select></div>
     <label>Invitados</label><select multiple size={3} value={invitados} onChange={(e) => setInvitados([...e.target.selectedOptions].map((o) => o.value))}>{conEmail.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}</select>
-    <label className="chk" style={{ display: 'flex', color: 'var(--fg)' }}><input type="checkbox" checked={enOutlook} disabled={!m365.conexion.enabled} onChange={(e) => setEnOutlook(e.target.checked)} style={{ width: 'auto' }} /> Crear en mi calendario de Outlook</label>
+    <label className="chk" style={{ display: 'flex', color: 'var(--fg)' }}><input type="checkbox" checked={enOutlook} disabled={!m365.conexion.enabled || reunionPendiente} onChange={(e) => setEnOutlook(e.target.checked)} style={{ width: 'auto' }} /> Crear en mi calendario de Outlook</label>
     <label className="chk" style={{ display: 'flex', color: 'var(--fg)' }}><input type="checkbox" checked={teams} disabled={!enOutlook} onChange={(e) => setTeams(e.target.checked)} style={{ width: 'auto' }} /> Añadir reunión de Microsoft Teams</label>
     {m365.conexion.enabled && m365.conexion.m365 !== false && !m365.conexion.connected && <p className="small muted"><a href={m365.connectUrl}>Conectar mi Outlook</a> para crear la reunión en tu calendario.</p>}
+    {reunionPendiente && <div className="notice">{PENDIENTE_REUNION}</div>}
     {m365.aviso && <div className="notice">Pruebas: los invitados se cambian por la dirección de prueba.</div>}
     {error && <div className="notice">{error}</div>}
     <div className="row" style={{ justifyContent: 'flex-end', marginTop: 12 }}><button className="btn" type="button" data-close onClick={onClose}>Cancelar</button><button className="btn primary" type="button" disabled={!puedeEscribir || ocupado != null} onClick={crearReunion}>{ocupado ? 'Creando…' : 'Crear reunión'}</button></div>
@@ -399,6 +404,7 @@ function Drawer({ cajon, ficha, m365, puedeEscribir, onClose, onOpen, toast }: {
   return <div className="drawer" id="drawer" role="dialog" aria-label="Redactar">
     <div className="row" style={{ justifyContent: 'space-between' }}><h2>{isAi ? 'Correo con IA' : 'Nuevo correo'}</h2><button className="btn ghost" type="button" data-close onClick={onClose}>✕</button></div>
     {sinPermiso}
+    {m365.conexion.envios === false && <div className="notice">{PENDIENTE_CORREO}</div>}
     {m365.aviso && <div className="notice">Pruebas: los correos se desvían a la dirección de prueba; ningún cliente los recibe.</div>}
     <label>Enviar desde</label><div className="seg" role="group"><button type="button" aria-pressed={viaOutlook} disabled={!m365.conexion.enabled} onClick={() => setViaOutlook(true)}>Mi Outlook</button><button type="button" aria-pressed={!viaOutlook} onClick={() => setViaOutlook(false)}>Buzón corporativo</button></div>
     {viaOutlook && outlookListo && <p className="small muted" style={{ margin: '6px 0 0' }}>{m365.conexion.email} · queda en Enviados</p>}
@@ -410,7 +416,7 @@ function Drawer({ cajon, ficha, m365, puedeEscribir, onClose, onOpen, toast }: {
     <label>Mensaje</label><textarea value={ocupado === 'ia' ? 'Redactando…' : cuerpo} onChange={(e) => { setCuerpo(e.target.value) }} />
     {avisosIa && <p className="small muted" style={{ margin: '6px 0 0' }}><b>Borrador propuesto por IA.</b> Revísalo antes de enviar.{avisosIa.length ? ` ${avisosIa.join(' ')}` : ''}</p>}
     {error && <div className="notice">{error}</div>}
-    <div className="row" style={{ marginTop: 12, justifyContent: 'space-between' }}>{isAi ? <button className="btn" type="button" disabled={ocupado != null} onClick={proponer}>Otra versión</button> : <button className="btn" type="button" data-open="ai" onClick={() => onOpen({ kind: 'ai', para, asunto })}>Redactar con IA</button>}<div className="row"><button className="btn" type="button" data-close onClick={onClose}>Cancelar</button><button className="btn primary" type="button" disabled={!puedeEscribir || ocupado != null} onClick={enviar}>{ocupado === 'enviar' ? 'Enviando…' : 'Enviar'}</button></div></div>
+    <div className="row" style={{ marginTop: 12, justifyContent: 'space-between' }}>{isAi ? <button className="btn" type="button" disabled={ocupado != null} onClick={proponer}>Otra versión</button> : <button className="btn" type="button" data-open="ai" onClick={() => onOpen({ kind: 'ai', para, asunto })}>Redactar con IA</button>}<div className="row"><button className="btn" type="button" data-close onClick={onClose}>Cancelar</button><button className="btn primary" type="button" disabled={m365.conexion.envios === false || !puedeEscribir || ocupado != null} onClick={enviar}>{ocupado === 'enviar' ? 'Enviando…' : 'Enviar'}</button></div></div>
     <p className="small muted">Queda en tus Enviados de Outlook y en esta ficha. Las respuestas del cliente aparecen en la actividad.</p>
   </div>
 }

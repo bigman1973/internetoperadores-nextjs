@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import { autorizarSuperadminIsp } from '@/lib/crm-isp-auth'
+import { importacionesCrmCerradas } from '@/lib/area1-puertas-produccion'
 import { bloqueoActuacion } from '@/lib/area1-m365'
 import { ErrorImportacionNoAuditada, propietarioImportacion } from '@/lib/area1-import-recibo'
 import { CONFIRMACION_BLOQUE, ErrorBloque, confirmarBloque, simularBloque } from '@/lib/area1-isp-bloque'
@@ -16,6 +17,7 @@ const SIN_CACHE = { 'Cache-Control': 'no-store' }
  * POST {confirmacion:'CONFIRMAR_BLOQUE', hashEsperado}: propietario vivo sin «Actuar como»; una transacción con recibo.
  */
 export async function GET() {
+  if (importacionesCrmCerradas()) return NextResponse.json({ error: 'No disponible.' }, { status: 404 })
   const auth = await autorizarSuperadminIsp()
   if (!auth.actor) return NextResponse.json({ error: 'No autorizado.' }, { status: auth.status })
   const actuacion = bloqueoActuacion(await getServerSession(authOptions))
@@ -23,6 +25,7 @@ export async function GET() {
   return NextResponse.json(await simularBloque(prisma), { headers: SIN_CACHE })
 }
 export async function POST(request: Request) {
+  if (importacionesCrmCerradas()) return NextResponse.json({ error: 'No disponible.' }, { status: 404 })
   const auth = await autorizarSuperadminIsp()
   if (!auth.actor) return NextResponse.json({ error: 'No autorizado.' }, { status: auth.status })
   const owner = await propietarioImportacion()

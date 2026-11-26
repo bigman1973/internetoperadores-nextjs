@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import { authorizeCrmEmpresas, canAccessCrmRelated } from '@/lib/crm-empresas-auth'
-import { bloqueoActuacion } from '@/lib/area1-m365'
+import { bloqueoActuacion, m365Habilitado } from '@/lib/area1-m365'
 import { getOutlookConnectionStatus, getOutlookUserAccessToken } from '@/lib/outlook-user-connection'
 import { direccionesRecibidos, leerCorreosRecibidos } from '@/lib/area1-m365-graph'
 import { eventosDeRecibidos } from '@/lib/area1-ficha-cliente'
@@ -16,6 +16,7 @@ const SIN_CACHE = { 'Cache-Control': 'no-store' }
  * y no envía nada. Cada usuario ve únicamente su propio buzón; no disponible durante «Actuar como».
  */
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+  if (!m365Habilitado()) return NextResponse.json({ error: 'No disponible.' }, { status: 404 })
   const auth = await authorizeCrmEmpresas()
   if (auth.status !== 200 || !auth.user) return NextResponse.json({ error: auth.status === 401 ? 'No autorizado.' : 'No tienes permiso para ver esta ficha.' }, { status: auth.status })
   const session = await getServerSession(authOptions)

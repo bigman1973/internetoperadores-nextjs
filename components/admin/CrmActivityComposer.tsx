@@ -40,6 +40,7 @@ type Props = {
     lastError: string | null
     mail?: boolean
     m365?: boolean
+    envios?: boolean
   }
   /** Área 1 · aviso de aislamiento de Microsoft 365 (staging); null en producción */
   m365Aviso?: string | null
@@ -67,6 +68,8 @@ function isValidEmail(value: string | null | undefined) {
   return Boolean(value && EMAIL_PATTERN.test(value.trim()))
 }
 
+export const PENDIENTE_CORREO = 'Pendiente de activar: el envío de correo desde el CRM aún no está activo. Puedes registrarlo como nota.'
+export const PENDIENTE_REUNION = 'Pendiente de activar: la reunión en Outlook aún no está activa. La reunión se guardará solo en la ficha.'
 export default function CrmActivityComposer({ open, type, contactId, contactName, contactEmail, contactPhone, contactLinkedIn, senderEmail, outlookConnection, m365Aviso = null, deals, onClose, onCreated }: Props) {
   const config = CONFIG[type]
   const [title, setTitle] = useState('')
@@ -75,6 +78,8 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
   const [durationMinutes, setDurationMinutes] = useState('')
   const [location, setLocation] = useState('')
   const [syncOutlook, setSyncOutlook] = useState(false)
+  // Producción: envío de correo y reunión en Outlook «pendiente de activar» (no es un error).
+  const enviosPendientes = outlookConnection.envios === false
   const [onlineMeeting, setOnlineMeeting] = useState(false)
   const [inviteAttendees, setInviteAttendees] = useState(isValidEmail(contactEmail))
   const [direction, setDirection] = useState('SALIENTE')
@@ -192,6 +197,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
     if (!description.trim()) return setError(type === 'CORREO' ? 'Escribe el contenido del correo.' : 'Añade una descripción útil.')
     if ((type === 'CORREO' || type === 'TAREA') && !title.trim()) return setError(type === 'CORREO' ? 'Escribe el asunto del correo.' : 'Escribe el título de la tarea.')
     if (type === 'CORREO' && !to.trim()) return setError('Añade al menos un destinatario.')
+    if (type === 'CORREO' && enviosPendientes) return setError(PENDIENTE_CORREO)
     if (type === 'CORREO') { const bloqueo = bloqueoCanalCorreo(viaOutlook, outlookConnection); if (bloqueo) return setError(bloqueo) }
     if (type === 'REUNION' && syncOutlook && !title.trim()) return setError('Escribe el título de la reunión.')
     if (type === 'REUNION' && syncOutlook && Number(durationMinutes) < 5) return setError('Indica una duración mínima de 5 minutos.')
@@ -289,6 +295,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
               <p className="mt-1 text-sm text-slate-600">{contactEmail || contactPhone || 'Sin correo ni teléfono informado'}</p>
             </div>
 
+            {type === 'CORREO' && enviosPendientes && <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">{PENDIENTE_CORREO}</p>}
             {type === 'CORREO' && <>
               <Area1M365Aviso aviso={m365Aviso} />
               {outlookConnection.m365 !== false && <Area1M365Correo contactId={contactId} conexion={outlookConnection} corporativo={senderEmail} viaOutlook={viaOutlook} onCanal={setViaOutlook} onBorrador={({ asunto, cuerpo }) => { setTitle(asunto); setDescription(cuerpo); setAiDraft(true) }} />}
@@ -300,7 +307,8 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
             </>}
 
             {type === 'REUNION' && syncOutlook && <Area1M365Aviso aviso={m365Aviso} />}
-            {type === 'REUNION' && <div className="space-y-3 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-950">
+            {type === 'REUNION' && enviosPendientes && <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">{PENDIENTE_REUNION}</p>}
+            {type === 'REUNION' && !enviosPendientes && <div className="space-y-3 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-950">
               <label className={`flex items-start gap-3 ${outlookConnection.enabled && outlookConnection.connected ? 'cursor-pointer' : 'cursor-not-allowed opacity-75'}`}><input type="checkbox" checked={syncOutlook} onChange={(event) => setSyncOutlook(event.target.checked)} disabled={!outlookConnection.enabled || !outlookConnection.connected} className="mt-1 rounded border-violet-300 text-violet-600 focus:ring-violet-500" /><span><span className="block font-bold">Crear en mi agenda de Outlook</span><span className="mt-0.5 block text-xs leading-5 text-violet-800">{outlookConnection.enabled && outlookConnection.connected ? <>Organizador: {outlookConnection.email}. El CRM guardará el enlace y el identificador del evento.</> : outlookConnection.enabled ? 'Conecta tu cuenta corporativa para que tú figures como organizador.' : 'La integración individual está pendiente de habilitarse en Microsoft 365. Mientras tanto, puedes registrar la reunión solo en el CRM.'}</span></span></label>
               {outlookConnection.enabled && outlookConnection.m365 !== false && !outlookConnection.connected && <a href={`/api/admin/integraciones/outlook/connect?returnTo=${encodeURIComponent(`/admin/crm/contactos/${contactId}`)}`} className="inline-flex min-h-10 items-center justify-center rounded-xl bg-violet-700 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-violet-800 active:scale-[0.97]">Conectar mi Outlook</a>}
               {outlookConnection.enabled && outlookConnection.connected && <div className="flex flex-wrap gap-3 text-xs font-bold"><a href={`/api/admin/integraciones/outlook/connect?returnTo=${encodeURIComponent(`/admin/crm/contactos/${contactId}`)}`} className="text-violet-700 underline decoration-violet-300 underline-offset-2">Renovar conexión</a><button type="button" onClick={disconnectOutlook} disabled={disconnectingOutlook} className="text-slate-600 underline decoration-slate-300 underline-offset-2 disabled:opacity-50">{disconnectingOutlook ? 'Desconectando…' : 'Desconectar de este CRM'}</button></div>}
@@ -347,7 +355,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
 
           <footer className="flex shrink-0 flex-col-reverse gap-2 border-t border-slate-200 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
             <p className="text-xs text-slate-500">La actividad se asociará siempre con este contacto.</p>
-            <div className="flex gap-2"><button type="button" onClick={close} disabled={saving} className="min-h-11 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancelar</button><button type="submit" disabled={saving} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-orange-600 px-5 text-sm font-bold text-white shadow-sm hover:bg-orange-700 disabled:opacity-60">{saving ? (type === 'CORREO' ? 'Enviando…' : type === 'REUNION' && syncOutlook ? 'Creando en Outlook…' : 'Guardando…') : <><PaperAirplaneIcon className="h-5 w-5" />{primaryAction}</>}</button></div>
+            <div className="flex gap-2"><button type="button" onClick={close} disabled={saving} className="min-h-11 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancelar</button><button type="submit" disabled={saving || (type === 'CORREO' && enviosPendientes)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-orange-600 px-5 text-sm font-bold text-white shadow-sm hover:bg-orange-700 disabled:opacity-60">{saving ? (type === 'CORREO' ? 'Enviando…' : type === 'REUNION' && syncOutlook ? 'Creando en Outlook…' : 'Guardando…') : <><PaperAirplaneIcon className="h-5 w-5" />{primaryAction}</>}</button></div>
           </footer>
         </form>
       </section>
