@@ -19,11 +19,15 @@ const tiene = (nav: SidebarNavigationEntry[]) => hrefs(nav).includes('/admin/crm
 console.log('1) Menú: ISP Gestión')
 for (const pres of ['historico', 'agrupado'] as const) {
   caso(`${pres}: abierto por defecto (staging)`, tiene(getSidebarNavigation('staging', true, pres)))
-  caso(`${pres}: abierto si la puerta está abierta`, tiene(getSidebarNavigation('production', false, pres, { crmImportacionesCerradas: false })))
-  caso(`${pres}: oculto con la puerta cerrada`, !tiene(getSidebarNavigation('production', false, pres, { crmImportacionesCerradas: true })))
-  const filtrado = filterAuthorizedSidebarNavigation('production', () => true, false, pres, () => true, { crmImportacionesCerradas: true })
+  caso(`${pres}: abierto si la puerta está abierta`, tiene(getSidebarNavigation('production', false, pres, false, { crmImportacionesCerradas: false })))
+  caso(`${pres}: oculto con la puerta cerrada`, !tiene(getSidebarNavigation('production', false, pres, false, { crmImportacionesCerradas: true })))
+  const filtrado = filterAuthorizedSidebarNavigation('production', () => true, false, pres, () => true, false, { crmImportacionesCerradas: true })
   caso(`${pres}: el filtro de permisos tampoco lo recupera`, !tiene(filtrado))
-  caso(`${pres}: el resto del menú CRM sigue (Partners)`, hrefs(getSidebarNavigation('production', false, pres, { crmImportacionesCerradas: true })).includes('/admin/crm/partners'))
+  caso(`${pres}: el resto del menú CRM sigue (Partners)`, hrefs(getSidebarNavigation('production', false, pres, false, { crmImportacionesCerradas: true })).includes('/admin/crm/partners'))
+  // Main conserva su disponibilidad read-only como argumento separado, no como un grant.
+  const coexistentes = getSidebarNavigation('production', true, pres, true, { crmImportacionesCerradas: true })
+  caso(`${pres}: CRM cerrado y Rentabilidad read-only coexisten`, !tiene(coexistentes) && hrefs(coexistentes).includes('/admin/rentabilidad'))
+  caso(`${pres}: Sistemas, Impuestos y Presupuesto siguen fuera`, !hrefs(coexistentes).some(h => ['/admin/sistemas', '/admin/finanzas/impuestos', '/admin/finanzas/presupuesto'].some(p => h === p || h.startsWith(p + '/'))))
 }
 caso('La puerta de producción cierra y la de preview abre', importacionesCrmCerradas({ VERCEL_ENV: 'production' }) && !importacionesCrmCerradas({ VERCEL_ENV: 'preview' }))
 const layout = src('app/admin/layout.tsx')
