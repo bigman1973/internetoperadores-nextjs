@@ -128,12 +128,13 @@ function sourceVersion(account: Pick<AccountRow, 'id' | 'fechaCorteExtracto'>, m
 }
 
 async function rawManuals(db: { $queryRaw<T = unknown>(query: Prisma.Sql): Promise<T> }): Promise<ManualRow[]> {
+  const evidenceReadable = noMovementsStagingReadable() && await noMovementsOrdinaryRequest()
   return db.$queryRaw<ManualRow[]>(Prisma.sql`
     SELECT DISTINCT ON (cuenta_id)
       cuenta_id AS "accountId", fecha_corte::text AS "cutoffDate", saldo_centimos::text AS "balanceCents",
       confirmed_at AS "confirmedAt", actor_id AS "actorId", version, id::text AS id,
       source_version AS "sourceVersion",
-      ${noMovementsStagingReadable() ? Prisma.raw('comprobacion_sin_movimientos') : Prisma.raw('false')} AS "comprobacionSinMovimientos"
+      ${evidenceReadable ? Prisma.raw('comprobacion_sin_movimientos') : Prisma.raw('false')} AS "comprobacionSinMovimientos"
     FROM cortes_cobertura_manual_b3
     ORDER BY cuenta_id, version DESC
   `)
@@ -166,7 +167,9 @@ export async function readCutoffAccounts(): Promise<{ accounts: CutoffAccountDto
       : Promise.resolve([] as MovementRow[]),
   ])
   const manualByAccount = new Map(manualRows.map((row) => [row.accountId, manualFrom(row)]))
-  const sources = noMovementsStagingReadable() ? await readNoMovementsSources(prisma, accounts.map(account => account.id)) : new Map()
+  // No broaden Prisma's reviewed SQL grammar for delegated/invalid contexts.
+  const sources = noMovementsStagingReadable() && await noMovementsOrdinaryRequest()
+    ? await readNoMovementsSources(prisma, accounts.map(account => account.id)) : new Map()
   const importByAccount = new Map<string, string>()
   for (const imported of imports) {
     if (!importByAccount.has(imported.cuentaId)) importByAccount.set(imported.cuentaId, imported.createdAt.toISOString())

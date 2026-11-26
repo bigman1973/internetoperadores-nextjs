@@ -61,7 +61,10 @@ function harness(options = {}) {
             confirmedAt:new Date('2026-11-26T10:00:00Z'),comprobacionSinMovimientos:false};
           writes++;get().manuals.push(row);return copy([row]);
         }
-        if (text.includes('AS "movementHash"')) return copy(source(get()).filter(s => query.values.includes(s.accountId)));
+        if (text.includes('AS "movementHash"')) {
+          assert.equal(signedContext.status, 'absent', 'New fingerprint SQL must not run in delegated/invalid contexts');
+          return copy(source(get()).filter(s => query.values.includes(s.accountId)));
+        }
         if (text.includes('AS day')) return copy(get().movements.filter(m => m.cuentaId === query.values[0] && m.duplicadoDeId === null)
           .map(m => ({ day: m.fechaOperacion.toISOString().slice(0, 10), amount: String(m.importe), balance: m.saldo === null ? null : String(m.saldo) })));
         if (text.includes('DISTINCT ON (cuenta_id)')) {
@@ -145,7 +148,9 @@ function harness(options = {}) {
   async function payload() {
     const data = await service.readCutoffAccounts(), a = data.accounts[0];
     return { action: 'comprobar_sin_movimientos', cuentaId: a.id, fechaCorte: '2026-11-25', nota: 'Comprobación humana ficticia offline.',
-      confirmacion: true, idempotencyKey: 'fixture-key-0001', sourceVersion: a.noMovementsSourceVersion, expectedVersion: a.latestManual?.version ?? 0 };
+      // A delegated browser may hold an earlier well-formed ordinary payload;
+      // do not let absence of a new GET fingerprint obscure the acting guard.
+      confirmacion: true, idempotencyKey: 'fixture-key-0001', sourceVersion: a.noMovementsSourceVersion ?? '0'.repeat(64), expectedVersion: a.latestManual?.version ?? 0 };
   }
   function request(body, extra = {}) {
     return { headers: new Headers({ origin: 'https://staging.invalid', 'content-type': 'application/json', ...extra.headers }),
@@ -237,6 +242,14 @@ async function reject(name, options, change, status, code, req) {
   await check('cinco pasos: sólo cobertura paso1, NO etiqueta verde en paso2 ni guarda',async()=>{const h=harness(),b=await h.payload();await h.post(b);const rows=await h.reader.readCuentasCuadre();const original=rows[0];const input={resumen:{movimientos:1,entranCentimos:0,salenCentimos:0,conciliados:0,sinTercero:1},cuentas:[{...original,cuadra:false,estado:'HUECO'}],sinDocumentoCobros:1,sinDocumentoPagos:0,rojas:1,reglas:1,hoy:'2026-11-25'};const out=h.steps.buildPasos(input);assert.equal(out.length,5);assert.equal(out[0].estado,'ok');assert.equal(out[1].estado,'bad');assert.equal(h.steps.bloqueoPorCuadre('fixture',new Map([['fixture',false]])),'CUENTA_NO_CUADRA');assert.equal(h.reader.calcularBloqueos(new Map([['m0','fixture']]),new Map([['fixture',input.cuentas[0]]])).length,1);const stale=h.steps.buildPasos({...input,cuentas:[{...input.cuentas[0],comprobacionSinMovimientosObsoleta:true}]});assert.equal(stale[0].estado,'bad');assert.deepEqual(plain(stale.slice(1)),plain(out.slice(1)));assert.equal(h.steps.corteMinimo([...rows,{...original,id:'sin-corte',fechaCorteExtracto:null,fechaCoberturaLectura:null}]),null);});
   for(const [name,extra,status] of [['origen cruzado',{headers:{origin:'https://other.invalid'}},403],['tipo no JSON',{headers:{'content-type':'text/plain'}},415],['JSON roto',{raw:'{'},400],['array',{raw:'[]'},400],['body excedido',{raw:'x'.repeat(8193)},413],['content length excedido',{headers:{'content-length':'8193'}},413],['sin body',{empty:true},400]]) await reject(name,{},null,status,null,extra);
   for (const options of [{acting:true},{signedContext:{status:'invalid'}},{grants:[{codigo:'admin.finanzas',lectura:true,escritura:false}]}]) await check('GET denegado oculta nueva acción',async()=>{const h=harness(options);assert.equal((await h.get()).body.access.canWriteNoMovements,false);});
+  for (const status of ['valid','invalid']) await check(`lectura ${status}: sin nueva huella SQL ni ampliación de guarda`,async()=>{
+    const h=harness(),body=await h.payload();await h.post(body);const before=h.state;
+    h.setContext(status==='valid'?{status,context:{}}:{status});
+    const rows=await h.reader.readCuentasCuadre(),data=await h.service.readCutoffAccounts();
+    assert.equal(rows[0].cuadra,true);assert.equal(rows[0].fechaCoberturaLectura,'2026-11-20');
+    assert.equal(rows[0].fechaComprobadaSinMovimientos,null);assert.equal(data.accounts[0].noMovementsSourceVersion,null);
+    assert.equal((await h.get()).body.access.canWriteNoMovements,false);assert.deepEqual(h.state,before);assert.equal(h.writes,1);
+  });
   await check('migration única, enum intacto, down sin destrucción de registros',async()=>{
     const schema=fs.readFileSync(path.join(ROOT,'prisma/schema.prisma'),'utf8'); assert.match(schema,/comprobacionSinMovimientos Boolean\s+@default\(false\)/);assert.match(schema,/enum MotivoCorteCoberturaB3\s*\{\s*EXTRACTO_REVISADO_MANUALMENTE\s*\}/);
     const up=fs.readFileSync(path.join(ROOT,'prisma/migrations/20261205_area3_cobertura_sin_movimientos/migration.sql'),'utf8');assert.match(up,/ADD COLUMN/);assert(!/CREATE TYPE|ALTER TYPE|UPDATE\s|DELETE\s/i.test(up));

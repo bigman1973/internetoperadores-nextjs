@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { analizarCuadreDia } from '@/lib/finanzas/conciliar-cuadre-dia'
-import { noMovementsEvidence, noMovementsStagingReadable, readNoMovementsSources } from './bank-cutoffs-no-movements'
+import { noMovementsEvidence, noMovementsOrdinaryRequest, noMovementsStagingReadable, readNoMovementsSources } from './bank-cutoffs-no-movements'
 
 /**
  * Encargo J · Conciliar unificado. Lectura de solo lectura del encadenado de saldos por cuenta.
@@ -60,7 +60,8 @@ export async function readCuentasCuadre(onlyIds?: readonly string[]): Promise<re
     orderBy: { banco: 'asc' },
   })
   if (!cuentas.length) return []
-  const stagingEvidence = noMovementsStagingReadable()
+  // Keep delegated SQL exactly within the existing reviewed grammar.
+  const stagingEvidence = noMovementsStagingReadable() && await noMovementsOrdinaryRequest()
   const sources = stagingEvidence ? await readNoMovementsSources(db, cuentas.map(c => c.id)) : new Map()
   const manuals: Array<{ cuentaId: string; fechaCorte: Date; saldoCentimos: bigint; comprobacionSinMovimientos: boolean; sourceVersion: string }> = stagingEvidence
     ? await db.$queryRaw(Prisma.sql`
