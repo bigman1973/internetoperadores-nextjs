@@ -11,7 +11,7 @@ import { Note, Pill } from '@/components/io-ui/kit'
 import { ioFontClasses } from '@/components/io-ui/fonts'
 import './area1-m365.css'
 
-type Conexion = { enabled: boolean; connected: boolean; email: string | null; mail?: boolean }
+type Conexion = { enabled: boolean; connected: boolean; email: string | null; mail?: boolean; m365?: boolean }
 
 function Shell({ children }: { children: React.ReactNode }) {
   return <div className={`io-ui area1-m365 ${ioFontClasses}`}>{children}</div>
@@ -69,7 +69,7 @@ export function Area1M365Correo({ contactId, conexion, corporativo, viaOutlook, 
       {viaOutlook && !outlookListo && <Pill tone="mod">Pendiente de conectar</Pill>}
       {!viaOutlook && <Pill>{corporativo}</Pill>}
     </div>
-    {conexion.enabled && !conexion.connected && <p className="m365-sub"><a className="btn" href={connectUrl(contactId)}>Conectar mi Outlook</a> para enviar desde tu buzón y ver las respuestas en la ficha.</p>}
+    {conexion.enabled && conexion.m365 !== false && !conexion.connected && <p className="m365-sub"><a className="btn" href={connectUrl(contactId)}>Conectar mi Outlook</a> para enviar desde tu buzón y ver las respuestas en la ficha.</p>}
     {conexion.enabled && conexion.connected && !conexion.mail && <p className="m365-sub"><a className="btn" href={connectUrl(contactId)}>Conceder permiso de correo</a> Tu conexión actual solo incluye el calendario.</p>}
     {!conexion.enabled && <p className="m365-sub">El envío desde tu Outlook está pendiente de activar en este entorno.</p>}
 

@@ -31,6 +31,8 @@ interface AdminSidebarProps {
   /** Render hint derived by the current server response, never API authority. */
   conciliarEnabled?: boolean
   rentabilidadReadonlyEnabled?: boolean
+  /** Puerta de producción calculada en servidor: oculta ISP Gestión. */
+  crmImportacionesCerradas?: boolean
   user: AdminSidebarUser
   /** Árbol ya autorizado de la respuesta SSR actual, formado por el layout. */
   initialMenu: ReactNode
@@ -51,6 +53,7 @@ export default function AdminSidebar({
   financeEnvironment = null,
   conciliarEnabled = false,
   rentabilidadReadonlyEnabled = false,
+  crmImportacionesCerradas = false,
   initialMenu,
   initialMenuMode,
   initialPermissionSignature = '',
@@ -202,6 +205,7 @@ export default function AdminSidebar({
         financeEnvironment={financeEnvironment}
         conciliarEnabled={conciliarEnabled}
         rentabilidadReadonlyEnabled={rentabilidadReadonlyEnabled}
+        crmImportacionesCerradas={crmImportacionesCerradas}
         menuPresentation={menuPresentation}
         onNavigate={onNavigate}
       />
