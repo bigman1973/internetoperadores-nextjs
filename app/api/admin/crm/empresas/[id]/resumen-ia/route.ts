@@ -6,7 +6,7 @@ import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import { authorizeCrmEmpresas } from '@/lib/crm-empresas-auth'
 import { bloqueoActuacion } from '@/lib/area1-m365'
-import { fichaNuevaHabilitada } from '@/lib/area1-puertas-produccion'
+import { fichaNuevaHabilitada, fichaNuevaDisponibleParaRol } from '@/lib/area1-puertas-produccion'
 import { cargarFichaCliente, generarPuntosIa, MODELO_FICHA_IA } from '@/lib/area1-ficha-cliente'
 export const dynamic = 'force-dynamic'
 /**
@@ -21,6 +21,10 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   const session = await getServerSession(authOptions)
   const actuacion = bloqueoActuacion(session)
   if (actuacion) return NextResponse.json({ error: actuacion }, { status: 403 })
+  if (process.env.VERCEL_ENV === 'production') {
+    const principal = await prisma.usuarioAdmin.findUnique({ where: { id: auth.user.id }, select: { activo: true, rol: true, roles: true } })
+    if (!principal?.activo || !fichaNuevaDisponibleParaRol(principal.rol, principal.roles)) return NextResponse.json({ error: 'No disponible.' }, { status: 404 })
+  }
   const { id } = await context.params
   const hoy = new Date()
   const dia = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit' }).format(hoy)
