@@ -5,6 +5,8 @@ import { authOptions } from '@/lib/auth'
 import { checkAdminAreaRead, checkAdminAreaWrite } from '@/lib/api-admin-area-read'
 import { privateJson, sameOrigin } from '@/lib/finanzas/reconciliation-auth'
 import { CutoffServiceError, confirmManualCutoff, readCutoffAccounts } from '@/lib/finanzas/bank-cutoffs-db'
+import prisma from '@/lib/prisma'
+import { NO_MOVEMENTS_ACTION, noMovementsOrdinaryRequest, noMovementsStagingEnabled, noMovementsWriteAllowed } from '@/lib/finanzas/bank-cutoffs-no-movements'
 
 export const dynamic = 'force-dynamic'
 const MAX_JSON_BYTES = 8 * 1024
@@ -14,6 +16,7 @@ const B3_AREA = 'admin.finanzas.importar'
 
 function errorResponse(error: unknown) {
   if (error instanceof CutoffServiceError) return privateJson({ error: error.message, codigo: error.code, ...(error.details === undefined ? {} : { details: error.details }) }, error.status)
+  if (error instanceof Error && error.message === 'NO_MOVEMENTS_STAGING_REQUIRED') return privateJson({ error: 'Comprobación disponible sólo en staging aislado y con escritura habilitada.', codigo: error.message }, 404)
   if (error instanceof Error && (error.message === 'STAGING_ISOLATION_REQUIRED' || error.message === 'FINANCE_RUNTIME_NOT_APPROVED' || error.message === 'FINANCE_RUNTIME_DATABASE_MISMATCH')) {
     return privateJson({ error: 'Entorno financiero no aprobado', codigo: error.message }, 503)
   }
@@ -73,12 +76,17 @@ async function readBoundedJson(req: NextRequest): Promise<{ ok: true; value: unk
   }
 }
 
-export async function GET() {
+export async function GET(req?: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     const denied = await requireCoverageRead(session)
     if (denied) return denied
-    return privateJson(await readCutoffAccounts())
+    const data = await readCutoffAccounts()
+    const ordinary = !session?.impersonation && !req?.headers.get('x-io-acting-session')
+      && !req?.nextUrl.searchParams.has('verComo') && await noMovementsOrdinaryRequest()
+    const canWriteNoMovements = ordinary && noMovementsStagingEnabled()
+      && await noMovementsWriteAllowed(prisma, Number(session?.user.id))
+    return privateJson({ ...data, access: { canWriteNoMovements } })
   } catch (error) {
     return errorResponse(error)
   }
@@ -95,6 +103,10 @@ export async function POST(req: NextRequest) {
     if (!sameOrigin(req)) return privateJson({ error: 'Origen de la solicitud no válido' }, 403)
     const body = await readBoundedJson(req)
     if (body.ok === false) return body.response
+    if ((body.value as { action?: unknown }).action === NO_MOVEMENTS_ACTION
+      && (session?.impersonation || req.headers.get('x-io-acting-session') || req.nextUrl.searchParams.has('verComo'))) {
+      return privateJson({ error: 'No disponible en Actuar como o Ver como', codigo: 'ACTUACION_NO_PERMITIDA' }, 403)
+    }
     return privateJson(await confirmManualCutoff(actor.id, body.value), 201)
   } catch (error) {
     return errorResponse(error)

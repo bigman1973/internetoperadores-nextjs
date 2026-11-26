@@ -29,6 +29,7 @@ const ConciliarArea3ReviewDialog = dynamic(() => import('@/components/finanzas/c
 const NewAutomaticRulesPanel = dynamic(() => import('@/components/finanzas/easy/newAutomaticRulesPanel'), { ssr: false });
 const NewParaPedirWorkspace = dynamic(() => import('@/components/finanzas/easy/newParaPedirWorkspace'), { ssr: false });
 const RemesasWorkspace = dynamic(() => import('@/components/finanzas/remesas-b6/RemesasWorkspace'), { ssr: false });
+const ComprobacionSinMovimientos = dynamic(() => import('./ComprobacionSinMovimientos'), { ssr: false });
 
 export type ConciliarUnificadoProps = Readonly<{
   hoy: string;
@@ -305,7 +306,7 @@ export default function ConciliarUnificado(props: ConciliarUnificadoProps) {
         <div className="bar">
           <div className="brand"><b>internet<i>operadores</i></b><span className="eyebrow">Conciliar · banco con facturas</span></div>
           <div className="scn">
-            <span className="small muted">Extractos hasta {corte ? fechaLarga(corte).slice(0, 5) : '—'} · {activas.length} cuentas</span>
+            <span className="small muted">Cobertura revisada hasta {corte ? fechaLarga(corte).slice(0, 5) : '—'} · {activas.length} cuentas</span>
             <a className="btn" href="/admin/finanzas/importar">Cargar extractos</a>
             <button className="btn primary" type="button" onClick={() => irA('reglas')}>Aplicar reglas automáticas</button>
             <Menu label="Acciones">{close => <>
@@ -389,7 +390,7 @@ export default function ConciliarUnificado(props: ConciliarUnificadoProps) {
 
       {vista === 'pedir' && <ParaPedirVista perfil={perfil} rev={rev} ocupado={ocupado} onPedir={(rowId, hash) => enviarConciliar({ action: 'pedir', id: rowId, decisionHash: hash }, 'solicitud de documento')} />}
 
-      {vista === 'cuentas' && <CuentasVista cuentas={cuentas} />}
+      {vista === 'cuentas' && <CuentasVista cuentas={cuentas} hoy={hoy} acting={!!sesion} onSaved={refrescar} />}
 
       {(auditoriaAbierta || recibos.length > 0) && <div id="auditoria"><Panel title="Auditoría y deshacer" help="Cada confirmación queda registrada con quién, cuándo y qué. Lo que hagas en esta sesión se puede deshacer aquí; el historial completo está debajo." aside={<button className="btn small" type="button" onClick={() => setAuditoriaAbierta(a => !a)}>{auditoriaAbierta ? 'Ocultar historial' : 'Ver historial'}</button>}>
         {recibos.length > 0 && <div>{recibos.map(r => <div className="chain" key={r.key}><div><b style={{ fontWeight: 500 }}>{r.etiqueta}</b><div className="small muted">{r.tipo === 'facil' ? 'Documento o «no requiere»' : 'Confirmación o pedido'}</div></div><span className={`st ${r.deshecho ? '' : 'g'}`}>{r.deshecho ? 'Deshecha' : 'Hecha'}</span><button className="btn small" type="button" disabled={r.deshecho || ocupado} onClick={() => deshacer(r.tipo, r.operationId)}>Deshacer</button></div>)}</div>}
@@ -510,7 +511,7 @@ function ParaPedirVista(p: Readonly<{ perfil: EasyAccessProfile | null; rev: num
 }
 
 /* ───────── Cuentas y extractos ───────── */
-function CuentasVista({ cuentas }: Readonly<{ cuentas: readonly CuentaCuadre[] }>) {
+function CuentasVista({ cuentas, hoy, acting, onSaved }: Readonly<{ cuentas: readonly CuentaCuadre[]; hoy: string; acting: boolean; onSaved: () => void }>) {
   const [abierta, setAbierta] = useState<string | null>(null);
   const activas = cuentasActivas(cuentas);
   const cerradas = cuentas.filter(c => !c.activa);
@@ -524,6 +525,9 @@ function CuentasVista({ cuentas }: Readonly<{ cuentas: readonly CuentaCuadre[] }
       <div className="chain"><div><b style={{ fontWeight: 500 }}>{c.etiqueta}{c.ultimos4 ? ` · ****${c.ultimos4}` : ''}</b><div className="small muted">Extracto hasta {c.fechaCorteExtracto ? fechaLarga(c.fechaCorteExtracto) : 'sin fecha'} · {nf(c.totalMovimientos)} movimientos{resumenCuadre(c) ? ` · ${resumenCuadre(c)}` : ''}{c.duplicadosMarcados ? ` · ${nf(c.duplicadosMarcados)} apunte${c.duplicadosMarcados === 1 ? '' : 's'} marcado${c.duplicadosMarcados === 1 ? '' : 's'} como duplicado (fuera de la bandeja)` : ''}</div></div>
         <span className={`st ${claseEstadoCadena(c.estado)}`}>{textoEstadoCadena(c.estado)}</span>
         <button className="btn small" type="button" aria-expanded={abierta === c.id} onClick={() => setAbierta(abierta === c.id ? null : c.id)}>{abierta === c.id ? 'Ocultar huecos' : c.cuadra ? 'Ver detalle' : 'Ver huecos'}</button></div>
+      {c.fechaComprobadaSinMovimientos && <p className="small muted">Comprobada por una persona sin movimientos hasta {fechaLarga(c.fechaComprobadaSinMovimientos)}. No es una nueva importación ni acredita cuadre.</p>}
+      {c.comprobacionSinMovimientosObsoleta && <p className="small" role="status">Comprobación sin movimientos obsoleta: cambiaron apuntes, importes o importaciones. Revisa de nuevo; no se usa en el paso 1.</p>}
+      <ComprobacionSinMovimientos cuentaId={c.id} eligible={c.activa && c.cuadra && c.totalMovimientos > 0} hoy={hoy} acting={acting} onSaved={onSaved} />
       {abierta === c.id && <div className="small" style={{ padding: '4px 0 10px' }}>{c.avisos.length ? <ul style={{ margin: 0, paddingLeft: 18 }}>{c.avisos.map((a, i) => <li key={i}>{a.mensaje}</li>)}</ul> : <span className="muted">Sin huecos: la cadena de saldos encadena de principio a fin.</span>}</div>}
     </div>)}</div>
     {cerradas.length > 0 && <div id="chain-cerradas" style={{ marginTop: 14 }}>

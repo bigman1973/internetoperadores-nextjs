@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { analizarCuadreDia } from '@/lib/finanzas/conciliar-cuadre-dia'
+import { noMovementsEvidence, noMovementsStagingReadable, readNoMovementsSources } from './bank-cutoffs-no-movements'
 
 /**
  * Encargo J · Conciliar unificado. Lectura de solo lectura del encadenado de saldos por cuenta.
@@ -25,6 +26,10 @@ export type CuentaCuadre = Readonly<{
   totalMovimientos: number
   ultimoMovimiento: string | null
   fechaCorteExtracto: string | null
+  /** Sólo lectura de cobertura humana; jamás reemplaza el corte importado ni cuadra. */
+  fechaComprobadaSinMovimientos?: string | null
+  fechaCoberturaLectura?: string | null
+  comprobacionSinMovimientosObsoleta?: boolean
   avisos: ReadonlyArray<Readonly<{ codigo: string; mensaje: string; fecha: string | null }>>
   /** Detalle del cuadre por día (Encargo J): lo que se ignora o se acepta y desde cuándo la cadena es correcta. */
   diasAmbiguosAceptados: number
@@ -55,6 +60,18 @@ export async function readCuentasCuadre(onlyIds?: readonly string[]): Promise<re
     orderBy: { banco: 'asc' },
   })
   if (!cuentas.length) return []
+  const stagingEvidence = noMovementsStagingReadable()
+  const sources = stagingEvidence ? await readNoMovementsSources(db, cuentas.map(c => c.id)) : new Map()
+  const manuals: Array<{ cuentaId: string; fechaCorte: Date; saldoCentimos: bigint; comprobacionSinMovimientos: boolean; sourceVersion: string }> = stagingEvidence
+    ? await db.$queryRaw(Prisma.sql`
+      SELECT DISTINCT ON (cuenta_id) cuenta_id AS "cuentaId", fecha_corte AS "fechaCorte",
+        saldo_centimos AS "saldoCentimos", comprobacion_sin_movimientos AS "comprobacionSinMovimientos", source_version AS "sourceVersion"
+      FROM cortes_cobertura_manual_b3 WHERE cuenta_id IN (${Prisma.join(cuentas.map(c => c.id))})
+      ORDER BY cuenta_id, version DESC LIMIT 100
+    `) : []
+  const evidenceByAccount = new Map(manuals.map(m => [m.cuentaId, noMovementsEvidence(sources.get(m.cuentaId), {
+    cutoffDate: iso(m.fechaCorte)!, balanceCents: Number(m.saldoCentimos), comprobacionSinMovimientos: m.comprobacionSinMovimientos, sourceVersion: m.sourceVersion,
+  })]))
   const movimientos = await db.movimientoBancario.findMany({
     where: { cuentaId: { in: cuentas.map(c => c.id) }, duplicadoDeId: null },
     select: { cuentaId: true, fechaOperacion: true, importe: true, saldo: true },
@@ -79,6 +96,8 @@ export async function readCuentasCuadre(onlyIds?: readonly string[]): Promise<re
       saldo: m.saldo === null || m.saldo === undefined ? null : Number(m.saldo),
     })).filter((f: { dia: string }) => f.dia !== ''))
     const iban = typeof cuenta.iban === 'string' ? cuenta.iban.replace(/\s+/g, '') : ''
+    const evidence = evidenceByAccount.get(cuenta.id) ?? { fechaComprobadaSinMovimientos: null, comprobacionSinMovimientosObsoleta: false }
+    const importedCutoff = iso(cuenta.fechaCorteExtracto)
     return {
       id: cuenta.id,
       banco: cuenta.banco,
@@ -91,6 +110,8 @@ export async function readCuentasCuadre(onlyIds?: readonly string[]): Promise<re
       totalMovimientos: lista.length,
       ultimoMovimiento: lista.length ? iso(lista[lista.length - 1].fechaOperacion) : null,
       fechaCorteExtracto: iso(cuenta.fechaCorteExtracto),
+      ...evidence,
+      fechaCoberturaLectura: [importedCutoff, evidence.fechaComprobadaSinMovimientos].filter((d): d is string => !!d).sort().pop() ?? null,
       avisos: lista.length === 0
         ? [{ codigo: 'SIN_MOVIMIENTOS', mensaje: 'La cuenta no tiene movimientos cargados: falta el saldo inicial o final.', fecha: null }]
         : cadena.huecos.map(h => ({ codigo: h.tipo, mensaje: h.mensaje, fecha: h.dia })),

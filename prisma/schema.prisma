@@ -4747,6 +4747,7 @@ model CorteCoberturaManualB3 {
   fechaCorte     DateTime                  @db.Date @map("fecha_corte")
   saldoCentimos  BigInt                    @map("saldo_centimos")
   motivo         MotivoCorteCoberturaB3
+  comprobacionSinMovimientos Boolean       @default(false) @map("comprobacion_sin_movimientos")
   nota           String                    @db.Text
   actorId        Int                       @map("actor_id")
   idempotencyKey String                    @map("idempotency_key") @db.VarChar(160)

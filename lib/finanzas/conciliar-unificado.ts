@@ -116,8 +116,13 @@ const nf = (n: number) => n.toLocaleString('es-ES', { maximumFractionDigits: 0 }
 const eur0 = (cents: number) => `${nf(Math.round(Math.abs(cents) / 100))} €`
 export function cuentasActivas(cuentas: readonly CuentaCuadre[]): readonly CuentaCuadre[] { return cuentas.filter(c => c.activa) }
 /** Fecha de corte más antigua entre las cuentas activas (la «cabecera» de la maqueta). */
+export function coberturaLectura(cuenta: CuentaCuadre): string | null {
+  return cuenta.comprobacionSinMovimientosObsoleta ? cuenta.fechaCorteExtracto : cuenta.fechaCoberturaLectura ?? cuenta.fechaCorteExtracto
+}
 export function corteMinimo(cuentas: readonly CuentaCuadre[]): string | null {
-  const cortes = cuentasActivas(cuentas).map(c => c.fechaCorteExtracto).filter((v): v is string => !!v).sort()
+  const activas = cuentasActivas(cuentas)
+  const cortes = activas.map(coberturaLectura).filter((v): v is string => !!v).sort()
+  if (cortes.length !== activas.length) return null
   return cortes[0] ?? null
 }
 export function diasEntre(desdeIso: string, hastaIso: string): number {
@@ -130,14 +135,14 @@ export function buildKpis(e: EntradaPanel): readonly KpiVista[] {
   const corte = corteMinimo(e.cuentas)
   const atraso = corte ? diasEntre(corte, e.hoy) : null
   const conPct = e.resumen.movimientos > 0 ? Math.round((e.resumen.conciliados / e.resumen.movimientos) * 100) : 0
-  const atrasada = corte ? activas.filter(c => c.fechaCorteExtracto === corte).map(c => c.etiqueta).join(', ') : ''
+  const atrasada = corte ? activas.filter(c => coberturaLectura(c) === corte).map(c => c.etiqueta).join(', ') : ''
   return [
     { label: 'Movimientos 2026', value: nf(e.resumen.movimientos), sub: `${eur0(e.resumen.entranCentimos)} entran · ${eur0(e.resumen.salenCentimos)} salen`, tone: '' },
     { label: 'Con documento', value: nf(e.resumen.conciliados), sub: `${conPct} % del total`, tone: 'g' },
     { label: 'Sin documento', value: nf(e.sinDocumentoCobros + e.sinDocumentoPagos), sub: `${nf(e.sinDocumentoPagos)} cargos · ${nf(e.sinDocumentoCobros)} cobros`, tone: 'w' },
     { label: 'Quién es, por confirmar', value: nf(e.resumen.sinTercero), sub: 'persona o empresa sin identificar', tone: 'w' },
     { label: 'Cuentas cuadradas', value: `${cuadran} de ${activas.length}`, sub: cuadran === activas.length ? 'todas encadenan' : 'faltan apuntes o orden por aclarar', tone: cuadran === activas.length ? 'g' : 'b' },
-    { label: 'Extractos hasta', value: corte ? fechaCorta(corte) : '—', sub: atraso === null ? 'sin fecha de corte' : atraso <= 2 ? 'al día' : `más atrasada: ${atrasada}`, tone: atraso !== null && atraso <= 2 ? 'g' : 'b' },
+    { label: 'Cobertura revisada hasta', value: corte ? fechaCorta(corte) : '—', sub: atraso === null ? 'sin fecha de corte' : atraso <= 2 ? 'extracto o comprobación humana sin actividad' : `más atrasada: ${atrasada}`, tone: atraso !== null && atraso <= 2 ? 'g' : 'b' },
   ]
 }
 export type PasoVista = Readonly<{ estado: '' | 'ok' | 'bad' | 'cur'; titulo: string; texto: string; ir: VistaConciliar | 'reglas' }>
@@ -147,10 +152,10 @@ export function buildPasos(e: EntradaPanel): readonly PasoVista[] {
   const corte = corteMinimo(e.cuentas)
   const atraso = corte ? diasEntre(corte, e.hoy) : null
   const alDia = atraso !== null && atraso <= 2
-  const atrasadas = activas.filter(c => c.fechaCorteExtracto === corte).map(c => `${c.etiqueta} ${fechaCorta(c.fechaCorteExtracto)}`)
+  const atrasadas = activas.filter(c => coberturaLectura(c) === corte).map(c => `${c.etiqueta} ${fechaCorta(coberturaLectura(c))}`)
   return [
     { estado: alDia ? 'ok' : 'bad', titulo: 'Cargar extractos', ir: 'cuentas',
-      texto: alDia ? `Hasta ${fechaCorta(corte)} en las ${activas.length} cuentas.` : `Hasta ${fechaCorta(corte)} como mínimo. Falta: ${atrasadas.join(', ') || 'sin fecha de corte'}.` },
+      texto: alDia ? `Cobertura revisada hasta ${fechaCorta(corte)} en las ${activas.length} cuentas (extracto o comprobación humana sin actividad).` : `Hasta ${fechaCorta(corte)} como mínimo. Falta: ${atrasadas.join(', ') || 'sin fecha de corte'}.` },
     { estado: cuadran === activas.length ? 'ok' : 'bad', titulo: 'Cuadrar saldos', ir: 'cuentas',
       texto: cuadran === activas.length ? 'Todas las cuentas encadenan.' : `${cuadran} de ${activas.length} cuentas encadenan. Sin esto no se puede confirmar.` },
     { estado: e.reglas === 0 ? 'ok' : '', titulo: 'Reglas automáticas', ir: 'reglas',
