@@ -59,7 +59,12 @@ const con = leer('lib/outlook-user-connection.ts')
 caso('Con M365 apagado solo se piden scopes de calendario', /m365Habilitado\(\) \? M365_SCOPES_TODOS : M365_SCOPES_CALENDARIO/.test(con) && !/OUTLOOK_SCOPES/.test(con))
 caso('Estado de conexión: mail=false si M365 apagado', /mail: m365Habilitado\(\) && /.test(con))
 caso('Compositor oculta canal Mi Outlook/IA si M365 apagado', /outlookConnection\.m365 !== false && <Area1M365Correo/.test(leer('components/admin/CrmActivityComposer.tsx')))
-caso('Cronología oculta acciones M365 si apagado', /outlookConnection\.m365 !== false && \(activity\.type === 'CORREO'/.test(leer('components/admin/CrmContactoWorkspace.tsx')))
+// 6028 corrigió esa lectura fuera de alcance con una prop explícita del padre.
+// El oráculo anterior exigía precisamente el ReferenceError ya eliminado.
+const workspace = leer('components/admin/CrmContactoWorkspace.tsx')
+const card = workspace.slice(workspace.indexOf('function ActivityCard('), workspace.indexOf('function FollowUpCard('))
+caso('Cronología oculta acciones M365 si apagado', /m365Enabled=\{outlookConnection\.m365 !== false\}/.test(workspace) && /canWrite && m365Enabled && \(activity\.type === 'CORREO'/.test(card))
+caso('Tarjeta no depende de conexión fuera de alcance', !/\boutlookConnection\b/.test(card) && /m365Enabled: boolean/.test(card))
 
 console.log(`\n${ok}/${ok + ko} correctas`)
 if (ko) process.exit(1)

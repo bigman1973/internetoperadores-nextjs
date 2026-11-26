@@ -5,10 +5,11 @@
  * Correo, IA y reunión reutilizan las rutas de contacto (a59b2880/2df60a2d): POST /actividades y GET /m365/borrador.
  * La IA solo propone: el envío lo hace siempre la persona con «Enviar».
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { EventoFicha, FichaCliente as Ficha } from '@/lib/area1-ficha-cliente'
+import { isM365LegacyPending, M365_LEGACY_PENDING_MESSAGE } from '@/lib/m365-legacy-policy'
 
-type Conexion = { enabled: boolean; connected: boolean; email: string | null; mail?: boolean; m365?: boolean }
+type Conexion = { enabled: boolean; connected: boolean; email: string | null; mail?: boolean; m365?: boolean; envios?: boolean }
 type M365 = { aviso: string | null; conexion: Conexion; corporativo: string; connectUrl: string }
 type Vista = 'resumen' | 'actividad' | 'contratos' | 'facturacion' | 'negocios' | 'personas' | 'rentabilidad'
 const VISTAS: Vista[] = ['resumen', 'actividad', 'contratos', 'facturacion', 'negocios', 'personas', 'rentabilidad']
@@ -38,11 +39,12 @@ function Bars({ meses, a, b }: { meses: string[]; a: number[]; b?: number[] }) {
   </svg>
 }
 
-function Timeline({ eventos, onOpen }: { eventos: EventoFicha[]; onOpen: (c: Cajon) => void }) {
+function Timeline({ eventos, onOpen, pie }: { eventos: EventoFicha[]; onOpen: (c: Cajon) => void; pie?: ReactNode }) {
   const [filter, setFilter] = useState('all')
   const lista = eventos.filter((e) => filter === 'all' || e.cat === filter)
   return <>
     <div className="chipsf">{FIL.map((f) => <button key={f[0]} type="button" data-f={f[0]} aria-pressed={f[0] === filter} onClick={() => setFilter(f[0])}>{f[1]}</button>)}</div>
+    {pie}
     <div className="tl">
       {lista.length === 0 && <p className="small muted" style={{ margin: '8px 0 0' }}>sin dato: no hay actividad registrada{filter === 'all' ? '' : ' de este tipo'}.</p>}
       {lista.map((e) => <div className="ev" key={e.id}><span className={`ic ${e.cat}`}>{ICON[e.cat]}</span><div>
@@ -77,6 +79,27 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
       .catch(() => vivo && setAi({ puntos: null, error: 'Resumen con IA no disponible.' }))
     return () => { vivo = false }
   }, [ficha.empresa.id])
+
+  // Correos recibidos de Outlook: solo lectura, se piden al pulsar y no se guardan en la ficha.
+  const outlookCorreo = m365.conexion.enabled && m365.conexion.connected && !!m365.conexion.mail
+  const [recibidos, setRecibidos] = useState<{ estado: 'idle' | 'cargando' | 'ok' | 'error'; eventos: EventoFicha[]; msg: string | null }>({ estado: 'idle', eventos: [], msg: null })
+  async function cargarRecibidos() {
+    setRecibidos((r) => ({ ...r, estado: 'cargando', msg: null }))
+    try {
+      const r = await fetch(`/api/admin/crm/empresas/${encodeURIComponent(ficha.empresa.id)}/correos-recibidos`, { cache: 'no-store' })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok || !Array.isArray(d.eventos)) throw new Error(d.error || 'No se han podido leer los correos de Outlook.')
+      const n = d.eventos.length
+      setRecibidos({ estado: 'ok', eventos: d.eventos, msg: d.direcciones === 0 ? 'sin dato: ninguna persona de la ficha tiene email.' : n ? `${n} correo${n === 1 ? '' : 's'} recibido${n === 1 ? '' : 's'} en tu Outlook (últimos ${d.dias} días). Solo lectura: no se guardan en la ficha.` : `Ningún correo de estas personas en tu Outlook en los últimos ${d.dias} días.` })
+    } catch (e) { setRecibidos({ estado: 'error', eventos: [], msg: e instanceof Error ? e.message : 'No se han podido leer los correos de Outlook.' }) }
+  }
+  const eventos = useMemo(() => recibidos.eventos.length ? [...ficha.eventos, ...recibidos.eventos].sort((a, b) => b.fechaIso.localeCompare(a.fechaIso)) : ficha.eventos, [ficha.eventos, recibidos.eventos])
+  const pieOutlook = !m365.conexion.enabled || m365.conexion.m365 === false ? null
+    : !outlookCorreo ? <p className="small muted" style={{ margin: '6px 0 0' }}><a href={m365.connectUrl}>{m365.conexion.connected ? 'Conceder permiso de correo' : 'Conectar mi Outlook'}</a> para ver aquí los correos que te envía el cliente (solo lectura).</p>
+      : <p className="small muted" style={{ margin: '6px 0 0', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button className="btn small" type="button" onClick={cargarRecibidos} disabled={recibidos.estado === 'cargando'}>{recibidos.estado === 'cargando' ? 'Leyendo tu Outlook…' : recibidos.estado === 'idle' ? 'Ver correos recibidos en mi Outlook' : 'Actualizar correos recibidos'}</button>
+        {recibidos.msg && <span>{recibidos.msg}</span>}
+      </p>
 
   // Compositor
   const tipos = ['Nota', 'Llamada', 'Correo', 'Reunión', 'Tarea'] as const
@@ -138,7 +161,7 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
           </div>
         </div>
         <nav className="tabs" aria-label="Secciones de la ficha">
-          {([['resumen', 'Resumen', null], ['actividad', 'Actividad', ficha.eventos.length], ['contratos', 'Contratos y servicios', ficha.contratos.length], ['facturacion', 'Facturación', null], ['negocios', 'Negocios', ficha.negocios.length], ['personas', 'Personas', ficha.personas.length], ['rentabilidad', 'Rentabilidad y subida', null]] as Array<[Vista, string, number | null]>).map(([v, t, n]) =>
+          {([['resumen', 'Resumen', null], ['actividad', 'Actividad', eventos.length], ['contratos', 'Contratos y servicios', ficha.contratos.length], ['facturacion', 'Facturación', null], ['negocios', 'Negocios', ficha.negocios.length], ['personas', 'Personas', ficha.personas.length], ['rentabilidad', 'Rentabilidad y subida', null]] as Array<[Vista, string, number | null]>).map(([v, t, n]) =>
             <a key={v} href={`#${v}`} data-v={v} aria-current={vista === v ? 'page' : 'false'} onClick={(ev) => { ev.preventDefault(); show(v) }}>{t}{n != null && <> <span className="tag">{n}</span></>}</a>)}
         </nav>
       </div>
@@ -169,7 +192,7 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
                 <textarea placeholder={tipoComp === 'Tarea' ? 'Escribe la tarea (vence mañana).' : tipoComp === 'Llamada' ? 'Resume la llamada.' : tipoComp === 'Correo' || tipoComp === 'Reunión' ? `Pulsa Guardar para abrir el panel de ${tipoComp === 'Correo' ? 'correo' : 'reunión'}.` : 'Escribe una nota. Usa @ para mencionar a un compañero.'} value={textoComp} onChange={(ev) => setTextoComp(ev.target.value)} />
                 <div className="row" style={{ justifyContent: 'flex-end', marginTop: 8 }}><button className="btn small primary" type="button" disabled={guardando} onClick={guardarComp}>{guardando ? 'Guardando…' : 'Guardar'}</button></div>
               </div>
-              <Timeline eventos={ficha.eventos} onOpen={setCajon} />
+              <Timeline eventos={eventos} onOpen={setCajon} pie={pieOutlook} />
             </div>
           </div>
           <aside className="side">
@@ -209,7 +232,7 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
       </section>
 
       <section className="view" id="v-actividad" hidden={vista !== 'actividad'}>
-        <div className="panel"><h2>Toda la actividad</h2><p className="help">Correos de Outlook, reuniones, llamadas, notas, tareas, cambios en ISP Gestión e historial importado de HubSpot.</p><Timeline eventos={ficha.eventos} onOpen={setCajon} /></div>
+        <div className="panel"><h2>Toda la actividad</h2><p className="help">Correos de Outlook, reuniones, llamadas, notas, tareas, cambios en ISP Gestión e historial importado de HubSpot.</p><Timeline eventos={eventos} onOpen={setCajon} pie={pieOutlook} /></div>
       </section>
 
       <section className="view" id="v-contratos" hidden={vista !== 'contratos'}>
@@ -304,6 +327,7 @@ function Drawer({ cajon, ficha, m365, puedeEscribir, onClose, onOpen, toast }: {
   const [borradorIa, setBorradorIa] = useState(false)
   const [ocupado, setOcupado] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [pendiente, setPendiente] = useState(false)
   const [avisosIa, setAvisosIa] = useState<string[] | null>(null)
   const isAi = cajon.kind === 'ai'
   async function proponer() {
@@ -322,15 +346,17 @@ function Drawer({ cajon, ficha, m365, puedeEscribir, onClose, onOpen, toast }: {
   useEffect(() => { if (isAi && para) void proponer() }, []) // eslint-disable-line react-hooks/exhaustive-deps
   async function enviar() {
     setError(null)
+    setPendiente(false)
     const p = conEmail.find((x) => x.id === para)
     if (!p?.email) return setError('Elige a quién escribes (la persona necesita correo).')
     if (!asunto.trim()) return setError('Escribe el asunto del correo.')
     if (!cuerpo.trim()) return setError('Escribe el contenido del correo.')
-    if (viaOutlook && !outlookListo) return setError('Conecta tu Outlook con permiso de correo o elige «Buzón corporativo».')
+    if (viaOutlook && !outlookListo && m365.conexion.envios !== false) return setError('Conecta tu Outlook con permiso de correo o elige «Buzón corporativo».')
     setOcupado('enviar')
     try {
-      const r = await fetch(`/api/admin/crm/contactos/${encodeURIComponent(p.id)}/actividades`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'CORREO', clientRequestId: reqId(), title: asunto.trim(), description: cuerpo, direction: 'SALIENTE', to: [p.email], viaOutlook: viaOutlook && outlookListo, borradorIa }) })
+      const r = await fetch(`/api/admin/crm/contactos/${encodeURIComponent(p.id)}/actividades`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'CORREO', clientRequestId: reqId(), title: asunto.trim(), description: cuerpo, direction: 'SALIENTE', to: [p.email], viaOutlook, borradorIa }) })
       const d = await r.json().catch(() => ({}))
+      if (isEnvioPendiente(d)) return setPendiente(true)
       if (!r.ok || !d.success) throw new Error(d.error || 'No se pudo enviar el correo.')
       toast(d.isolation === 'no_enviado' ? 'Pruebas: no se ha enviado; queda registrado en la ficha.' : d.isolation === 'desviado' ? 'Pruebas: enviado a la dirección de prueba.' : 'Correo enviado y registrado en la ficha.')
       onClose(); setTimeout(() => location.reload(), 700)
@@ -347,6 +373,7 @@ function Drawer({ cajon, ficha, m365, puedeEscribir, onClose, onOpen, toast }: {
   const [teams, setTeams] = useState(m365.conexion.enabled)
   async function crearReunion() {
     setError(null)
+    setPendiente(false)
     const ids = invitados.length ? invitados : ficha.personas[0] ? [ficha.personas[0].id] : []
     if (!ids.length) return setError('Añade antes una persona a la ficha.')
     if (!titulo.trim()) return setError('Escribe el título de la reunión.')
@@ -356,6 +383,7 @@ function Drawer({ cajon, ficha, m365, puedeEscribir, onClose, onOpen, toast }: {
     try {
       const r = await fetch(`/api/admin/crm/contactos/${encodeURIComponent(ids[0])}/actividades`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'REUNION', clientRequestId: reqId(), title: titulo.trim(), description: `Reunión con ${ficha.empresa.nombre}: ${titulo.trim()}`, activityDate: cuandoD.toISOString(), durationMinutes: Number(dur), contactIds: ids.slice(1), syncOutlook: enOutlook, onlineMeeting: enOutlook && teams, inviteAttendees: enOutlook }) })
       const d = await r.json().catch(() => ({}))
+      if (enOutlook && isEnvioPendiente(d)) return setPendiente(true)
       if (!r.ok || !d.success) throw new Error(d.error || 'No se pudo programar la reunión.')
       toast('Reunión guardada en la ficha.'); onClose(); setTimeout(() => location.reload(), 700)
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo programar la reunión.') } finally { setOcupado(null) }
@@ -370,6 +398,7 @@ function Drawer({ cajon, ficha, m365, puedeEscribir, onClose, onOpen, toast }: {
     <label className="chk" style={{ display: 'flex', color: 'var(--fg)' }}><input type="checkbox" checked={enOutlook} disabled={!m365.conexion.enabled} onChange={(e) => setEnOutlook(e.target.checked)} style={{ width: 'auto' }} /> Crear en mi calendario de Outlook</label>
     <label className="chk" style={{ display: 'flex', color: 'var(--fg)' }}><input type="checkbox" checked={teams} disabled={!enOutlook} onChange={(e) => setTeams(e.target.checked)} style={{ width: 'auto' }} /> Añadir reunión de Microsoft Teams</label>
     {m365.conexion.enabled && m365.conexion.m365 !== false && !m365.conexion.connected && <p className="small muted"><a href={m365.connectUrl}>Conectar mi Outlook</a> para crear la reunión en tu calendario.</p>}
+    {(pendiente || (m365.conexion.envios === false && enOutlook)) && <div className="notice" role="status" aria-live="polite" style={{ background: '#eff6ff', color: '#1e3a8a' }}>{M365_LEGACY_PENDING_MESSAGE}</div>}
     {m365.aviso && <div className="notice">Pruebas: los invitados se cambian por la dirección de prueba.</div>}
     {error && <div className="notice">{error}</div>}
     <div className="row" style={{ justifyContent: 'flex-end', marginTop: 12 }}><button className="btn" type="button" data-close onClick={onClose}>Cancelar</button><button className="btn primary" type="button" disabled={!puedeEscribir || ocupado != null} onClick={crearReunion}>{ocupado ? 'Creando…' : 'Crear reunión'}</button></div>
@@ -377,6 +406,7 @@ function Drawer({ cajon, ficha, m365, puedeEscribir, onClose, onOpen, toast }: {
   return <div className="drawer" id="drawer" role="dialog" aria-label="Redactar">
     <div className="row" style={{ justifyContent: 'space-between' }}><h2>{isAi ? 'Correo con IA' : 'Nuevo correo'}</h2><button className="btn ghost" type="button" data-close onClick={onClose}>✕</button></div>
     {sinPermiso}
+    {(pendiente || m365.conexion.envios === false) && <div className="notice" role="status" aria-live="polite" style={{ background: '#eff6ff', color: '#1e3a8a' }}>{M365_LEGACY_PENDING_MESSAGE}</div>}
     {m365.aviso && <div className="notice">Pruebas: los correos se desvían a la dirección de prueba; ningún cliente los recibe.</div>}
     <label>Enviar desde</label><div className="seg" role="group"><button type="button" aria-pressed={viaOutlook} disabled={!m365.conexion.enabled} onClick={() => setViaOutlook(true)}>Mi Outlook</button><button type="button" aria-pressed={!viaOutlook} onClick={() => setViaOutlook(false)}>Buzón corporativo</button></div>
     {viaOutlook && outlookListo && <p className="small muted" style={{ margin: '6px 0 0' }}>{m365.conexion.email} · queda en Enviados</p>}
@@ -391,4 +421,13 @@ function Drawer({ cajon, ficha, m365, puedeEscribir, onClose, onOpen, toast }: {
     <div className="row" style={{ marginTop: 12, justifyContent: 'space-between' }}>{isAi ? <button className="btn" type="button" disabled={ocupado != null} onClick={proponer}>Otra versión</button> : <button className="btn" type="button" data-open="ai" onClick={() => onOpen({ kind: 'ai', para, asunto })}>Redactar con IA</button>}<div className="row"><button className="btn" type="button" data-close onClick={onClose}>Cancelar</button><button className="btn primary" type="button" disabled={!puedeEscribir || ocupado != null} onClick={enviar}>{ocupado === 'enviar' ? 'Enviando…' : 'Enviar'}</button></div></div>
     <p className="small muted">Queda en tus Enviados de Outlook y en esta ficha. Las respuestas del cliente aparecen en la actividad.</p>
   </div>
+}
+
+// Sólo los POST de correo o reunión solicitada en Outlook convierten el cierre en aviso.
+function isEnvioPendiente(data: unknown): boolean {
+  if (isM365LegacyPending(data)) return true
+  if (!data || typeof data !== 'object') return false
+  const body = data as { code?: unknown; codigo?: unknown; error?: unknown }
+  return body.code === 'FINANCE_EXTERNAL_ACTIONS_DISABLED' || body.codigo === 'FINANCE_EXTERNAL_ACTIONS_DISABLED'
+    || body.error === 'Sandbox de Finanzas: esta acción está bloqueada en staging; no se envían comunicaciones ni se ejecutan sincronizaciones ajenas a los bloques autorizados.'
 }

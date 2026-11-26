@@ -40,6 +40,10 @@ function ResumenImportacion({ r }: { r: Resumen }) {
   )
 }
 
+const MOTIVO_LABEL: Record<string, string> = {
+  CODIGO: 'Clave ISP (código)', ID_ISP_CODIGO_DISTINTO: 'Clave ISP con otro código', EMAIL_EN_OTRO_CLIENTE: 'Email usado por otro cliente',
+  EMAIL: 'Email', NOMBRE: 'Solo nombre', NIF: 'NIF', SIN_CANDIDATO: 'Sin candidato (crear ficha)',
+}
 export default function CrmIspImportPanel() {
   const [fichero, setFichero] = useState<File | null>(null)
   const [consultarBrevo, setConsultarBrevo] = useState(true)
@@ -47,7 +51,8 @@ export default function CrmIspImportPanel() {
   const [aplicado, setAplicado] = useState<Resumen | null>(null)
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState('')
-  const [filtro, setFiltro] = useState({ tipo: '', confianza: '', estado: 'PENDIENTE', pagina: 1 })
+  const [filtro, setFiltro] = useState({ tipo: '', confianza: '', motivo: '', estado: 'PENDIENTE', pagina: 1 })
+  const [bloque, setBloque] = useState<any | null>(null)
   const [lista, setLista] = useState<{ total: number; porTipo: any[]; vinculos: Vinculo[]; aviso?: string } | null>(null)
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set())
   const [mensaje, setMensaje] = useState('')
@@ -68,7 +73,7 @@ export default function CrmIspImportPanel() {
   }
 
   const cargarLista = useCallback(async () => {
-    const q = new URLSearchParams({ estado: filtro.estado, pagina: String(filtro.pagina), ...(filtro.tipo ? { tipo: filtro.tipo } : {}), ...(filtro.confianza ? { confianza: filtro.confianza } : {}) })
+    const q = new URLSearchParams({ estado: filtro.estado, pagina: String(filtro.pagina), ...(filtro.tipo ? { tipo: filtro.tipo } : {}), ...(filtro.confianza ? { confianza: filtro.confianza } : {}), ...(filtro.motivo ? { motivo: filtro.motivo } : {}) })
     const r = await fetch(`/api/admin/crm/isp/vinculos?${q}`)
     if (r.ok) { setLista(await r.json()); setSeleccion(new Set()) }
   }, [filtro])
@@ -85,8 +90,41 @@ export default function CrmIspImportPanel() {
     cargarLista()
   }
 
+  // Bloque: NIF + nombre igual + empresa no compartida. Simular es solo lectura; confirmar exige la huella simulada.
+  const simularBloque = async () => {
+    setCargando(true); setMensaje(''); setError('')
+    const r = await fetch('/api/admin/crm/isp/vinculos/bloque', { cache: 'no-store' })
+    const j = await r.json().catch(() => ({}))
+    setCargando(false)
+    if (!r.ok) return setError(j.error || 'No se pudo simular el bloque.')
+    setBloque(j)
+  }
+  const confirmarBloque = async () => {
+    if (!bloque?.hash || !window.confirm(`Vas a vincular ${bloque.vinculos} clientes ISP con su empresa del CRM (coinciden NIF y nombre). No se crean fichas nuevas. ¿Confirmar el bloque?`)) return
+    setCargando(true); setMensaje(''); setError('')
+    const r = await fetch('/api/admin/crm/isp/vinculos/bloque', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ confirmacion: 'CONFIRMAR_BLOQUE', hashEsperado: bloque.hash }) })
+    const j = await r.json().catch(() => ({}))
+    setCargando(false); setBloque(null)
+    if (!r.ok) return setError(j.error || 'No se pudo confirmar el bloque.')
+    setMensaje(`Bloque confirmado: ${n(j.vinculos)} vínculos con empresa, ${n(j.enlacesClienteWeb)} enlaces con su cliente web. Recibo de auditoría registrado.`)
+    cargarLista()
+  }
   return (
     <div className="space-y-8">
+      <section className="space-y-3 rounded-xl border border-green-200 bg-green-50/40 p-5">
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="mr-auto text-lg font-bold text-gray-900">Confirmación en bloque · empresas por NIF y nombre igual</h2>
+          <button type="button" disabled={cargando} onClick={simularBloque} className="rounded-md bg-slate-800 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Simular bloque</button>
+          <button type="button" disabled={!bloque?.vinculos || cargando} onClick={confirmarBloque} className="rounded-md bg-green-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Confirmar bloque{bloque ? ` (${n(bloque.vinculos)})` : ''}</button>
+        </div>
+        <p className="text-xs text-gray-500">Solo propuestas «Empresa del CRM» de confianza alta por NIF, con el mismo nombre y sin otra cuenta ISP hacia la misma empresa. No crea fichas. Si las propuestas cambian después de simular, no se confirma nada.</p>
+        {bloque && <div className="space-y-2 text-sm text-gray-800">
+          <p>Simulación (no se ha guardado nada): vincularía <b>{n(bloque.vinculos)}</b> clientes ISP a <b>{n(bloque.empresas)}</b> empresas, crearía <b>{n(bloque.enlacesClienteWeb)}</b> enlaces con su cliente web ({n(bloque.contratos)} contratos). Fichas nuevas: 0. Quedan para revisión manual: {n(bloque.excluidos.total)} (nombre distinto {n(bloque.excluidos.NOMBRE_DISTINTO)}, empresa compartida {n(bloque.excluidos.EMPRESA_COMPARTIDA)}).</p>
+          <table className="text-xs"><thead><tr className="text-left text-gray-500"><th className="pr-4">Código ISP</th><th className="pr-4">NIF</th><th className="pr-4">Contratos</th><th>Cliente web</th></tr></thead>
+            <tbody>{bloque.ejemplos.map((e: any) => <tr key={e.codigoIsp}><td className="pr-4">{e.codigoIsp}</td><td className="pr-4">{e.nif}</td><td className="pr-4">{e.contratos}</td><td>{e.conClienteWeb ? 'sí' : 'no'}</td></tr>)}</tbody></table>
+          <p className="text-xs text-gray-500">Huella: <code>{String(bloque.hash).slice(0, 16)}…</code></p>
+        </div>}
+      </section>
       <section className="space-y-4 rounded-xl border border-orange-200 bg-orange-50/40 p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <input type="file" accept=".xlsx" onChange={(e) => { setFichero(e.target.files?.[0] || null); setSimulacion(null); setAplicado(null) }} className="text-sm" />
@@ -112,6 +150,9 @@ export default function CrmIspImportPanel() {
           </select>
           <select value={filtro.confianza} onChange={(e) => setFiltro({ ...filtro, confianza: e.target.value, pagina: 1 })} className="rounded-md border-gray-300 text-sm">
             <option value="">Toda confianza</option>{['ALTA', 'MEDIA', 'BAJA'].map((x) => <option key={x}>{x}</option>)}
+          </select>
+          <select value={filtro.motivo} onChange={(e) => setFiltro({ ...filtro, motivo: e.target.value, pagina: 1 })} className="rounded-md border-gray-300 text-sm" aria-label="Motivo">
+            <option value="">Todos los motivos</option>{Object.entries(MOTIVO_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
           {filtro.estado === 'PENDIENTE' && <>
             <button type="button" disabled={!seleccion.size || cargando} onClick={() => resolver('CONFIRMAR')} className="rounded-md bg-green-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">Confirmar ({seleccion.size})</button>

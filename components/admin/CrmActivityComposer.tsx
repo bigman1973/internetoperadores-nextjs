@@ -41,6 +41,7 @@ type Props = {
     lastError: string | null
     mail?: boolean
     m365?: boolean
+    envios?: boolean
   }
   /** Área 1 · aviso de aislamiento de Microsoft 365 (staging); null en producción */
   m365Aviso?: string | null
@@ -206,7 +207,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
     if (!description.trim()) return setError(type === 'CORREO' ? 'Escribe el contenido del correo.' : 'Añade una descripción útil.')
     if ((type === 'CORREO' || type === 'TAREA') && !title.trim()) return setError(type === 'CORREO' ? 'Escribe el asunto del correo.' : 'Escribe el título de la tarea.')
     if (type === 'CORREO' && !to.trim()) return setError('Añade al menos un destinatario.')
-    if (type === 'CORREO') { const bloqueo = bloqueoCanalCorreo(viaOutlook, outlookConnection); if (bloqueo) return setError(bloqueo) }
+    if (type === 'CORREO') { const bloqueo = bloqueoCanalCorreo(viaOutlook, outlookConnection); if (bloqueo && outlookConnection.envios !== false) return setError(bloqueo) }
     if (type === 'REUNION' && syncOutlook && !title.trim()) return setError('Escribe el título de la reunión.')
     if (type === 'REUNION' && syncOutlook && Number(durationMinutes) < 5) return setError('Indica una duración mínima de 5 minutos.')
     const assistedUrl = direction === 'SALIENTE' ? channelUrl(type, contactPhone, contactLinkedIn, contactName, description) : null
@@ -228,7 +229,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
           to: type === 'CORREO' ? splitEmails(to) : undefined,
           cc: type === 'CORREO' ? splitEmails(cc) : undefined,
           bcc: type === 'CORREO' ? splitEmails(bcc) : undefined,
-          viaOutlook: type === 'CORREO' ? viaOutlook && outlookMailReady : undefined,
+          viaOutlook: type === 'CORREO' ? viaOutlook : undefined,
           borradorIa: type === 'CORREO' ? aiDraft : undefined,
           syncOutlook: type === 'REUNION' ? syncOutlook : undefined,
           onlineMeeting: type === 'REUNION' ? onlineMeeting : undefined,
@@ -362,7 +363,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
               </div>}
             </section>}
 
-            {pendingMessage && <div role="status" aria-live="polite" className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-900">{pendingMessage}</div>}
+            {(pendingMessage || (outlookConnection.envios === false && (type === 'CORREO' || (type === 'REUNION' && syncOutlook)))) && <div role="status" aria-live="polite" className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-900">{pendingMessage || M365_LEGACY_PENDING_MESSAGE}</div>}
             {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-800">{error}</div>}
           </div>
 

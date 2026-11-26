@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
 import prisma from '@/lib/prisma'
+import { m365LegacyEnabled } from '@/lib/m365-legacy-policy'
 import { M365_SCOPES_CALENDARIO, M365_SCOPES_TODOS, m365Habilitado, scopesParaRenovar, tienePermiso, type M365Necesidad } from '@/lib/area1-m365'
 
 // Área 1 · M365: se piden calendario + correo (delegados). Las conexiones antiguas (solo calendario)
@@ -37,6 +38,8 @@ export type OutlookConnectionStatus = {
   mail: boolean
   /** Área 1 · Microsoft 365 en la ficha (correo, IA, respuestas) disponible en este entorno */
   m365: boolean
+  /** Puerta CRM en cualquier entorno: sólo M365_LEGACY_CRM_EXTERNAL_ENABLED=1 la reabre. */
+  envios: boolean
 }
 
 export function isOutlookUserIntegrationEnabled() {
@@ -176,6 +179,7 @@ export async function getOutlookConnectionStatus(userId: number): Promise<Outloo
     lastError: connection?.ultimoError || null,
     mail: m365Habilitado() && Boolean(connection && !connection.revocadoAt && tienePermiso(connection.scopes, 'correo')),
     m365: m365Habilitado(),
+    envios: m365LegacyEnabled('crm'),
   }
 }
 

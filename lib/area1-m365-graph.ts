@@ -120,6 +120,69 @@ export async function leerHiloCorreo(accessToken: string, conversationId: string
   return { ok: true, status: response.status, mensajes }
 }
 
+/** Correo recibido en el buzón del usuario (solo lectura; no se guarda en el panel). */
+export type CorreoRecibido = {
+  id: string
+  recibido: string | null
+  de: string | null
+  deNombre: string | null
+  asunto: string | null
+  extracto: string | null
+  webLink: string | null
+}
+const EMAIL_RE = /^[^\s@'"<>(),;:]+@[a-z0-9.-]+\.[a-z]{2,}$/i
+/** Direcciones de las personas de la ficha: válidas, sin repetir, sin el dominio propio y como mucho `max`. */
+export function direccionesRecibidos(emails: Array<string | null | undefined>, dominiosPropios: Iterable<string> = ['internetoperadores.com'], max = 20): string[] {
+  const propios = new Set([...dominiosPropios].map((d) => d.toLowerCase()))
+  const out: string[] = []
+  for (const raw of emails) {
+    const e = String(raw || '').trim().toLowerCase()
+    if (!EMAIL_RE.test(e) || propios.has(e.split('@')[1]) || out.includes(e)) continue
+    out.push(e)
+    if (out.length >= max) break
+  }
+  return out
+}
+/** $filter de Graph: recibidos desde `desde` y enviados por alguna de las direcciones (ya validadas). */
+export function filtroRecibidos(direcciones: string[], desde: Date): string {
+  const de = direcciones.map((d) => `from/emailAddress/address eq '${d.replace(/'/g, "''")}'`).join(' or ')
+  return `receivedDateTime ge ${desde.toISOString()} and (${de})`
+}
+/**
+ * Solo lectura (GET /me/messages): correos que las direcciones dadas han enviado al usuario.
+ * No marca como leído, no mueve ni guarda nada. Si Graph rechaza el orden en servidor, se reintenta sin $orderby y se ordena aquí.
+ */
+export async function leerCorreosRecibidos(accessToken: string, direcciones: string[], opciones: { desde: Date; top?: number }, fetchImpl: FetchLike = fetch): Promise<{ ok: boolean; status: number; correos: CorreoRecibido[]; error?: string }> {
+  if (!direcciones.length) return { ok: true, status: 200, correos: [] }
+  const top = Math.min(Math.max(opciones.top || 25, 1), 50)
+  const pedir = async (ordenar: boolean) => {
+    const url = new URL(`${GRAPH}/me/messages`)
+    url.searchParams.set('$filter', filtroRecibidos(direcciones, opciones.desde))
+    url.searchParams.set('$select', 'id,receivedDateTime,from,subject,bodyPreview,webLink,isDraft')
+    url.searchParams.set('$top', String(top))
+    if (ordenar) url.searchParams.set('$orderby', 'receivedDateTime desc')
+    return fetchImpl(url.toString(), { method: 'GET', headers: { Authorization: `Bearer ${accessToken}` }, cache: 'no-store', signal: AbortSignal.timeout(15_000) })
+  }
+  let response = await pedir(true)
+  if (response.status === 400) response = await pedir(false)
+  if (!response.ok) return { ok: false, status: response.status, correos: [], error: await graphError(response) }
+  const data = await response.json() as { value?: Array<{ id: string; receivedDateTime?: string; from?: { emailAddress?: { address?: string; name?: string } }; subject?: string; bodyPreview?: string; webLink?: string; isDraft?: boolean }> }
+  const permitidas = new Set(direcciones)
+  const correos = (data.value || [])
+    .filter((m) => !m.isDraft && permitidas.has(String(m.from?.emailAddress?.address || '').toLowerCase()))
+    .map((m) => ({
+      id: m.id,
+      recibido: m.receivedDateTime || null,
+      de: m.from?.emailAddress?.address?.toLowerCase() || null,
+      deNombre: m.from?.emailAddress?.name || null,
+      asunto: m.subject || null,
+      extracto: (m.bodyPreview || '').slice(0, 300) || null,
+      webLink: m.webLink || null,
+    }))
+    .sort((a, b) => String(b.recibido).localeCompare(String(a.recibido)))
+    .slice(0, top)
+  return { ok: true, status: response.status, correos }
+}
 export type EventoOutlook = {
   existe: boolean
   cancelado: boolean
