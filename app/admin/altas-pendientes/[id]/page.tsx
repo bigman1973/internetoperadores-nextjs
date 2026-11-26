@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { isM365LegacyPending, M365_LEGACY_PENDING_MESSAGE } from '@/lib/m365-legacy-policy'
 
 interface AltaDetalle {
   id: string
@@ -89,6 +90,7 @@ export default function AltaDetallePage() {
   const [editMode, setEditMode] = useState(false)
   const [editData, setEditData] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
+  const [contratoNotice, setContratoNotice] = useState<string | null>(null)
 
   useEffect(() => {
     if (params.id) fetchAlta()
@@ -606,13 +608,22 @@ export default function AltaDetallePage() {
                 <button
                   onClick={async () => {
                     setActionLoading(true)
+                    setContratoNotice(null)
                     try {
                       const res = await fetch(`/api/altas/${alta.id}/enviar-contrato`, { method: 'POST' })
-                      if (res.ok) {
+                      const data = await res.json()
+                      // Sólo este envío: el proxy puede cerrarlo antes del handler.
+                      const proxyBlocked = data.code === 'FINANCE_EXTERNAL_ACTIONS_DISABLED'
+                        || data.codigo === 'FINANCE_EXTERNAL_ACTIONS_DISABLED'
+                        || data.error === 'Sandbox de Finanzas: esta acción está bloqueada en staging; no se envían comunicaciones ni se ejecutan sincronizaciones ajenas a los bloques autorizados.'
+                      if (isM365LegacyPending(data) || proxyBlocked) {
+                        setContratoNotice(M365_LEGACY_PENDING_MESSAGE)
+                        return
+                      }
+                      if (res.ok && data.success === true) {
                         alert('Contrato enviado por email al cliente')
                         await fetchAlta()
                       } else {
-                        const data = await res.json()
                         alert(data.error || 'Error al enviar el contrato')
                       }
                     } catch (err) {
@@ -629,6 +640,11 @@ export default function AltaDetallePage() {
                   </svg>
                   Enviar contrato al cliente por email
                 </button>
+                {contratoNotice && (
+                  <p role="status" className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                    {contratoNotice}
+                  </p>
+                )}
               </div>
 
               {/* Historial de envíos */}

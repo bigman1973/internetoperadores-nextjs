@@ -3,6 +3,7 @@ import { ADMIN_RENDER_SURFACE_HEADER, adminRenderSurface } from './lib/admin-ren
 import { conciliarRuntimeConfigured } from './lib/finanzas/conciliar-runtime';
 import { highRiskApiRequirement } from './lib/high-risk-api-policy';
 import { hasAltaContractCapability } from './lib/altas/contrato-access';
+import { isM365LegacyLocalActivity, m365LegacyLocalSandboxEnabled, m365LegacyMailRouteFromPath, m365LegacyPendingBody } from './lib/m365-legacy-policy';
 
 const SAFE_API_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const IMPERSONATION_HEADER = 'x-io-impersonation-context';
@@ -643,11 +644,19 @@ export async function proxy(request) {
       ? await import('@/lib/area4/crm-staging-import') : null;
     const crmImportAllowed = imports !== null && imports.area4CrmStagingImportEnabled(process.env)
       && imports.area4CrmStagingImportContract(path, request.method) !== null;
+    // Sólo notas/tareas/llamadas/reuniones locales; jamás abre correo ni Graph.
+    // El cuerpo se lee de un clon acotado; permisos vivos y readonly siguen debajo.
+    const crmActivityPath = request.method === 'POST' && /^\/api\/admin\/crm\/contactos\/[^/]+\/actividades$/.test(path);
+    const crmActivityCommand = crmActivityPath && m365LegacyLocalSandboxEnabled(process.env)
+      ? await area4JsonCommand(request, 16 * 1024) : null;
+    const crmLocalActivityAllowed = crmActivityCommand !== null && !crmActivityCommand.errorStatus
+      && isM365LegacyLocalActivity(crmActivityCommand.body);
     // Se amplía por bloques validados, nunca por toda el área financiera.
     const allowed = path === '/api/admin/finanzas/sincronizar-onedrive'
       // Only these registered POSTs pass the sandbox; live owner, V/E/C,
       // confirmation and durable audit are mandatory below, before dispatch.
       || crmImportAllowed
+      || crmLocalActivityAllowed
       // El control valida su propia sesión real, CSRF/origen y entorno; esta
       // excepción no habilita ninguna API de negocio durante actuación.
       || path === '/api/admin/actuar-como'
@@ -687,6 +696,9 @@ export async function proxy(request) {
       || (/^\/api\/admin\/asistente\/(leads|escalados|aprendizaje|huecos|informes\/propuestas)\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
       || path.startsWith('/api/auth/');
     if ((path.startsWith('/api/cron/') && !(path === '/api/cron/rentabilidad-daily' && request.method === 'GET')) || (mutating && !allowed)) {
+      if (request.method === 'POST' && (m365LegacyMailRouteFromPath(path) || crmActivityPath)) {
+        return NextResponse.json(m365LegacyPendingBody(), { status: 503, headers: { 'Cache-Control': 'private, no-store' } });
+      }
       return NextResponse.json({ error: 'Sandbox de Finanzas: esta acción está bloqueada en staging; no se envían comunicaciones ni se ejecutan sincronizaciones ajenas a los bloques autorizados.' }, { status: 403, headers: { 'Cache-Control': 'private, no-store' } });
     }
   }
@@ -754,6 +766,10 @@ export async function proxy(request) {
       && process.env.VERCEL_ENV !== 'production'
       && ((path === '/api/cron/rentabilidad-daily' && request.method === 'GET')
         || (path === '/api/admin/rentabilidad/sync' && request.method === 'POST'));
+    if (externalPath && !isAuthorizedP2Path(path) && !assistantReportCronAllowed && !rentabilidadAnalyticAllowed
+      && request.method === 'POST' && m365LegacyMailRouteFromPath(path)) {
+      return NextResponse.json(m365LegacyPendingBody(), { status: 503, headers: { 'Cache-Control': 'private, no-store' } });
+    }
     if (externalPath && !isAuthorizedP2Path(path) && !assistantReportCronAllowed && !rentabilidadAnalyticAllowed) return blockedBoundary(
       'Sincronizaciones y comunicaciones externas desactivadas en este lanzamiento; las acciones financieras manuales siguen disponibles.',
       'FINANCE_EXTERNAL_ACTIONS_DISABLED',

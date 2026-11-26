@@ -14,6 +14,7 @@ import * as renderSurface from '../lib/admin-render-surface'
 import * as highRiskPolicy from '../lib/high-risk-api-policy'
 import * as altaContract from '../lib/altas/contrato-access'
 import * as easyCore from '../lib/finanzas/easy-access-core'
+import * as m365LegacyPolicy from '../lib/m365-legacy-policy'
 
 // Full REAL middleware source, including sandbox, external and readonly fences.
 // Only session/database I/O and the unrelated Conciliar runtime/profile are synthetic.
@@ -79,6 +80,7 @@ vm.runInNewContext(code, {
     if (name === './lib/finanzas/conciliar-runtime') return { conciliarRuntimeConfigured: () => null }
     if (name === './lib/high-risk-api-policy') return highRiskPolicy
     if (name === './lib/altas/contrato-access') return altaContract
+    if (name === './lib/m365-legacy-policy') return m365LegacyPolicy
     if (name === 'next-auth/jwt') return { getToken: async () => token }
     if (name === '@/lib/area4/section-registry') return registry
     if (name === '@/lib/area4/policy') return policy
@@ -333,7 +335,11 @@ const neighbours = [
 test('vecinos, vínculos, M365 y variantes no canónicas nunca heredan la excepción POST', async () => {
   for (const path of neighbours) {
     assert.equal(crmStagingImport.area4CrmStagingImportContract(path, 'POST'), null, path)
-    denied(await invoke(path, json({ confirmar: true })), 403)
+    // Víctor 26/11: el POST de actividades sin cuerpo local válido sigue cerrado,
+    // ahora con respuesta informativa 503; ninguna ruta hereda la importación.
+    const response = await invoke(path, json({ confirmar: true }))
+    denied(response, path === '/api/admin/crm/contactos/synthetic/actividades' ? 503 : 403)
+    if (path === '/api/admin/crm/contactos/synthetic/actividades') assert.equal((await response!.json()).code, m365LegacyPolicy.M365_LEGACY_PENDING_CODE)
   }
   assert.equal(entries.length, 0)
 })

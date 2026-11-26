@@ -17,6 +17,7 @@ import {
 } from '@heroicons/react/24/outline'
 import { Area1M365Aviso, Area1M365Correo } from './Area1M365'
 import { bloqueoCanalCorreo, canalCorreoInicial } from '@/lib/area1-m365'
+import { isM365LegacyPending, M365_LEGACY_PENDING_MESSAGE } from '@/lib/m365-legacy-policy'
 
 export type CrmActivityType = 'CORREO' | 'REUNION' | 'NOTA' | 'TAREA' | 'WHATSAPP' | 'LINKEDIN' | 'SMS' | 'CORREO_POSTAL'
 
@@ -45,7 +46,8 @@ type Props = {
   m365Aviso?: string | null
   deals: DealOption[]
   onClose: () => void
-  onCreated: (type: CrmActivityType, details?: { outlook: boolean }) => void
+  onCreated: (type: CrmActivityType, details?: { outlook: boolean; sent?: boolean }) => void
+  onPending?: () => void
 }
 
 const CONFIG: Record<CrmActivityType, { title: string; description: string; action: string; placeholder: string; color: string }> = {
@@ -67,7 +69,16 @@ function isValidEmail(value: string | null | undefined) {
   return Boolean(value && EMAIL_PATTERN.test(value.trim()))
 }
 
-export default function CrmActivityComposer({ open, type, contactId, contactName, contactEmail, contactPhone, contactLinkedIn, senderEmail, outlookConnection, m365Aviso = null, deals, onClose, onCreated }: Props) {
+// Sólo se interpreta en el POST de correo/evento de este compositor, no en otras acciones.
+function isCrmExternalSendPending(data: unknown) {
+  if (isM365LegacyPending(data)) return true
+  if (!data || typeof data !== 'object') return false
+  const body = data as { code?: unknown; codigo?: unknown; error?: unknown }
+  return body.code === 'FINANCE_EXTERNAL_ACTIONS_DISABLED' || body.codigo === 'FINANCE_EXTERNAL_ACTIONS_DISABLED'
+    || body.error === 'Sandbox de Finanzas: esta acción está bloqueada en staging; no se envían comunicaciones ni se ejecutan sincronizaciones ajenas a los bloques autorizados.'
+}
+
+export default function CrmActivityComposer({ open, type, contactId, contactName, contactEmail, contactPhone, contactLinkedIn, senderEmail, outlookConnection, m365Aviso = null, deals, onClose, onCreated, onPending }: Props) {
   const config = CONFIG[type]
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -96,6 +107,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
   const [saving, setSaving] = useState(false)
   const [disconnectingOutlook, setDisconnectingOutlook] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null)
   const [requestId, setRequestId] = useState(() => createRequestId())
   const outlookMailReady = outlookConnection.enabled && outlookConnection.connected && Boolean(outlookConnection.mail)
   const [viaOutlook, setViaOutlook] = useState(() => canalCorreoInicial(outlookConnection) === 'outlook')
@@ -129,6 +141,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
     setPriority('MEDIA')
     setSaving(false)
     setError(null)
+    setPendingMessage(null)
     setRequestId(createRequestId())
     setViaOutlook(canalCorreoInicial(outlookConnection) === 'outlook')
     setAiDraft(false)
@@ -189,6 +202,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
   async function submit(event: React.FormEvent) {
     event.preventDefault()
     setError(null)
+    setPendingMessage(null)
     if (!description.trim()) return setError(type === 'CORREO' ? 'Escribe el contenido del correo.' : 'Añade una descripción útil.')
     if ((type === 'CORREO' || type === 'TAREA') && !title.trim()) return setError(type === 'CORREO' ? 'Escribe el asunto del correo.' : 'Escribe el título de la tarea.')
     if (type === 'CORREO' && !to.trim()) return setError('Añade al menos un destinatario.')
@@ -230,6 +244,12 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
         }),
       })
       const data = await response.json()
+      if ((type === 'CORREO' || (type === 'REUNION' && syncOutlook)) && isCrmExternalSendPending(data)) {
+        assistedWindow?.close()
+        setPendingMessage(M365_LEGACY_PENDING_MESSAGE)
+        onPending?.()
+        return
+      }
       if (!response.ok || !data.success) {
         throw new Error(data.error || `No se pudo ${type === 'CORREO' ? 'enviar el correo' : 'registrar la actividad'}.`)
       }
@@ -237,7 +257,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
         assistedWindow.opener = null
         assistedWindow.location.href = assistedUrl
       }
-      onCreated(type, { outlook: type === 'REUNION' && syncOutlook })
+      onCreated(type, { outlook: type === 'REUNION' && data.linkedToOutlook === true, sent: type === 'CORREO' ? data.sent !== false : undefined })
       onClose()
     } catch (submitError) {
       assistedWindow?.close()
@@ -342,6 +362,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
               </div>}
             </section>}
 
+            {pendingMessage && <div role="status" aria-live="polite" className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-900">{pendingMessage}</div>}
             {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-800">{error}</div>}
           </div>
 

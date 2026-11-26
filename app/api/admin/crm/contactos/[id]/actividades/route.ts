@@ -10,6 +10,7 @@ import prisma from '@/lib/prisma'
 import { aislarAsistentes, aislarCorreo, bloqueoActuacion, calendarioBloqueadoEnPruebas, RESULTADO_CALENDARIO_AISLADO, m365Habilitado } from '@/lib/area1-m365'
 import { enviarCorreoComoUsuario } from '@/lib/area1-m365-graph'
 import { verificarPermisoServer } from '@/lib/permisos'
+import { m365LegacyEnabled, m365LegacyPendingBody } from '@/lib/m365-legacy-policy'
 
 const ACTIVITY_TYPES = new Set(['LLAMADA', 'CORREO', 'REUNION', 'NOTA', 'TAREA', 'WHATSAPP', 'LINKEDIN', 'SMS', 'CORREO_POSTAL'])
 const DIRECTIONS = new Set(['ENTRANTE', 'SALIENTE'])
@@ -139,14 +140,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (actuacion) return NextResponse.json({ error: actuacion }, { status: 403 })
   // Opción C: en pruebas (modo aislado sin M365_STAGING_CALENDARIO=1) la reunión solo se guarda en la ficha.
   const calendarioAislado = requestedOutlook && calendarioBloqueadoEnPruebas()
-  const outlookStatus = requestedOutlook && !calendarioAislado ? await getOutlookConnectionStatus(authorId) : null
-  const syncOutlook = Boolean(requestedOutlook && !calendarioAislado && outlookStatus?.enabled && outlookStatus.connected)
-  const onlineMeeting = syncOutlook && body.onlineMeeting === true
-  const inviteAttendees = syncOutlook && body.inviteAttendees === true
   // Área 1 · M365: correo desde el buzón del usuario (delegado). Si no, buzón corporativo de la app (lib/email.ts).
   const viaOutlookMail = type === 'CORREO' && body.viaOutlook === true
-  if (viaOutlookMail && !m365Habilitado()) return NextResponse.json({ error: 'El envío desde tu Outlook no está disponible: elige «Buzón corporativo».' }, { status: 409 })
-  const mailStatus = viaOutlookMail ? await getOutlookConnectionStatus(authorId) : null
   const borradorIa = type === 'CORREO' && body.borradorIa === true
   const preparedExternalChannel = ['WHATSAPP', 'LINKEDIN', 'SMS'].includes(type) && direction === 'SALIENTE' && body.prepareExternalChannel === true
 
@@ -164,16 +159,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (!to.length) return NextResponse.json({ error: 'Añade al menos un destinatario.' }, { status: 400 })
     if ([...to, ...cc, ...bcc].some((email) => !EMAIL_PATTERN.test(email))) return NextResponse.json({ error: 'Revisa las direcciones de correo.' }, { status: 400 })
   }
-  if (type === 'REUNION' && syncOutlook) {
+  function validateOutlookMeeting() {
     if (!title) return NextResponse.json({ error: 'Escribe el título de la reunión.' }, { status: 400 })
     if (activityDate.getTime() < Date.now() - 5 * 60 * 1000) return NextResponse.json({ error: 'La reunión de Outlook debe programarse en el futuro.' }, { status: 400 })
     if (!durationMinutes || durationMinutes < 5) return NextResponse.json({ error: 'Indica una duración mínima de 5 minutos.' }, { status: 400 })
   }
-  if (requestedOutlook && !calendarioAislado && !outlookStatus?.enabled) return NextResponse.json({ error: 'Outlook individual aún está pendiente de activación en Microsoft 365.' }, { status: 503 })
-  if (requestedOutlook && !calendarioAislado && !outlookStatus?.connected) return NextResponse.json({ error: 'Conecta tu cuenta de Outlook antes de crear la reunión en tu agenda.' }, { status: 428 })
-  if (viaOutlookMail && !mailStatus?.enabled) return NextResponse.json({ error: 'Outlook individual aún está pendiente de activación en Microsoft 365.' }, { status: 503 })
-  if (viaOutlookMail && !mailStatus?.connected) return NextResponse.json({ error: 'Conecta tu cuenta de Outlook antes de enviar desde tu buzón.' }, { status: 428 })
-  if (viaOutlookMail && !mailStatus?.mail) return NextResponse.json({ error: 'Tu conexión de Outlook aún no incluye el permiso de correo. Pulsa «Conceder permiso de correo».' }, { status: 428 })
 
   let followUpDate: Date | null = null
   let followUpTitle: string | null = null
@@ -186,6 +176,33 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (followUpDate.getTime() < Date.now() - 60 * 60 * 1000) return NextResponse.json({ error: 'La tarea debe vencer en el futuro.' }, { status: 400 })
   }
   if (type === 'TAREA' && !followUpDate) return NextResponse.json({ error: 'Indica la fecha límite de la tarea.' }, { status: 400 })
+
+  // Víctor 26/11: cierre reversible de los envíos CRM, sin reservar ni consultar Outlook.
+  // Una reunión con syncOutlook=false sigue siendo local. Pedir Outlook nunca
+  // se convierte silenciosamente en éxito local mientras esta puerta está cerrada.
+  if ((type === 'CORREO' || requestedOutlook) && !m365LegacyEnabled('crm')) {
+    if (requestedOutlook) {
+      const invalidMeeting = validateOutlookMeeting()
+      if (invalidMeeting) return invalidMeeting
+    }
+    return NextResponse.json(m365LegacyPendingBody(), { status: 503, headers: { 'Cache-Control': 'private, no-store' } })
+  }
+
+  const outlookStatus = requestedOutlook && !calendarioAislado ? await getOutlookConnectionStatus(authorId) : null
+  const syncOutlook = Boolean(requestedOutlook && !calendarioAislado && outlookStatus?.enabled && outlookStatus.connected)
+  const onlineMeeting = syncOutlook && body.onlineMeeting === true
+  const inviteAttendees = syncOutlook && body.inviteAttendees === true
+  if (viaOutlookMail && !m365Habilitado()) return NextResponse.json({ error: 'El envío desde tu Outlook no está disponible: elige «Buzón corporativo».' }, { status: 409 })
+  const mailStatus = viaOutlookMail ? await getOutlookConnectionStatus(authorId) : null
+  if (type === 'REUNION' && syncOutlook) {
+    const invalidMeeting = validateOutlookMeeting()
+    if (invalidMeeting) return invalidMeeting
+  }
+  if (requestedOutlook && !calendarioAislado && !outlookStatus?.enabled) return NextResponse.json({ error: 'Outlook individual aún está pendiente de activación en Microsoft 365.' }, { status: 503 })
+  if (requestedOutlook && !calendarioAislado && !outlookStatus?.connected) return NextResponse.json({ error: 'Conecta tu cuenta de Outlook antes de crear la reunión en tu agenda.' }, { status: 428 })
+  if (viaOutlookMail && !mailStatus?.enabled) return NextResponse.json({ error: 'Outlook individual aún está pendiente de activación en Microsoft 365.' }, { status: 503 })
+  if (viaOutlookMail && !mailStatus?.connected) return NextResponse.json({ error: 'Conecta tu cuenta de Outlook antes de enviar desde tu buzón.' }, { status: 428 })
+  if (viaOutlookMail && !mailStatus?.mail) return NextResponse.json({ error: 'Tu conexión de Outlook aún no incluye el permiso de correo. Pulsa «Conceder permiso de correo».' }, { status: 428 })
 
   let mailAuthorization: Awaited<ReturnType<typeof getOutlookUserAccessToken>> | null = null
   if (viaOutlookMail) {

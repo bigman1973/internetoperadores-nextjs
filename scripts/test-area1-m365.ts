@@ -102,7 +102,18 @@ async function main() {
   // que Proxy ya fija a Node. El cuerpo de todas las guardas sigue comparándose exacto.
   const baselineProxy = (() => { try { return execSync(`git show ${baseStaging}:proxy.js`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }) } catch { return execSync(`git show ${baseStaging}:middleware.js`, { encoding: 'utf8' }) } })()
   const normalizeProxy = (source: string) => source.replace('export async function middleware(request)', 'export async function proxy(request)').replace("  runtime: 'nodejs',\n", '')
-  t('lib/email.ts y cuerpo del proxy sin tocar', diffEmail.trim() === '' && normalizeProxy(baselineProxy) === normalizeProxy(readFileSync('proxy.js', 'utf8')))
+  // Decisión escrita de Víctor 26/11: sólo estas adiciones literales del cierre
+  // y escape local pueden diferir. No se ignoran regiones ni guardas completas.
+  // Su comportamiento nuevo se ejecuta en test-m365-legacy-policy.ts.
+  const approvedM365ProxyAdditions = [
+    "import { isM365LegacyLocalActivity, m365LegacyLocalSandboxEnabled, m365LegacyMailRouteFromPath, m365LegacyPendingBody } from './lib/m365-legacy-policy';\n",
+    "    // Sólo notas/tareas/llamadas/reuniones locales; jamás abre correo ni Graph.\n    // El cuerpo se lee de un clon acotado; permisos vivos y readonly siguen debajo.\n    const crmActivityPath = request.method === 'POST' && /^\\/api\\/admin\\/crm\\/contactos\\/[^/]+\\/actividades$/.test(path);\n    const crmActivityCommand = crmActivityPath && m365LegacyLocalSandboxEnabled(process.env)\n      ? await area4JsonCommand(request, 16 * 1024) : null;\n    const crmLocalActivityAllowed = crmActivityCommand !== null && !crmActivityCommand.errorStatus\n      && isM365LegacyLocalActivity(crmActivityCommand.body);\n",
+    "      || crmLocalActivityAllowed\n",
+    "      if (request.method === 'POST' && (m365LegacyMailRouteFromPath(path) || crmActivityPath)) {\n        return NextResponse.json(m365LegacyPendingBody(), { status: 503, headers: { 'Cache-Control': 'private, no-store' } });\n      }\n",
+    "    if (externalPath && !isAuthorizedP2Path(path) && !assistantReportCronAllowed && !rentabilidadAnalyticAllowed\n      && request.method === 'POST' && m365LegacyMailRouteFromPath(path)) {\n      return NextResponse.json(m365LegacyPendingBody(), { status: 503, headers: { 'Cache-Control': 'private, no-store' } });\n    }\n",
+  ]
+  const normalizeAuthorizedM365 = (source: string) => approvedM365ProxyAdditions.reduce((value, addition) => value.replace(addition, ''), normalizeProxy(source))
+  t('lib/email.ts y todas las guardas previas del proxy intactas salvo cierre M365 autorizado', diffEmail.trim() === '' && normalizeAuthorizedM365(baselineProxy) === normalizeAuthorizedM365(readFileSync('proxy.js', 'utf8')))
 
   // Canal por defecto: Mi Outlook (decisión de Víctor 25/11)
   t('canal por defecto: Mi Outlook si la integración está activa (aunque no esté conectado)', canalCorreoInicial({ enabled: true, connected: false }) === 'outlook' && canalCorreoInicial({ enabled: true, connected: true, mail: true }) === 'outlook')

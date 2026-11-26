@@ -37,6 +37,7 @@ import type { CrmActivityType } from './CrmActivityComposer'
 import { useRole } from './RoleContext'
 import { Area1M365Acciones } from './Area1M365'
 import CrmWebCaptures, { type CrmWebCapture, type CrmOriginalDetail } from '@/components/crm/CrmWebCaptures'
+import { M365_LEGACY_PENDING_MESSAGE } from '@/lib/m365-legacy-policy'
 
 const CrmContactoSettings = dynamic(() => import('./CrmContactoSettings'), { loading: () => <PanelLoading label="Cargando ajustes…" /> })
 const CrmActivityComposer = dynamic(() => import('./CrmActivityComposer'), { loading: () => <PanelLoading label="Cargando formulario de actividad…" /> })
@@ -164,7 +165,7 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
   const [quickVersion, setQuickVersion] = useState(dataEditor.initialVersion)
   const [quickLocals, setQuickLocals] = useState<Record<string, string | null>>(dataEditor.localProperties)
   const [quickValues, setQuickValues] = useState<Record<string, string | null>>({ ...dataEditor.sourceProperties, ...dataEditor.localProperties })
-  const [quickMessage, setQuickMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [quickMessage, setQuickMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null)
   const [callComposerOpen, setCallComposerOpen] = useState(false)
   const [activityMenuOpen, setActivityMenuOpen] = useState(false)
   const [activitySectionMenuOpen, setActivitySectionMenuOpen] = useState(false)
@@ -268,9 +269,13 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
     else setActivityComposerType(type)
   }
 
-  const handleActivityCreated = (type: string, details?: { outlook: boolean }) => {
+  const handleActivityPending = () => {
+    setQuickMessage({ type: 'info', text: M365_LEGACY_PENDING_MESSAGE })
+  }
+
+  const handleActivityCreated = (type: string, details?: { outlook: boolean; sent?: boolean }) => {
     const label = activityTypeLabel(type)
-    setQuickMessage({ type: 'success', text: type === 'CORREO' ? 'Microsoft 365 ha aceptado el correo y el intento ha quedado registrado en el CRM.' : type === 'REUNION' && details?.outlook ? 'La reunión se ha creado en tu agenda de Outlook y registrado en el CRM.' : `${label} registrada en el CRM.` })
+    setQuickMessage({ type: type === 'CORREO' && details?.sent === false ? 'info' : 'success', text: type === 'CORREO' ? details?.sent === false ? 'Correo no enviado en el entorno de pruebas; la actividad local ha quedado registrada en el CRM.' : 'Microsoft 365 ha aceptado el correo y el intento ha quedado registrado en el CRM.' : type === 'REUNION' && details?.outlook ? 'La reunión se ha creado en tu agenda de Outlook y registrado en el CRM.' : `${label} registrada en el CRM.` })
     setActiveTab('activity')
     router.refresh()
   }
@@ -333,7 +338,7 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
       </header>
 
       {hasDraft && <div role="status" className="mx-4 mt-4 flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-medium text-blue-900 sm:mx-6 lg:mx-8"><DocumentTextIcon className="h-5 w-5 shrink-0" />Hay un cambio sin guardar.</div>}
-      {quickMessage && <div role={quickMessage.type === 'error' ? 'alert' : 'status'} className={`mx-4 mt-4 rounded-xl border px-4 py-3 text-sm sm:mx-6 lg:mx-8 ${quickMessage.type === 'error' ? 'border-red-200 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>{quickMessage.text}</div>}
+      {quickMessage && <div role={quickMessage.type === 'error' ? 'alert' : 'status'} className={`mx-4 mt-4 rounded-xl border px-4 py-3 text-sm sm:mx-6 lg:mx-8 ${quickMessage.type === 'error' ? 'border-red-200 bg-red-50 text-red-800' : quickMessage.type === 'info' ? 'border-blue-200 bg-blue-50 text-blue-900' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>{quickMessage.text}</div>}
 
       <div className="px-4 py-5 sm:px-6 lg:px-8">
         {activeTab === 'summary' && <section role="tabpanel" id="crm-contact-panel-summary" aria-labelledby="crm-contact-tab-summary" tabIndex={0} className="space-y-5">
@@ -420,7 +425,7 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
                   {canWrite && <ActivityMenu open={activitySectionMenuOpen} setOpen={setActivitySectionMenuOpen} onSelect={openActivityComposer} compact />}
                 </div>
                 <div className="mt-6 space-y-4">
-                  {activities.length === 0 ? <EmptyState text="Todavía no hay actividad registrada. Usa “Registrar actividad” para crear la primera." /> : activities.map((activity) => <ActivityCard key={activity.id} activity={activity} canWrite={canWrite} updating={taskUpdating === activity.followUp?.id} onTaskState={updateTask} />)}
+                  {activities.length === 0 ? <EmptyState text="Todavía no hay actividad registrada. Usa “Registrar actividad” para crear la primera." /> : activities.map((activity) => <ActivityCard key={activity.id} activity={activity} canWrite={canWrite} m365Enabled={outlookConnection.m365 !== false} updating={taskUpdating === activity.followUp?.id} onTaskState={updateTask} />)}
                 </div>
               </Panel>
               <Panel>
@@ -444,7 +449,7 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
         </section>}
       </div>
       <CrmCallComposer open={callComposerOpen} contactId={contact.id} contactName={contact.name} contactPhone={contact.phone === 'Sin informar' ? '' : contact.phone} deals={deals} onClose={() => setCallComposerOpen(false)} onCreated={() => handleActivityCreated('LLAMADA')} />
-      {activityComposerType && <CrmActivityComposer open type={activityComposerType} contactId={contact.id} contactName={contact.name} contactEmail={contact.email === 'Sin informar' ? '' : contact.email} contactPhone={contact.phone === 'Sin informar' ? '' : contact.phone} contactLinkedIn={contact.linkedIn} senderEmail={emailSender} outlookConnection={outlookConnection} m365Aviso={m365Aviso} deals={deals} onClose={() => setActivityComposerType(null)} onCreated={handleActivityCreated} />}
+      {activityComposerType && <CrmActivityComposer open type={activityComposerType} contactId={contact.id} contactName={contact.name} contactEmail={contact.email === 'Sin informar' ? '' : contact.email} contactPhone={contact.phone === 'Sin informar' ? '' : contact.phone} contactLinkedIn={contact.linkedIn} senderEmail={emailSender} outlookConnection={outlookConnection} m365Aviso={m365Aviso} deals={deals} onClose={() => setActivityComposerType(null)} onCreated={handleActivityCreated} onPending={handleActivityPending} />}
     </main>
   )
 }
@@ -481,7 +486,7 @@ function ActivityItem({ title, date, text, first = false, last = false }: { titl
   return <article className="relative grid grid-cols-[28px_minmax(0,1fr)] gap-3 pb-5 last:pb-0"><div className="relative flex justify-center">{!first && <span className="absolute -top-5 bottom-1/2 w-px bg-slate-200" />}{!last && <span className="absolute top-1/2 -bottom-5 w-px bg-slate-200" />}<span className="relative z-10 mt-1 flex h-7 w-7 items-center justify-center rounded-full border border-orange-200 bg-orange-50 text-orange-700"><ClockIcon className="h-4 w-4" /></span></div><div className="rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3"><div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between"><p className="font-semibold text-slate-900">{title}</p><time className="text-xs text-slate-400">{date}</time></div><p className="mt-1 text-sm leading-6 text-slate-600">{text}</p></div></article>
 }
 
-function ActivityCard({ activity, canWrite, updating, onTaskState }: { activity: ContactActivity; canWrite: boolean; updating: boolean; onTaskState: (id: string, state: 'PENDIENTE' | 'COMPLETADA', expectedState: 'PENDIENTE' | 'COMPLETADA') => void }) {
+function ActivityCard({ activity, canWrite, m365Enabled, updating, onTaskState }: { activity: ContactActivity; canWrite: boolean; m365Enabled: boolean; updating: boolean; onTaskState: (id: string, state: 'PENDIENTE' | 'COMPLETADA', expectedState: 'PENDIENTE' | 'COMPLETADA') => void }) {
   const visual = activityVisual(activity)
   const Icon = visual.icon
   const emailTo = stringArray(activity.metadata.para)
@@ -499,7 +504,7 @@ function ActivityCard({ activity, canWrite, updating, onTaskState }: { activity:
         </div>
         {activity.type === 'CORREO' && <div className="mt-3 rounded-xl bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-900"><p><strong>De:</strong> {sender || 'Remitente no disponible'}</p><p><strong>Para:</strong> {emailTo.join(', ') || 'Destinatario no disponible'}</p>{(activity.result === 'ACEPTADO_GRAPH' || activity.result === 'ENVIADO') && <p className="font-semibold text-blue-700">Microsoft 365 aceptó el envío; se solicitó guardar copia en Elementos enviados.</p>}{(activity.result === 'ENVIO_INCIERTO' || activity.result === 'ENVIO_PENDIENTE') && <p className="font-semibold text-red-700">Requiere revisión en Elementos enviados antes de repetirlo.</p>}</div>}
         {activity.type === 'REUNION' && (activity.result?.startsWith('CALENDARIO_') || activity.result === 'ERROR_CALENDARIO') && <div className="mt-3 rounded-xl bg-violet-50 px-3 py-2 text-xs leading-5 text-violet-950">{activity.result === 'CALENDARIO_CREADO' && <p className="font-semibold text-violet-700">Evento creado y vinculado con la agenda individual de Outlook.</p>}{activity.result === 'CALENDARIO_NO_CREADO_AISLADO' && <p className="font-semibold text-violet-700">Pruebas: no creada en Outlook. En staging la reunión solo se guarda en la ficha.</p>}{(activity.result === 'CALENDARIO_INCIERTO' || activity.result === 'CALENDARIO_PENDIENTE') && <p className="font-semibold text-red-700">Requiere revisión en la agenda antes de repetirlo.</p>}<div className="mt-1 flex flex-wrap gap-3">{outlookWebLink && <a href={outlookWebLink} target="_blank" rel="noopener noreferrer" className="font-bold text-violet-700 underline decoration-violet-300 underline-offset-2">Abrir en Outlook</a>}{teamsJoinUrl && <a href={teamsJoinUrl} target="_blank" rel="noopener noreferrer" className="font-bold text-violet-700 underline decoration-violet-300 underline-offset-2">Unirse por Teams</a>}</div></div>}
-        {canWrite && outlookConnection.m365 !== false && (activity.type === 'CORREO' || activity.type === 'REUNION') && <div className="mt-3"><Area1M365Acciones contactId={activity.contactId} activityId={activity.id} sincronizable={activity.metadata.outlookSincronizable === true} hilo={activity.metadata.hiloOutlook === true} aislamiento={typeof activity.metadata.aislamientoAccion === 'string' ? activity.metadata.aislamientoAccion : null} borradorIa={activity.metadata.borradorIa === true} /></div>}
+        {canWrite && m365Enabled && (activity.type === 'CORREO' || activity.type === 'REUNION') && <div className="mt-3"><Area1M365Acciones contactId={activity.contactId} activityId={activity.id} sincronizable={activity.metadata.outlookSincronizable === true} hilo={activity.metadata.hiloOutlook === true} aislamiento={typeof activity.metadata.aislamientoAccion === 'string' ? activity.metadata.aislamientoAccion : null} borradorIa={activity.metadata.borradorIa === true} /></div>}
         {activity.result === 'CANAL_PREPARADO' && <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-700"><strong>Contenido preparado desde el CRM.</strong> La plataforma externa no ha confirmado apertura ni entrega.</div>}
         {location && <p className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600"><MapPinIcon className="h-4 w-4" />{location}</p>}
         <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-700">{activity.description}</p>

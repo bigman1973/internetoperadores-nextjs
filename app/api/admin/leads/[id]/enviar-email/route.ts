@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { sendEmail } from '@/lib/email';
+import { m365LegacyEnabled, m365LegacyPendingBody } from '@/lib/m365-legacy-policy';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,6 +30,14 @@ export async function POST(
 
     if (!lead) {
       return NextResponse.json({ error: 'Lead no encontrado' }, { status: 404 });
+    }
+
+    // Cierre reversible: conserva los controles anteriores y evita proveedor y marcas de envío.
+    if (!m365LegacyEnabled('leads')) {
+      return NextResponse.json(m365LegacyPendingBody(), {
+        status: 503,
+        headers: { 'Cache-Control': 'private, no-store' },
+      });
     }
 
     // Si se envía cuerpoHtml (nuevo flujo con previsualización), usarlo directamente

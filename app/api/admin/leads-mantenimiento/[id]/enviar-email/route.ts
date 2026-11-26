@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { sendEmail } from '@/lib/email';
+import { m365LegacyEnabled, m365LegacyPendingBody } from '@/lib/m365-legacy-policy';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,6 +26,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const lead = await prisma.leadSolucion.findUnique({ where: { id } });
     if (!lead) {
       return NextResponse.json({ error: 'Lead no encontrado' }, { status: 404 });
+    }
+
+    // Cierre reversible independiente: conservar sesión/validación/lead antes
+    // de cualquier PDF externo, token, correo o marca de envío.
+    if (!m365LegacyEnabled('mantenimiento')) {
+      return NextResponse.json(m365LegacyPendingBody(), {
+        status: 503,
+        headers: { 'Cache-Control': 'private, no-store' },
+      });
     }
 
     const datos = lead.datos as any;

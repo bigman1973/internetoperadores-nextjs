@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { sendEmail } from '@/lib/email'
 import { altaContractPublicUrl } from '@/lib/altas/contrato-access'
+import { m365LegacyEnabled, m365LegacyPendingBody } from '@/lib/m365-legacy-policy'
 
 export async function POST(
   request: Request,
@@ -23,6 +24,14 @@ export async function POST(
 
     if (!alta) {
       return NextResponse.json({ error: 'Alta no encontrada' }, { status: 404 })
+    }
+
+    // Cierre independiente y reversible; no sustituye los controles de acceso.
+    if (!m365LegacyEnabled('altas')) {
+      return NextResponse.json(m365LegacyPendingBody(), {
+        status: 503,
+        headers: { 'Cache-Control': 'private, no-store' },
+      })
     }
 
     const baseUrl = process.env.NEXTAUTH_URL || 'https://www.internetoperadores.com'

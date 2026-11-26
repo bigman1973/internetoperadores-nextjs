@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { isM365LegacyPending, M365_LEGACY_PENDING_MESSAGE } from '@/lib/m365-legacy-policy';
 
 interface Respuesta {
   id: string;
@@ -102,6 +103,7 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
   const [emailAsunto, setEmailAsunto] = useState('');
   const [emailCuerpo, setEmailCuerpo] = useState('');
   const [enviandoEmail, setEnviandoEmail] = useState(false);
+  const [emailPendiente, setEmailPendiente] = useState('');
 
   // Auditoría states
   const [generandoAuditoria, setGenerandoAuditoria] = useState(false);
@@ -239,6 +241,8 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
   // Enviar email con cuerpoHtml
   const handleEnviarEmail = async () => {
     setEnviandoEmail(true);
+    setEmailPendiente('');
+    setMensaje('');
     try {
       const res = await fetch(`/api/admin/leads/${leadId}/enviar-email`, {
         method: 'POST',
@@ -246,6 +250,15 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
         body: JSON.stringify({ asunto: emailAsunto, cuerpoHtml: emailCuerpo }),
       });
       const data = await res.json();
+      // El proxy puede bloquear antes del handler. Sólo traducir sus cierres conocidos aquí.
+      if (isM365LegacyPending(data)
+        || data.code === 'FINANCE_EXTERNAL_ACTIONS_DISABLED'
+        || data.codigo === 'FINANCE_EXTERNAL_ACTIONS_DISABLED'
+        || (res.status === 403 && typeof data.error === 'string'
+          && data.error.startsWith('Sandbox de Finanzas: esta acción está bloqueada en staging;'))) {
+        setEmailPendiente(M365_LEGACY_PENDING_MESSAGE);
+        return;
+      }
       if (data.success) {
         setMensaje('Email enviado correctamente');
         setMostrarEmailModal(false);
@@ -430,6 +443,11 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
       {mensaje && (
         <div className={`mb-4 p-3 rounded-lg text-sm ${mensaje.includes('Error') || mensaje.includes('✗') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
           {mensaje}
+        </div>
+      )}
+      {emailPendiente && (
+        <div role="status" className="mb-4 p-3 rounded-lg text-sm bg-blue-50 text-blue-700">
+          {emailPendiente}
         </div>
       )}
 
@@ -878,6 +896,11 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
             </div>
 
             <div className="p-6 overflow-y-auto flex-1 space-y-4">
+              {emailPendiente && (
+                <div role="status" className="bg-blue-50 rounded-lg p-3 text-sm text-blue-700">
+                  {emailPendiente}
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Asunto</label>
                 <input

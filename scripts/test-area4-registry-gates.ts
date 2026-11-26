@@ -6,6 +6,8 @@ import ts from 'typescript'
 import { impersonationRequestAllowed, isSensitiveImpersonationPath } from '../lib/impersonation-policy'
 import { appendArea4Audit } from '../lib/area4/audit'
 import * as crmStagingImport from '../lib/area4/crm-staging-import'
+import * as m365LegacyPolicy from '../lib/m365-legacy-policy'
+import { NextRequest } from 'next/server'
 
 // Runs the exact sandbox block copied from current middleware source in a VM.
 // This is not an HTTP acceptance test, and it never executes any handler.
@@ -14,14 +16,20 @@ const start = source.indexOf("  if (process.env.FINANCE_STAGING_SANDBOX === '1' 
 const end = source.indexOf('\n  const path = request.nextUrl.pathname;', start)
 assert.ok(start >= 0 && end > start, 'la guarda real debe existir; no sustituirla por una simulación del resultado')
 const block = source.slice(start, end)
-const code = ts.transpileModule(`(async function(request) { ${block}\n return null; })(request)`, {
+const parserStart = source.indexOf('async function area4JsonCommand(')
+const parserEnd = source.indexOf('\n}', parserStart) + 2
+assert.ok(parserStart >= 0 && parserEnd > parserStart)
+const parser = source.slice(parserStart, parserEnd)
+const code = ts.transpileModule(`${parser}\n(async function(request) { ${block}\n return null; })(request)`, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText
 async function gate(sandbox: string | undefined, path: string, method: string): Promise<{ status: number } | null> {
   return await runInNewContext(code, {
     process: { env: { FINANCE_STAGING_SANDBOX: sandbox, VERCEL_ENV: 'preview', VERCEL_GIT_COMMIT_REF: 'staging',
       DATABASE_URL: 'postgresql://io_staging_finanzas:synthetic@fixture.invalid/io_staging_finanzas' } },
-    request: { nextUrl: { pathname: path }, method },
+    request: new NextRequest('https://fixture.example.test' + path, { method }),
+    ...m365LegacyPolicy,
+    TextDecoder,
     NextResponse: { json: (_body: unknown, options: { status: number }) => ({ status: options.status }) },
     isAuthorizedP2Path: () => false,
     require(name: string) {
@@ -34,9 +42,9 @@ const activity = '/api/admin/crm/contactos/synthetic-contact/actividades'
 const event = `${activity}/synthetic-activity/m365`
 const draft = '/api/admin/crm/contactos/synthetic-contact/m365/borrador'
 
-test('CRM hold B/C pendiente: ambos POST y mutaciones vecinas siguen cerrados en el sandbox real', async () => {
+test('CRM cerrado: sin cuerpo local válido ambos POST y mutaciones vecinas siguen denegados', async () => {
   for (const path of [activity, event, draft, `${event}/vecina`, `${activity}/synthetic-activity/outlook`]) {
-    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) assert.equal((await gate('1', path, method))?.status, 403, `${method} ${path}`)
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) assert.equal((await gate('1', path, method))?.status, path === activity && method === 'POST' ? 503 : 403, `${method} ${path}`)
   }
 })
 test('el hold no inventa permisos GET/HEAD/OPTIONS ni extiende la excepción al perfil de producción', async () => {

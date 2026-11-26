@@ -7,6 +7,7 @@ import * as registry from '../lib/area4/section-registry'
 import * as policy from '../lib/area4/policy'
 import * as requestPolicy from '../lib/area4/request-policy'
 import { AREA4_TEMPLATES } from '../lib/area4/templates'
+import * as m365LegacyPolicy from '../lib/m365-legacy-policy'
 
 process.env.AREA4_OWNER_USER_ID = '3'
 let principal: any = null
@@ -41,6 +42,7 @@ vm.runInNewContext(code, {
     if (name === './lib/finanzas/conciliar-runtime') return {}
     if (name === './lib/high-risk-api-policy') return {}
     if (name === './lib/altas/contrato-access') return {}
+    if (name === './lib/m365-legacy-policy') return m365LegacyPolicy
     if (name === 'next-auth/jwt') return { getToken: async () => token }
     if (name === '@/lib/area4/section-registry') return { ...registry, area4RegisteredSurface: (path: string, kind: 'page' | 'api') => {
       const match = registry.area4RegisteredSurface(path, kind)

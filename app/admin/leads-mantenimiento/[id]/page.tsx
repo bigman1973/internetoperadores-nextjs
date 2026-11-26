@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import LeadCrmLink from '@/components/crm/LeadCrmLink';
+import { isM365LegacyPending, M365_LEGACY_PENDING_MESSAGE } from '@/lib/m365-legacy-policy';
 
 interface Lead {
   id: string;
@@ -82,6 +83,7 @@ export default function LeadDetallePage() {
   const [generandoPropuesta, setGenerandoPropuesta] = useState(false);
   const [syncingHubspot, setSyncingHubspot] = useState(false);
   const [enviandoEmail, setEnviandoEmail] = useState(false);
+  const [emailAviso, setEmailAviso] = useState('');
 
   useEffect(() => {
     fetchLead();
@@ -106,6 +108,7 @@ export default function LeadDetallePage() {
     const cuestionarioUrl = cuestionarioToken ? `${baseUrl}/cuestionario-mantenimiento/${cuestionarioToken}` : '';
     const pdfUrl = `${baseUrl}/api/admin/leads-mantenimiento/${lead.id}/pdf`;
 
+    setEmailAviso('');
     setEmailAsunto(`Propuesta Servicios Mantenimiento IT - ${lead.empresa}`);
     setEmailCuerpo(`<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
   <div style="background-color: #E87A2E; padding: 20px; text-align: center;">
@@ -136,6 +139,7 @@ export default function LeadDetallePage() {
     const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
     const pdfUrl = `${baseUrl}/api/admin/leads-mantenimiento/${lead.id}/propuesta-economica`;
 
+    setEmailAviso('');
     setEmailAsunto(`Propuesta Económica Definitiva - ${lead.empresa} | Internet Operadores`);
     setEmailCuerpo(`<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
   <div style="background-color: #E87A2E; padding: 20px; text-align: center;">
@@ -166,6 +170,8 @@ export default function LeadDetallePage() {
 
   const handleEnviarEmail = async () => {
     setEnviandoEmail(true);
+    setEmailAviso('');
+    setMensaje('');
     try {
       const res = await fetch(`/api/admin/leads-mantenimiento/${params.id}/enviar-email`, {
         method: 'POST',
@@ -173,7 +179,18 @@ export default function LeadDetallePage() {
         body: JSON.stringify({ asunto: emailAsunto, cuerpoHtml: emailCuerpo }),
       });
       const data = await res.json();
-      if (data.success) {
+      // El proxy puede cerrar antes del handler. Sólo normalizar los bloqueos
+      // externos conocidos de ESTE envío; nunca ocultar denegaciones de acceso.
+      const bloqueoExterno = !res.ok && (
+        data.code === 'FINANCE_EXTERNAL_ACTIONS_DISABLED'
+        || data.codigo === 'FINANCE_EXTERNAL_ACTIONS_DISABLED'
+        || (typeof data.error === 'string' && data.error.startsWith('Sandbox de Finanzas: esta acción está bloqueada en staging;'))
+      );
+      if (isM365LegacyPending(data) || bloqueoExterno) {
+        setEmailAviso(M365_LEGACY_PENDING_MESSAGE);
+        return;
+      }
+      if (res.ok && data.success) {
         setMensaje('Email enviado correctamente');
         setMostrarEmailModal(false);
         setTimeout(() => setMensaje(''), 4000);
@@ -388,6 +405,12 @@ export default function LeadDetallePage() {
       {mensaje && (
         <div className={`mb-4 p-3 rounded-lg text-sm ${mensaje.includes('Error') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
           {mensaje}
+        </div>
+      )}
+
+      {emailAviso && (
+        <div role="status" className="mb-4 p-3 rounded-lg text-sm bg-blue-50 text-blue-700">
+          {emailAviso}
         </div>
       )}
 
@@ -1043,6 +1066,11 @@ export default function LeadDetallePage() {
             </div>
 
             <div className="p-6 overflow-y-auto flex-1 space-y-4">
+              {emailAviso && (
+                <div role="status" className="bg-blue-50 rounded-lg p-3 text-sm text-blue-700">
+                  {emailAviso}
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Asunto</label>
                 <input

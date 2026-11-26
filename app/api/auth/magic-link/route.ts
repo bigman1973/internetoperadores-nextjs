@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { sendEmail } from '@/lib/email'
+import { m365LegacyEnabled, m365LegacyPendingBody } from '@/lib/m365-legacy-policy'
 import crypto from 'crypto'
 
 export async function POST(request: Request) {
@@ -19,9 +20,18 @@ export async function POST(request: Request) {
       where: { email: emailLower, activo: true }
     })
 
+    // Cierre reversible antes de generar/inutilizar enlaces o enviar correo.
+    // La misma respuesta para cualquier email evita revelar clientes activos.
+    if (!m365LegacyEnabled('magicLink')) {
+      return NextResponse.json(m365LegacyPendingBody(), {
+        status: 503,
+        headers: { 'Cache-Control': 'private, no-store' },
+      })
+    }
+
     if (!cliente) {
       // No revelar si el email existe o no (seguridad)
-      return NextResponse.json({ 
+      return NextResponse.json({
         success: true, 
         message: 'Si el email está registrado, recibirás un enlace de acceso.' 
       })
