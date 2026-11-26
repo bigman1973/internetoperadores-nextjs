@@ -1236,6 +1236,7 @@ model MovimientoBancario {
   esRecurrente    Boolean  @default(false) @map("es_recurrente")
   // Conciliación
   conciliado      Boolean  @default(false)
+  duplicadoDeId   String?  @map("duplicado_de_id") // Área 3: copia repetida de otro apunte (no se borra; Conciliar la excluye)
   facturaId       String?  @map("factura_id")
   factura         FacturaRecibida? @relation(fields: [facturaId], references: [id])
   gastoId         String?  @map("gasto_id")

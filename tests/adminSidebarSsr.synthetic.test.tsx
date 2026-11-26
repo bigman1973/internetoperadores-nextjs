@@ -206,7 +206,7 @@ assert.doesNotMatch(JSON.stringify(managerNavigation), /Tickets\/Gastos/, 'el á
 assert.equal(permissionSignature(granularOnly), permissionSignature([...granularOnly].reverse()), 'la firma de semilla no depende del orden de lectura')
 
 const lorenaNavigation = getEasyOnlySidebarNavigation('staging')
-assert.deepEqual(lorenaNavigation.map(item => item.name), ['Conciliar', 'Para pedir'], 'Lorena conserva exactamente los dos enlaces en staging')
+assert.deepEqual(lorenaNavigation.map(item => item.name), ['Conciliar'], 'Lorena ve solo Conciliar en staging (pedir y remesas son vistas de la misma pantalla)')
 const lorenaHtml = renderToStaticMarkup(createElement(AdminSidebarMenu, {
   navigation: lorenaNavigation,
   user: { name: 'Lorena', email: 'lorena@example.test', role: 'CONTABILIDAD' },
@@ -214,7 +214,7 @@ const lorenaHtml = renderToStaticMarkup(createElement(AdminSidebarMenu, {
   financeEnvironment: 'staging',
 }))
 assert.match(lorenaHtml, /href="\/admin\/finanzas\/conciliar"/, 'el HTML SSR de Lorena incluye Conciliar en staging')
-assert.match(lorenaHtml, /href="\/admin\/finanzas\/para-pedir"/, 'el HTML SSR de Lorena incluye Para pedir')
+assert.doesNotMatch(lorenaHtml, /href="\/admin\/finanzas\/para-pedir"/, 'Para pedir ya no es enlace de menú: es una vista de Conciliar')
 assert.match(lorenaHtml, />Lorena</, 'el HTML SSR conserva la identidad del usuario')
 assert.doesNotMatch(lorenaHtml, /next\/link|prefetch/i, 'el HTML SSR no requiere el cliente de Link ni solicita prefetch')
 

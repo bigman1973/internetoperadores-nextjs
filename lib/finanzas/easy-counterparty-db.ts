@@ -278,7 +278,8 @@ function cardClause(card: CounterpartyReadInput['tarjeta']): Prisma.Sql {
 function baseMovementWhere(input: CounterpartyReadInput): Prisma.Sql {
   const query = input.q ? `%${input.q}%` : null
   return Prisma.sql`
-    m.fecha_operacion >= CAST(${input.desde} AS date)
+    m.duplicado_de_id IS NULL
+    AND m.fecha_operacion >= CAST(${input.desde} AS date)
     AND m.fecha_operacion < CAST(${input.hasta} AS date) + interval '1 day'
     ${directionClause(input.sentido)}
     ${cardClause(input.tarjeta)}

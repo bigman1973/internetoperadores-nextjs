@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { EventoFicha, FichaCliente as Ficha } from '@/lib/area1-ficha-cliente'
 
-type Conexion = { enabled: boolean; connected: boolean; email: string | null; mail?: boolean }
+type Conexion = { enabled: boolean; connected: boolean; email: string | null; mail?: boolean; m365?: boolean }
 type M365 = { aviso: string | null; conexion: Conexion; corporativo: string; connectUrl: string }
 type Vista = 'resumen' | 'actividad' | 'contratos' | 'facturacion' | 'negocios' | 'personas' | 'rentabilidad'
 const VISTAS: Vista[] = ['resumen', 'actividad', 'contratos', 'facturacion', 'negocios', 'personas', 'rentabilidad']
@@ -369,7 +369,7 @@ function Drawer({ cajon, ficha, m365, puedeEscribir, onClose, onOpen, toast }: {
     <label>Invitados</label><select multiple size={3} value={invitados} onChange={(e) => setInvitados([...e.target.selectedOptions].map((o) => o.value))}>{conEmail.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}</select>
     <label className="chk" style={{ display: 'flex', color: 'var(--fg)' }}><input type="checkbox" checked={enOutlook} disabled={!m365.conexion.enabled} onChange={(e) => setEnOutlook(e.target.checked)} style={{ width: 'auto' }} /> Crear en mi calendario de Outlook</label>
     <label className="chk" style={{ display: 'flex', color: 'var(--fg)' }}><input type="checkbox" checked={teams} disabled={!enOutlook} onChange={(e) => setTeams(e.target.checked)} style={{ width: 'auto' }} /> Añadir reunión de Microsoft Teams</label>
-    {m365.conexion.enabled && !m365.conexion.connected && <p className="small muted"><a href={m365.connectUrl}>Conectar mi Outlook</a> para crear la reunión en tu calendario.</p>}
+    {m365.conexion.enabled && m365.conexion.m365 !== false && !m365.conexion.connected && <p className="small muted"><a href={m365.connectUrl}>Conectar mi Outlook</a> para crear la reunión en tu calendario.</p>}
     {m365.aviso && <div className="notice">Pruebas: los invitados se cambian por la dirección de prueba.</div>}
     {error && <div className="notice">{error}</div>}
     <div className="row" style={{ justifyContent: 'flex-end', marginTop: 12 }}><button className="btn" type="button" data-close onClick={onClose}>Cancelar</button><button className="btn primary" type="button" disabled={!puedeEscribir || ocupado != null} onClick={crearReunion}>{ocupado ? 'Creando…' : 'Crear reunión'}</button></div>
@@ -380,7 +380,7 @@ function Drawer({ cajon, ficha, m365, puedeEscribir, onClose, onOpen, toast }: {
     {m365.aviso && <div className="notice">Pruebas: los correos se desvían a la dirección de prueba; ningún cliente los recibe.</div>}
     <label>Enviar desde</label><div className="seg" role="group"><button type="button" aria-pressed={viaOutlook} disabled={!m365.conexion.enabled} onClick={() => setViaOutlook(true)}>Mi Outlook</button><button type="button" aria-pressed={!viaOutlook} onClick={() => setViaOutlook(false)}>Buzón corporativo</button></div>
     {viaOutlook && outlookListo && <p className="small muted" style={{ margin: '6px 0 0' }}>{m365.conexion.email} · queda en Enviados</p>}
-    {viaOutlook && m365.conexion.enabled && !outlookListo && <p className="small muted" style={{ margin: '6px 0 0' }}><a href={m365.connectUrl}>{m365.conexion.connected ? 'Conceder permiso de correo' : 'Conectar mi Outlook'}</a> para enviar desde tu buzón.</p>}
+    {viaOutlook && m365.conexion.enabled && m365.conexion.m365 !== false && !outlookListo && <p className="small muted" style={{ margin: '6px 0 0' }}><a href={m365.connectUrl}>{m365.conexion.connected ? 'Conceder permiso de correo' : 'Conectar mi Outlook'}</a> para enviar desde tu buzón.</p>}
     {!viaOutlook && <p className="small muted" style={{ margin: '6px 0 0' }}>{m365.corporativo}</p>}
     <label>Para</label><select value={para} onChange={(e) => setPara(e.target.value)}>{conEmail.length ? conEmail.map((p) => <option key={p.id} value={p.id}>{p.nombre}{p.papel !== 'sin dato' ? ` · ${p.papel}` : ''}</option>) : <option value="">sin dato: ninguna persona con correo</option>}</select>
     <label>Asunto</label><input value={asunto} onChange={(e) => setAsunto(e.target.value)} />

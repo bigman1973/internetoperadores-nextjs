@@ -41,6 +41,15 @@ export function projectDashboardFinance(result: BankInvoicingResult, year: numbe
   }
 }
 
+/**
+ * Un mes es «provisional» en la gráfica Margen por mes solo si su fiabilidad es baja:
+ * menos del 60 % del coste es real (factura, nómina o regla firmada). Con los datos de
+ * staging (26/11/2026) solo octubre (57,1 %) queda por debajo; el resto de meses va entre
+ * 69,8 % y 91,1 %. Tener algo estimado o pendiente ya NO basta para marcar un mes: la
+ * calidad del dato se sigue viendo en la ficha del mes, no en el color de la barra.
+ */
+export const DASHBOARD_FIABILIDAD_BAJA_PCT = 60
+export const esFiabilidadBaja = (quality: number | null): boolean => quality !== null && quality < DASHBOARD_FIABILIDAD_BAJA_PCT
 /** Reuse the current Rentabilidad aggregate only after its inputs are quantifiable. */
 export function projectDashboardMargin(products: Row[], month: string, period: string): DashboardPoint {
   const total = totalsOf(products, 'real')
@@ -55,9 +64,10 @@ export function projectDashboardMargin(products: Row[], month: string, period: s
     return !material || (income !== null && cost !== null)
   })
   // A pending product may have zero cost while other products have documented or
-  // estimated costs. Keep that monthly aggregate provisional, not unavailable.
+  // estimated costs. Keep that monthly aggregate available; low reliability alone
+  // determines the provisional marker.
   // But a population with no known cost at all must never turn into a fake 100%.
   const unknownCost = total.costReal === 0 && total.costEst === 0 && products.some(p => noKnownCost(p))
   return { month, value: month <= period && complete && total.hasData && !unknownCost ? total.marginPct : null,
-    reliability: total.quality, provisional: total.estimated || products.some(p => p.pending || p.incomePending || p.pendingCost) }
+    reliability: total.quality, provisional: esFiabilidadBaja(total.quality) }
 }

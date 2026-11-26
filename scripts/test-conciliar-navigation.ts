@@ -5,7 +5,7 @@ import test from 'node:test'
 import { createConciliarSearchMachineState, readConciliarSearchHistory } from '../components/finanzas/conciliar/conciliar-global-search'
 const read=(path:string)=>readFileSync(resolve(process.cwd(),path),'utf8')
 test('los enlaces conservan tab/q validados por servidor sin aceptar importes',()=>{
- const page=read('app/admin/finanzas/conciliar/page.tsx')
+ const page=read('app/admin/finanzas/conciliar/ConciliarClasica.tsx')
  const ui=read('components/finanzas/conciliar/ConciliarWorkspace.tsx')
  assert.match(page,/typeof query\.q === 'string'/)
  assert.match(page,/query\.q\.trim\(\)\.slice\(0, 120\)/)

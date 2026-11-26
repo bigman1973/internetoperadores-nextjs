@@ -1,0 +1,61 @@
+/* Área 3 · Conciliar. CSS copiado literal de maqueta_conciliar_aprobada.html (aprobada por Víctor),
+   con todos los selectores bajo .io-ui.area3-conciliar. Generado con: python3 scripts/area3-conciliar-css.py app/admin/finanzas/conciliar/area3-conciliar.css <maqueta>; no editar a mano.
+   Las reglas idénticas a components/io-ui/io-ui.css se quitan al generar: aquí quedan solo las propias de Conciliar
+   (.steps, .step, .lay, .side, .mv, .st, .sug, .conf, .acts, .chain, .ex, .chips, .kv, .replaces, .btn.small, .kpi .v.g/.w/.b).
+   Cambios respecto a la maqueta: sin modo oscuro automático, sin body::before y .kv con minmax(0,1fr) y chips largos con salto de línea para que no desborde a 400 px. */
+.io-ui.area3-conciliar[data-theme="dark"]{--bg:#171513; --surface:#211F1C; --sunken:#2A2724; --line:#3A3632; --fg:#F1EEEA; --muted:#A8A199;
+  --accent:#FF6A24; --accent-soft:#3F2416; --accent-fg:#FF9A66;
+  --good:#5FC58A; --good-soft:#17331F; --warn:#E3A93B; --warn-soft:#3A2C10; --bad:#F2857C; --bad-soft:#3E1C19;
+  --before:#5E5852; --after:#FF6A24; color-scheme:dark}
+.io-ui.area3-conciliar *, .io-ui.area3-conciliar{box-sizing:border-box}
+.io-ui.area3-conciliar .kpis{grid-template-columns:repeat(6,minmax(0,1fr))}
+.io-ui.area3-conciliar .kpi .v.g{color:var(--good)}
+.io-ui.area3-conciliar .kpi .v.w{color:var(--warn)}
+.io-ui.area3-conciliar .kpi .v.b{color:var(--bad)}
+.io-ui.area3-conciliar .steps{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+.io-ui.area3-conciliar .step{border:1px solid var(--line);border-radius:var(--r);padding:12px;background:var(--surface);display:grid;gap:6px;align-content:start;cursor:pointer}
+.io-ui.area3-conciliar .step:hover{border-color:var(--muted)}
+.io-ui.area3-conciliar .step .n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--sunken);font-weight:700;font-size:12px}
+.io-ui.area3-conciliar .step.ok .n{background:var(--good);color:#fff}
+.io-ui.area3-conciliar .step.bad{border-color:var(--bad)}
+.io-ui.area3-conciliar .step.bad .n{background:var(--bad);color:#fff}
+.io-ui.area3-conciliar .step.cur{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.io-ui.area3-conciliar .step.cur .n{background:var(--accent);color:#fff}
+.io-ui.area3-conciliar .step b{font-weight:500}
+.io-ui.area3-conciliar .step .s{font-size:12px;color:var(--muted)}
+.io-ui.area3-conciliar .lay{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,420px);gap:18px;align-items:start}
+.io-ui.area3-conciliar .side{position:sticky;top:calc(env(safe-area-inset-top,0px) + 150px);min-width:0}
+.io-ui.area3-conciliar .mv{display:grid;grid-template-columns:72px 1fr auto;gap:10px;align-items:center;padding:9px 10px;border-bottom:1px solid var(--line);cursor:pointer}
+.io-ui.area3-conciliar .mv:hover{background:var(--sunken)}
+.io-ui.area3-conciliar .mv.sel{background:var(--accent-soft)}
+.io-ui.area3-conciliar .mv .d{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.io-ui.area3-conciliar .mv .c{min-width:0}
+.io-ui.area3-conciliar .mv .c div:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+.io-ui.area3-conciliar .mv .a{text-align:right;font-variant-numeric:tabular-nums;font-weight:500;white-space:nowrap}
+.io-ui.area3-conciliar .mv .a.in{color:var(--good)}
+.io-ui.area3-conciliar .st{font-size:11px;padding:2px 8px;border-radius:999px;white-space:nowrap;background:var(--sunken);color:var(--muted)}
+.io-ui.area3-conciliar .st.g{background:var(--good-soft);color:var(--good)}
+.io-ui.area3-conciliar .st.w{background:var(--warn-soft);color:var(--warn)}
+.io-ui.area3-conciliar .st.b{background:var(--bad-soft);color:var(--bad)}
+.io-ui.area3-conciliar .st.a{background:var(--accent-soft);color:var(--accent-fg)}
+.io-ui.area3-conciliar .sug{border:1px solid var(--line);border-radius:var(--r);padding:10px;margin-bottom:8px;display:grid;grid-template-columns:1fr auto;gap:6px 10px;align-items:center}
+.io-ui.area3-conciliar .sug.best{border-color:var(--good);background:var(--good-soft)}
+.io-ui.area3-conciliar .conf{font-size:11px;color:var(--muted)}
+.io-ui.area3-conciliar .btn.small{padding:3px 9px;font-size:12px}
+.io-ui.area3-conciliar .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.io-ui.area3-conciliar .chain{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
+.io-ui.area3-conciliar .chain:last-child{border-bottom:0}
+.io-ui.area3-conciliar .ex{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--warn-soft);color:var(--warn);margin-left:6px;vertical-align:2px}
+.io-ui.area3-conciliar .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.io-ui.area3-conciliar .chips button{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:3px 10px;font-size:12px;cursor:pointer;color:var(--muted)}
+.io-ui.area3-conciliar .chips button[aria-pressed="true"]{background:var(--fg);color:var(--surface);border-color:var(--fg)}
+.io-ui.area3-conciliar .kv{display:grid;grid-template-columns:110px 1fr;gap:5px 10px;font-size:13px;margin:8px 0 12px}
+.io-ui.area3-conciliar .kv dt{color:var(--muted)}
+.io-ui.area3-conciliar .kv dd{margin:0;overflow-wrap:anywhere}
+.io-ui.area3-conciliar .replaces{font-size:12px;color:var(--muted)}
+@media(prefers-reduced-motion:reduce){.io-ui.area3-conciliar *, .io-ui.area3-conciliar{transition:none!important;animation:none!important}}
+@media(max-width:520px){.io-ui.area3-conciliar .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:1000px){.io-ui.area3-conciliar .steps{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:1050px){.io-ui.area3-conciliar .lay{grid-template-columns:minmax(0,1fr)}}
+.io-ui.area3-conciliar .kv{grid-template-columns:110px minmax(0,1fr)}
+.io-ui.area3-conciliar .kv .st{white-space:normal;overflow-wrap:anywhere}

@@ -72,7 +72,7 @@ test('consentimiento público conservado y fuentes locales con swap y sin preloa
   assert.equal(layout.includes('Cookiebot'), false)
   assert.ok(layout.includes('assistantPublicEnabled()'))
   assert.equal(layout.includes('next/font/google'), false)
-  const page = read('app/admin/finanzas/conciliar/page.tsx')
+  const page = read('app/admin/finanzas/conciliar/ConciliarClasica.tsx')
   assert.ok(page.includes('rel="preload" href="/fonts/RobotoLatin-VF.woff2"'))
   assert.equal(page.includes('next/font/google'), false)
   assert.ok(read('app/globals.css').includes('font-display: swap'))

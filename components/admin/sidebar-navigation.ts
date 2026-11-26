@@ -5,6 +5,8 @@ import {
 
 export type FinanceEnvironment = 'staging' | 'production' | null
 export type SidebarPresentation = 'historico' | 'agrupado'
+/** Puertas de producción calculadas en servidor (el cliente no ve process.env). */
+export interface SidebarGates { crmImportacionesCerradas?: boolean }
 
 export type SidebarIconName =
   | 'academicCap' | 'arrowPath' | 'arrowTrendingUp' | 'arrowsRightLeft'
@@ -71,6 +73,7 @@ export function getSidebarNavigation(
   presentation: SidebarPresentation = 'historico',
   /** Explicit server-derived production read-only availability; never an ACL. */
   rentabilidadReadonlyEnabled = false,
+  gates: SidebarGates = {},
 ): SidebarNavigationEntry[] {
   const adaptItem = (item: SidebarNavigationItem): SidebarNavigationItem | null => {
     if (financeEnvironment !== 'staging' && ['/admin/sistemas', '/admin/finanzas/impuestos', '/admin/finanzas/presupuesto']
@@ -81,7 +84,9 @@ export function getSidebarNavigation(
     const rentabilidadReadonly = item.href === '/admin/rentabilidad' && rentabilidadReadonlyEnabled === true && financeEnvironment !== 'staging'
     if (availability?.stagingOnly && financeEnvironment !== 'staging' && !rentabilidadReadonly) return null
     if (availability?.conciliarOnly && !conciliarEnabled) return null
+    if (availability?.replacedByConciliar && conciliarEnabled) return null
     if (availability?.needsFinance && financeEnvironment === null) return null
+    if (availability?.closedByGate === 'crmImportaciones' && gates.crmImportacionesCerradas) return null
     return { ...item,
       name: rentabilidadReadonly ? 'Rentabilidad · solo lectura'
         : availability?.financeSuffix && financeEnvironment === 'staging' ? `${item.name} · staging` : item.name,
@@ -121,8 +126,9 @@ export function filterAuthorizedSidebarNavigation(
   presentation: SidebarPresentation = 'historico',
   hasSurfaceAccess: (href: string) => boolean = href => area4RegisteredSurface(href, 'page')?.baseline === true,
   rentabilidadReadonlyEnabled = false,
+  gates: SidebarGates = {},
 ): SidebarNavigationEntry[] {
-  return getSidebarNavigation(financeEnvironment, conciliarEnabled, presentation, rentabilidadReadonlyEnabled)
+  return getSidebarNavigation(financeEnvironment, conciliarEnabled, presentation, rentabilidadReadonlyEnabled, gates)
     .flatMap((entry): SidebarNavigationEntry[] => {
       if (!isSidebarNavigationGroup(entry)) return filterItem(entry, hasAccess, hasSurfaceAccess)
       const children = entry.children.flatMap(child => filterItem(child, hasAccess, hasSurfaceAccess))

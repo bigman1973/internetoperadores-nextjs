@@ -1,8 +1,30 @@
-import { Roboto, Roboto_Condensed, Roboto_Mono } from 'next/font/google';
+import localFont from 'next/font/local';
 
-const body = Roboto({ subsets: ['latin'], weight: ['400', '500', '700'], variable: '--io-f-body', display: 'swap' });
-const display = Roboto_Condensed({ subsets: ['latin'], weight: ['500', '700'], variable: '--io-f-display', display: 'swap' });
-const mono = Roboto_Mono({ subsets: ['latin'], weight: ['400', '500'], variable: '--io-f-mono', display: 'swap' });
+const body = localFont({
+  src: [
+    { path: './fonts/RobotoLatin.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/RobotoLatin.woff2', weight: '500', style: 'normal' },
+    { path: './fonts/RobotoLatin.woff2', weight: '700', style: 'normal' },
+  ],
+  variable: '--io-f-body',
+  display: 'swap',
+});
+const display = localFont({
+  src: [
+    { path: './fonts/RobotoCondensedLatin.woff2', weight: '500', style: 'normal' },
+    { path: './fonts/RobotoCondensedLatin.woff2', weight: '700', style: 'normal' },
+  ],
+  variable: '--io-f-display',
+  display: 'swap',
+});
+const mono = localFont({
+  src: [
+    { path: './fonts/RobotoMonoLatin.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/RobotoMonoLatin.woff2', weight: '500', style: 'normal' },
+  ],
+  variable: '--io-f-mono',
+  display: 'swap',
+});
 
-/** Clases que cargan las tres fuentes del simulador (se autoalojan en el build; no hay peticiones a Google desde el navegador). */
+/** Los mismos WOFF2 latinos del kit validado, incluidos en el repo; sin red en build ni navegador. */
 export const ioFontClasses = `${body.variable} ${display.variable} ${mono.variable}`;

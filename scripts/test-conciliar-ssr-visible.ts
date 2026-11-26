@@ -45,7 +45,7 @@ async function main() {
   assert(!segment.includes('if (!mounted)'))
   assert(!segment.includes('return <>{children}</>'))
   assert(segment.includes('<SegmentContext.Provider value={{ segment, setSegment }}>'))
-  const page = readFileSync(resolve('app/admin/finanzas/conciliar/page.tsx'), 'utf8')
+  const page = readFileSync(resolve('app/admin/finanzas/conciliar/ConciliarClasica.tsx'), 'utf8')
   assert(page.includes("requireB4FinanceAccess('lectura', await requireAuth('admin'))"))
   assert(page.includes('const initialData = await readConciliarProjection(input)'))
   assert(page.includes('initialData={initialData}'))

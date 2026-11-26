@@ -1,0 +1,38 @@
+/* Procedencia: /home/ubuntu/upload/maqueta_facturacion_aprobada.html.
+   Solo deltas sobre components/io-ui/io-ui.css, siempre bajo .io-ui .fac.
+   Se heredan intactos tokens, temas, fuentes, reset, wrap, top (top:64px),
+   KPIs y sus breakpoints, paneles, g2/g2b, tablas, controles, foco y movimiento
+   reducido; también fmeter, cmeter (width:140px), fdrawer (z-index:60) y sdot.
+   section.view hereda display:grid y gap:18px; el paginador ya hereda
+   padding:8px 10px y flex-wrap:wrap: no se duplican estas declaraciones.
+   Adaptaciones: pestañas sin scroll horizontal, foco interior y textos largos
+   contenidos; ajustes móviles sin alterar el scroll interno de las tablas. */
+
+.io-ui .fac .chart svg{max-width:900px}
+.io-ui .fac .cmeter{height:12px;border-radius:6px;margin-top:0}
+.io-ui .fac .pager{margin-top:0;font-size:12px}
+.io-ui .fac .chk{margin-bottom:0}
+.io-ui .fac .legend i{margin-right:4px}
+
+/* Deshacer únicamente diferencias de presentación introducidas por el kit
+   y por el Preflight del panel, conservando las familias tipográficas. */
+.io-ui .fac .eyebrow,.io-ui .fac .kpi .v{display:block}
+.io-ui .fac .st{display:inline}
+.io-ui .fac .panel h2,.io-ui .fac .fdrawer h2,.io-ui .fac .fdrawer h3.eyebrow{font-weight:700}
+.io-ui .fac .fdrawer h2{font-size:21px}
+.io-ui .fac a.btn.primary{color:#fff}
+
+/* Los contenedores de pestañas/vistas no imponen un mínimo intrínseco;
+   el foco queda dentro de las pestañas y no se recorta en sus extremos. */
+.io-ui .fac .view,.io-ui .fac [role="tabpanel"],.io-ui .fac nav.tabs{min-width:0}
+.io-ui .fac nav.tabs{flex-wrap:wrap;overflow-x:visible}
+.io-ui .fac nav.tabs [role="tab"]:focus-visible{outline-offset:-2px}
+.io-ui .fac .fdrawer{overflow-wrap:anywhere}
+
+@media (max-width:560px){
+  .io-ui .fac .brand{flex-wrap:wrap}
+  .io-ui .fac .scn{min-width:0}
+  .io-ui .fac select.f{max-width:100%}
+  .io-ui .fac .look{grid-template-columns:auto minmax(0,1fr) auto}
+  .io-ui .fac .look>div{overflow-wrap:anywhere}
+}

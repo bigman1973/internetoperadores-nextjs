@@ -524,7 +524,7 @@ async function readMovements(tx: ConfirmingLiquidationQueryClient, options: Read
   }
   const where = selectedIds.length
     ? Prisma.sql`m.id IN (${Prisma.join(selectedIds.map((value) => Prisma.sql`${value}`))})`
-    : Prisma.sql`COALESCE(e.estado::text,'SIN_DOCUMENTO')='SIN_DOCUMENTO' AND m.importe>0`
+    : Prisma.sql`COALESCE(e.estado::text,'SIN_DOCUMENTO')='SIN_DOCUMENTO' AND m.importe>0 AND m.duplicado_de_id IS NULL`
   const rows = await tx.$queryRaw<RawMovement[]>(Prisma.sql`
     SELECT m.id,m.fecha_operacion::date::text AS fecha,m.cuenta_id AS "cuentaId",
       (m.importe::text::numeric*100)::bigint AS "importeCentimos",COALESCE(e.estado::text,'SIN_DOCUMENTO') AS "estadoB4",

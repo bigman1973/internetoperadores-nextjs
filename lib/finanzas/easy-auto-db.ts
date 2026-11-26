@@ -187,6 +187,7 @@ async function candidateMovements(tx: Tx, policy: Policy): Promise<{ movements: 
     LEFT JOIN estado_justificacion_movimientos e ON e.movimiento_id=m.id
     WHERE m.fecha_operacion::date>=CAST(${policy.datosDesde} AS date) AND m.fecha_operacion::date<=CAST(${policy.datosHasta} AS date)
       AND COALESCE(e.estado::text,'SIN_DOCUMENTO')='SIN_DOCUMENTO'
+      AND m.duplicado_de_id IS NULL
       -- Un flag/FK de traspaso legacy no prueba ni impide el cuadre nuevo B4.
       -- Se preserva intacto y sólo se admite el par con saldos y propiedad probados.
       AND m.factura_id IS NULL AND m.gasto_id IS NULL AND m.factura_emitida_id IS NULL AND m.nomina_id IS NULL

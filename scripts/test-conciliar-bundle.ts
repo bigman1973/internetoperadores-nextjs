@@ -5,7 +5,7 @@ import test from 'node:test';
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 const workspace = read('components/finanzas/conciliar/ConciliarWorkspace.tsx');
-const page = read('app/admin/finanzas/conciliar/page.tsx');
+const page = read('app/admin/finanzas/conciliar/ConciliarClasica.tsx');
 const documentPreview = read('components/finanzas/conciliar/ConciliarDocumentPreview.tsx');
 const remesaDialog = read('components/finanzas/conciliar/ConciliarRemesaConfirmationDialog.tsx');
 const recentHistory = read('components/finanzas/conciliar/ConciliarRecentHistory.tsx');

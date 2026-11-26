@@ -24,6 +24,7 @@ interface InteractiveAdminSidebarMenuProps {
   /** Presentation seed from the server; cannot authorize routes or writes. */
   conciliarEnabled?: boolean
   rentabilidadReadonlyEnabled?: boolean
+  crmImportacionesCerradas?: boolean
   menuPresentation?: SidebarPresentation
   onNavigate?: () => void
 }
@@ -34,6 +35,7 @@ export default function InteractiveAdminSidebarMenu({
   financeEnvironment = null,
   conciliarEnabled = false,
   rentabilidadReadonlyEnabled = false,
+  crmImportacionesCerradas = false,
   menuPresentation = 'historico',
   onNavigate,
 }: InteractiveAdminSidebarMenuProps) {
@@ -44,8 +46,8 @@ export default function InteractiveAdminSidebarMenu({
   const visibleNavigation = useMemo(() => (
     easyOnly
       ? []
-      : filterAuthorizedSidebarNavigation(financeEnvironment, hasAccess, conciliarEnabled, menuPresentation, hasSurfaceAccess, rentabilidadReadonlyEnabled)
-  ), [easyOnly, financeEnvironment, conciliarEnabled, menuPresentation, hasAccess, hasSurfaceAccess, rentabilidadReadonlyEnabled])
+      : filterAuthorizedSidebarNavigation(financeEnvironment, hasAccess, conciliarEnabled, menuPresentation, hasSurfaceAccess, rentabilidadReadonlyEnabled, { crmImportacionesCerradas })
+  ), [easyOnly, financeEnvironment, conciliarEnabled, crmImportacionesCerradas, menuPresentation, hasAccess, hasSurfaceAccess, rentabilidadReadonlyEnabled])
 
   // Auto-abrir el grupo si la ruta actual está dentro.
   useEffect(() => {
