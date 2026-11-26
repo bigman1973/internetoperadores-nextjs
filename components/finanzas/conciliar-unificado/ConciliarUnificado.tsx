@@ -30,6 +30,7 @@ const NewAutomaticRulesPanel = dynamic(() => import('@/components/finanzas/easy/
 const NewParaPedirWorkspace = dynamic(() => import('@/components/finanzas/easy/newParaPedirWorkspace'), { ssr: false });
 const RemesasWorkspace = dynamic(() => import('@/components/finanzas/remesas-b6/RemesasWorkspace'), { ssr: false });
 const ComprobacionSinMovimientos = dynamic(() => import('./ComprobacionSinMovimientos'), { ssr: false });
+const DocumentosWorkspace = dynamic(() => import('./DocumentosWorkspace'), { ssr: false });
 
 export type ConciliarUnificadoProps = Readonly<{
   hoy: string;
@@ -39,6 +40,8 @@ export type ConciliarUnificadoProps = Readonly<{
   cuentas: readonly CuentaCuadre[];
   conteos: Readonly<{ reglas: number; rojas: number; verdes: number; cobros: number; pagos: number }>;
   remesas: readonly RemesaResumen[];
+  /** Server-derived Stage fence; absent/false never offers the new workspace. */
+  documentosHabilitados?: boolean;
 }>;
 
 const NOMBRE_VISTA: Record<VistaConciliar, string> = { bandeja: 'Bandeja', cobros: 'Cobros de clientes', pagos: 'Pagos a proveedores', remesas: 'Remesas', pedir: 'Para pedir', cuentas: 'Cuentas y extractos' };
@@ -61,6 +64,7 @@ export default function ConciliarUnificado(props: ConciliarUnificadoProps) {
   const decir = useCallback((texto: string) => { setAviso(texto); if (avisoTimer.current) clearTimeout(avisoTimer.current); avisoTimer.current = setTimeout(() => setAviso(''), 4200); }, []);
   const [reglasAbierto, setReglasAbierto] = useState(false);
   const [auditoriaAbierta, setAuditoriaAbierta] = useState(false);
+  const [documentosAbierto, setDocumentosAbierto] = useState(false);
   const [perfil, setPerfil] = useState<EasyAccessProfile | null>(null);
   const [perfilError, setPerfilError] = useState(false);
   const [rev, setRev] = useState(0);
@@ -308,6 +312,7 @@ export default function ConciliarUnificado(props: ConciliarUnificadoProps) {
           <div className="scn">
             <span className="small muted">Cobertura revisada hasta {corte ? fechaLarga(corte).slice(0, 5) : '—'} · {activas.length} cuentas</span>
             <a className="btn" href="/admin/finanzas/importar">Cargar extractos</a>
+            {props.documentosHabilitados === true && !sesion && perfil?.environment === 'staging' && perfil.easyOnly === false && <button className="btn" type="button" onClick={() => setDocumentosAbierto(a => !a)} aria-expanded={documentosAbierto}>Documentos</button>}
             <button className="btn primary" type="button" onClick={() => irA('reglas')}>Aplicar reglas automáticas</button>
             <Menu label="Acciones">{close => <>
               <button type="button" role="menuitem" onClick={() => { close(); void exportarExcel(); }}>Exportar a Excel</button>
@@ -333,6 +338,8 @@ export default function ConciliarUnificado(props: ConciliarUnificadoProps) {
       {reglasAbierto && <div id="reglas"><Panel title="Reglas automáticas" help="Traspasos propios y comisiones del banco. Se previsualizan antes de aplicar; nada se aplica sin que lo confirmes y todo se puede deshacer." aside={<button className="btn small" type="button" onClick={() => setReglasAbierto(false)}>Cerrar</button>}>
         {perfil ? <NewAutomaticRulesPanel profile={perfil} /> : <p className="small muted">{perfilError ? 'No se ha podido comprobar tu perfil de acceso. Las reglas no están disponibles.' : 'Comprobando permisos…'}</p>}
       </Panel></div>}
+
+      {documentosAbierto && props.documentosHabilitados === true && !sesion && perfil?.environment === 'staging' && perfil.easyOnly === false && <DocumentosWorkspace stagingOnly={true} acting={false} canWrite={perfil.canWrite} onClose={() => setDocumentosAbierto(false)} />}
 
       {reintento && <div className="note bad" role="alert"><b>Resultado sin comprobar: {reintento.etiqueta}.</b> No repitas otra acción; reintenta exactamente esta. <button className="btn small" type="button" disabled={ocupado} onClick={() => { const r = reintento; void enviar(r.url, r.body, r.etiqueta, () => { decir('Hecho.'); refrescar(); }); }}>Reintentar la misma acción</button> <button className="btn small" type="button" onClick={() => { setReintento(null); refrescar(); }}>Actualizar y descartar</button></div>}
 

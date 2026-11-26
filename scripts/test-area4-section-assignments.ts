@@ -87,20 +87,22 @@ test('baseline-only no añade ni una consulta auditada y GET/snapshot no escribe
   const snapshot = snapshotFromUsersState(historical, OWNER_ID, TEST_ENV)
   assert.equal(snapshot.registry!.pending.length, 0)
 })
-test('catálogo real: dos M365, dos contratos de importación y resumen IA de la ficha pendientes, cuatro lecturas auditadas y cero escrituras', async () => {
+test('catálogo real: CRM y cuatro superficies Documentos nuevas pendientes, seis lecturas auditadas y cero escrituras', async () => {
   const current = area4RegistrySurfaceMatches()
   const added = current.filter(m => !m.baseline)
-  assert.equal(added.length, 8)
+  assert.equal(added.length, 13)
   assert.deepEqual(added.map(m => m.surface.path).sort(), [
+    '/admin/crm/isp/vinculos-bloque',
     '/api/admin/crm/contactos/[id]/actividades/[actividadId]/m365', '/api/admin/crm/contactos/[id]/m365/borrador', '/api/admin/crm/empresas/[id]/correos-recibidos', '/api/admin/crm/empresas/[id]/resumen-ia',
     '/api/admin/crm/hubspot/historial', '/api/admin/crm/isp/importar', '/api/admin/crm/isp/vinculos', '/api/admin/crm/isp/vinculos/bloque',
+    '/api/admin/finanzas/conciliar/confirming-documentos', '/api/admin/finanzas/documentos', '/api/admin/finanzas/documentos/[id]', '/api/admin/finanzas/documentos/comparacion',
   ])
   const stub = createProposalStub(fixtureState())
   const state = await loadArea4SectionAssignmentState(stub.db, OWNER_ID, current)
   const snapshot = buildArea4RegistrySnapshot(state, TEST_ENV, current)
-  assert.equal(snapshot.pending.length, 4)
+  assert.equal(snapshot.pending.length, 6)
   assert.deepEqual(snapshot.pending.flatMap(p => p.surfaces.map(s => s.id)).sort(), added.map(m => m.id).sort())
-  assert.equal(stub.stats.auditReads, 4, 'una lectura de asignaciones por apartado pendiente, no por superficie')
+  assert.equal(stub.stats.auditReads, 6, 'una lectura de asignaciones por apartado pendiente, no por superficie')
   assert.equal(stub.stats.writes, 0); assert.equal(stub.stats.auditWrites, 0)
   for (const m of added) for (const role of ['gerente', 'contabilidad', 'comercial', 'draxton', 'empleado'] as const) {
     assert.equal(area4SectionSurfaceAssigned(m, state, role), false)

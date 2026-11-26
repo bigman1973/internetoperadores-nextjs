@@ -507,6 +507,43 @@ async function area4RegisteredAdminApiBoundary(request) {
     const surfaceMatch = registry.area4RegisteredSurface(pathname, isApi ? 'api' : 'page');
     if (!surfaceMatch) return privateBoundary({ error: 'Superficie administrativa no registrada' }, 403);
     const isImpersonating = token.impersonation !== undefined && token.impersonation !== null;
+    // Tanda 3: exact local block only, BEFORE stagingImport and owner escape.
+    // Both readonly switches, runtime and exact Railway DSN dominate GET/POST.
+    if (process.env.VERCEL_ENV === 'production' && [
+      '/api/admin/crm/isp/vinculos/bloque', '/admin/crm/isp/vinculos-bloque',
+    ].includes(pathname)) {
+      if (process.env.AREA1_VINCULOS_BLOQUE_PRODUCCION !== '1') {
+        return privateBoundary({ error: 'El bloque de Production permanece cerrado.' }, 403);
+      }
+      const block = await import('@/lib/area4/crm-vinculos-production');
+      const kind = block.area4VinculosBloqueProductionSurface(request);
+      if (!kind || !block.area4VinculosBloqueProductionEnabled(process.env)) {
+        return privateBoundary({ error: 'No disponible.' }, 404);
+      }
+      if (isImpersonating || !policy.isArea4Owner(principal)) {
+        return privateBoundary({ error: 'Solo el propietario real puede acceder al bloque, sin actuación.' }, 403);
+      }
+      if (kind === 'api' && !block.area4VinculosBloqueProductionOriginAllowed(request)) {
+        return privateBoundary({ error: 'El bloque requiere HTTPS y esta misma página.', codigo: 'ORIGIN_NOT_ALLOWED' }, 403);
+      }
+      const command = request.method === 'POST'
+        ? await (await import('@/lib/area4/crm-staging-import')).readArea4IspVinculosBloqueStagingCommand(request, block.AREA4_VINCULOS_BLOQUE_BYTES)
+        : { action: null };
+      if (command.errorStatus) return privateBoundary({ error: 'No se pudo verificar la confirmación del bloque.' }, command.errorStatus);
+      const capabilities = block.area4VinculosBloqueProductionCapabilities(request.method);
+      for (const capability of capabilities) {
+        if (!policy.evaluateArea4Capability({ principal, grants: [], codigoArea, capability, isImpersonating })) {
+          return privateBoundary({ error: `Sin permiso de ${capability}` }, 403);
+        }
+      }
+      if (capabilities.includes('confirmar')) {
+        const { appendArea4Audit } = await import('@/lib/area4/audit');
+        await prisma.$transaction(tx => appendArea4Audit(tx, { actorId: principal.id, objetivoUsuarioId: null,
+          operacion: 'CONFIRMACION_SOLICITADA', areaCodigo: codigoArea,
+          despues: { fase: 'ANTES_DEL_HANDLER', resultado: 'INTENTO', metodo: request.method, capacidad: 'confirmar' }, origen: pathname }));
+      }
+      return null; // Native handler owns recalculation, transaction and RESULT.
+    }
     // Claude 25/11: exact registered imports, ONLY the isolated staging branch.
     // This precedes every adoption/legacy/owner escape hatch. The handler repeats
     // the live owner check and owns the transactional RESULT, not this attempt.
@@ -691,6 +728,11 @@ export async function proxy(request) {
       || (['/api/admin/finanzas/modo-facil/terceros', '/api/admin/finanzas/modo-facil/automaticas', '/api/admin/finanzas/reparto-clientes'].includes(path) && request.method === 'POST')
       || (['/api/admin/finanzas/modo-facil/terceros/bloque', '/api/admin/finanzas/modo-facil/cobros'].includes(path) && request.method === 'POST')
       || (path === '/api/admin/finanzas/conciliar' && request.method === 'POST')
+      // Documentos manuales: exact POSTs only; handlers repeat live Stage,
+      // no acting, V/E/C, bounded streams, human decision and durable receipts.
+      || (request.method === 'POST' && (path === '/api/admin/finanzas/documentos'
+        || (path !== '/api/admin/finanzas/documentos/comparacion' && /^\/api\/admin\/finanzas\/documentos\/[A-Za-z0-9_-]{1,100}$/.test(path))
+        || path === '/api/admin/finanzas/conciliar/confirming-documentos'))
       || (['/api/admin/rentabilidad/recalculate', '/api/admin/rentabilidad/rules', '/api/admin/rentabilidad/exceptions', '/api/admin/rentabilidad/external-costs', '/api/admin/rentabilidad/sync'].includes(path) && request.method === 'POST')
       || (path === '/api/cron/rentabilidad-daily' && request.method === 'GET')
       || (path === '/api/admin/finanzas/impuestos/presentados' && ['POST', 'DELETE'].includes(request.method))

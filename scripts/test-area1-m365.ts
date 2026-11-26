@@ -119,8 +119,68 @@ async function main() {
     ["      const localVinculos = contract === 'isp-vinculos-v1' || contract === 'isp-vinculos-bloque-v1';\n      if (!imports.area4CrmStagingImportOriginAllowed(request)\n        || (localVinculos && request.headers.get('sec-fetch-site') !== 'same-origin')) {\n", "      if (!imports.area4CrmStagingImportOriginAllowed(request)) {\n"],
     ["        : contract === 'hubspot-confirm-v1'\n          ? await imports.readArea4HubspotStagingCommand(request, maximumBytes)\n          : contract === 'isp-vinculos-v1'\n            ? await imports.readArea4IspVinculosStagingCommand(request, maximumBytes)\n            : contract === 'isp-vinculos-bloque-v1'\n              ? await imports.readArea4IspVinculosBloqueStagingCommand(request, maximumBytes)\n              : { errorStatus: 400 };\n", "        : await imports.readArea4HubspotStagingCommand(request, maximumBytes);\n"],
   ]
-  const normalizeAuthorizedM365 = (source: string) => approvedM365ProxyAdditions.reduce((value, addition) => value.replace(addition, ''), approvedVinculosProxyReplacements.reduce((value, [current, previous]) => value.replace(current, previous), normalizeProxy(source)))
-  t('lib/email.ts y todas las guardas previas del proxy intactas salvo cierre M365 autorizado', diffEmail.trim() === '' && normalizeAuthorizedM365(baselineProxy) === normalizeAuthorizedM365(readFileSync('proxy.js', 'utf8')))
+  // Tanda 3, decisión técnica del padre 26/11 21:36: bloque futuro cerrado.
+  // Sólo se elimina esta adición LITERAL, incluido su import dinámico exacto;
+  // ningún marcador, región o expresión regular oculta cambios en sus guardas.
+  // GET nativo sin Origin y POST estricto se ejecutan en la batería del bloque.
+  const approvedProductionBlockProxyAdditions = [
+    `    // Tanda 3: exact local block only, BEFORE stagingImport and owner escape.
+    // Both readonly switches, runtime and exact Railway DSN dominate GET/POST.
+    if (process.env.VERCEL_ENV === 'production' && [
+      '/api/admin/crm/isp/vinculos/bloque', '/admin/crm/isp/vinculos-bloque',
+    ].includes(pathname)) {
+      if (process.env.AREA1_VINCULOS_BLOQUE_PRODUCCION !== '1') {
+        return privateBoundary({ error: 'El bloque de Production permanece cerrado.' }, 403);
+      }
+      const block = await import('@/lib/area4/crm-vinculos-production');
+      const kind = block.area4VinculosBloqueProductionSurface(request);
+      if (!kind || !block.area4VinculosBloqueProductionEnabled(process.env)) {
+        return privateBoundary({ error: 'No disponible.' }, 404);
+      }
+      if (isImpersonating || !policy.isArea4Owner(principal)) {
+        return privateBoundary({ error: 'Solo el propietario real puede acceder al bloque, sin actuación.' }, 403);
+      }
+      if (kind === 'api' && !block.area4VinculosBloqueProductionOriginAllowed(request)) {
+        return privateBoundary({ error: 'El bloque requiere HTTPS y esta misma página.', codigo: 'ORIGIN_NOT_ALLOWED' }, 403);
+      }
+      const command = request.method === 'POST'
+        ? await (await import('@/lib/area4/crm-staging-import')).readArea4IspVinculosBloqueStagingCommand(request, block.AREA4_VINCULOS_BLOQUE_BYTES)
+        : { action: null };
+      if (command.errorStatus) return privateBoundary({ error: 'No se pudo verificar la confirmación del bloque.' }, command.errorStatus);
+      const capabilities = block.area4VinculosBloqueProductionCapabilities(request.method);
+      for (const capability of capabilities) {
+        if (!policy.evaluateArea4Capability({ principal, grants: [], codigoArea, capability, isImpersonating })) {
+          return privateBoundary({ error: \`Sin permiso de \${capability}\` }, 403);
+        }
+      }
+      if (capabilities.includes('confirmar')) {
+        const { appendArea4Audit } = await import('@/lib/area4/audit');
+        await prisma.$transaction(tx => appendArea4Audit(tx, { actorId: principal.id, objetivoUsuarioId: null,
+          operacion: 'CONFIRMACION_SOLICITADA', areaCodigo: codigoArea,
+          despues: { fase: 'ANTES_DEL_HANDLER', resultado: 'INTENTO', metodo: request.method, capacidad: 'confirmar' }, origen: pathname }));
+      }
+      return null; // Native handler owns recalculation, transaction and RESULT.
+    }
+`,
+  ]
+  // Encargo Documentos 26/11: únicamente estos POST locales autorizados en Stage.
+  // La exclusión de comparacion y el método forman parte del literal comparado.
+  const approvedDocumentosProxyAdditions = [
+    "      // Documentos manuales: exact POSTs only; handlers repeat live Stage,\n      // no acting, V/E/C, bounded streams, human decision and durable receipts.\n      || (request.method === 'POST' && (path === '/api/admin/finanzas/documentos'\n        || (path !== '/api/admin/finanzas/documentos/comparacion' && /^\\/api\\/admin\\/finanzas\\/documentos\\/[A-Za-z0-9_-]{1,100}$/.test(path))\n        || path === '/api/admin/finanzas/conciliar/confirming-documentos'))\n",
+  ]
+  const normalizeAuthorizedM365 = (source: string) => [...approvedM365ProxyAdditions, ...approvedProductionBlockProxyAdditions, ...approvedDocumentosProxyAdditions].reduce((value, addition) => value.replace(addition, ''), approvedVinculosProxyReplacements.reduce((value, [current, previous]) => value.replace(current, previous), normalizeProxy(source)))
+  const currentProxy = readFileSync('proxy.js', 'utf8'), normalizedBaseline = normalizeAuthorizedM365(baselineProxy)
+  t('lib/email.ts y todas las guardas previas del proxy intactas salvo adiciones/reemplazos literales autorizados', diffEmail.trim() === '' && normalizedBaseline === normalizeAuthorizedM365(currentProxy))
+  t('normalización literal no oculta cambio de Origin dentro de la excepción de Production', normalizedBaseline !== normalizeAuthorizedM365(currentProxy.replace("kind === 'api' && !block.area4VinculosBloqueProductionOriginAllowed(request)", "kind === 'api' && false")))
+  t('normalización literal no oculta cambios de puerta o import de Production', [
+    currentProxy.replace("process.env.AREA1_VINCULOS_BLOQUE_PRODUCCION !== '1'", "process.env.AREA1_VINCULOS_BLOQUE_PRODUCCION !== '0'"),
+    currentProxy.replace("import('@/lib/area4/crm-vinculos-production')", "import('@/lib/area4/crm-staging-import')"),
+  ].every(source => normalizedBaseline !== normalizeAuthorizedM365(source)))
+  t('normalización literal sigue rechazando una guarda nueva no autorizada fuera del bloque', normalizedBaseline !== normalizeAuthorizedM365(currentProxy + '\nif (true) throw new Error("UNAUTHORIZED_GUARD");\n'))
+  t('normalización literal no oculta ampliar Documentos a toda el área ni permitir POST comparación', [
+    currentProxy.replace("path === '/api/admin/finanzas/documentos'", "path.startsWith('/api/admin/finanzas/')"),
+    currentProxy.replace("path !== '/api/admin/finanzas/documentos/comparacion' && ", ''),
+  ].every(source => normalizedBaseline !== normalizeAuthorizedM365(source)))
 
   // Canal por defecto: Mi Outlook (decisión de Víctor 25/11)
   t('canal por defecto: Mi Outlook si la integración está activa (aunque no esté conectado)', canalCorreoInicial({ enabled: true, connected: false }) === 'outlook' && canalCorreoInicial({ enabled: true, connected: true, mail: true }) === 'outlook')

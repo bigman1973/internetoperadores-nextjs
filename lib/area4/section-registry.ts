@@ -30,6 +30,7 @@ export type Area4SurfaceMenu = Readonly<{ id: string; label: string; icon: strin
 export type Area4Surface = Readonly<{
   path: string; kind: Area4SurfaceKind; actions?: readonly Area4ActionLetter[];
   request?: Readonly<{ commandBodyLimit?: number; multipartBodyLimit?: number;
+    confirmCommands?: readonly string[];
     readOnlyReview?: 'conciliar-closed-review-preview' | 'isp-closed-simulation';
     stagingImport?: 'isp-multipart-v1' | 'hubspot-confirm-v1' | 'isp-vinculos-v1' | 'isp-vinculos-bloque-v1';
     requiredActions?: Readonly<Partial<Record<'GET' | 'HEAD' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS', readonly Area4ActionLetter[]>>> }>;
@@ -1036,6 +1037,13 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
     usersRowKey: "finanzas",
     usersCodeOrder: 0,
     surfaces: [
+      {
+        path: "/api/admin/finanzas/conciliar/confirming-documentos",
+        kind: "api",
+        actions: ["V", "E"],
+        request: { multipartBodyLimit: 4 * 1024 * 1024 + 8192, requiredActions: { POST: ["V", "E"] } },
+        availability: { stagingOnly: true },
+      },
       {
         path: "/admin/finanzas/conciliacion",
         kind: "page",
@@ -2503,6 +2511,12 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         actions: ["V", "C"],
         request: { commandBodyLimit: 16384, stagingImport: "isp-vinculos-bloque-v1", requiredActions: { GET: ["V"], HEAD: ["V"], POST: ["C"] } },
       },
+      {
+        path: "/admin/crm/isp/vinculos-bloque",
+        kind: "page",
+        actions: ["V", "C"],
+        // NEW, direct URL only; no baselineDescriptor, menu or automatic grant.
+      },
     ],
   },
   {
@@ -2814,6 +2828,28 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
     usersRowKey: "facturacion",
     usersCodeOrder: 1,
     surfaces: [
+      {
+        path: "/api/admin/finanzas/documentos",
+        kind: "api",
+        actions: ["V", "E"],
+        request: { multipartBodyLimit: 4 * 1024 * 1024 + 16 * 1024, requiredActions: { GET: ["V"], POST: ["V", "E"] } },
+        availability: { stagingOnly: true },
+      },
+      {
+        path: "/api/admin/finanzas/documentos/[id]",
+        kind: "api",
+        actions: ["V", "E", "C"],
+        // Native command guard repeats C for VALIDAR/ARCHIVAR, not for GUARDAR.
+        request: { commandBodyLimit: 16 * 1024, confirmCommands: ["VALIDAR", "ARCHIVAR"], requiredActions: { GET: ["V"], POST: ["V", "E"] } },
+        availability: { stagingOnly: true },
+      },
+      {
+        path: "/api/admin/finanzas/documentos/comparacion",
+        kind: "api",
+        actions: ["V"],
+        request: { requiredActions: { GET: ["V"] } },
+        availability: { stagingOnly: true },
+      },
       {
         path: "/admin/finanzas/facturas",
         kind: "page",

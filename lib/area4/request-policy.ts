@@ -43,6 +43,10 @@ export function area4RequestCapabilities(input: Readonly<{
   const methodActions = area4RegisteredSurface(path, 'api')?.surface.request?.requiredActions
   const declaredActions = methodActions?.[method as keyof NonNullable<typeof methodActions>] || []
   for (const action of AREA4_ACTIONS) if (declaredActions.includes(action.letter)) caps.add(action.capability)
+  const confirmCommands = area4RegisteredSurface(path, 'api')?.surface.request?.confirmCommands ?? []
+  if (!(contract.safeMethods as readonly string[]).includes(method) && actions.some(action => confirmCommands.includes(action))) {
+    caps.add(AREA4_ACTIONS[2].capability)
+  }
   if (actions.some(action => (contract.confirmActions as readonly string[]).includes(action))
     || segments.some(segment => (contract.confirmPathSegments as readonly string[]).includes(segment))) {
     caps.add(AREA4_ACTIONS[2].capability)

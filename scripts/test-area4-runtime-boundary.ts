@@ -96,7 +96,10 @@ async function run() {
       const path = page.path.replace(/\[[^\]]+\]/g, 'area4-synthetic-resource')
       const expected = page.path === '/admin'
         ? (principal.rol === 'GERENTE' || grants.some(p => p.codigo.startsWith('admin.') && p.lectura))
-        : policy.evaluateArea4Capability({ principal, grants, codigoArea: page.area, capability: 'lectura', ownerId: 3, permissionsAdopted: true })
+        // 26/11: la nueva página del bloque no hereda una plantilla previa.
+        // Este fixture no tiene consentimiento de superficies NEW; debe negar.
+        : registry.area4RegisteredSurface(path, 'page')?.baseline === true
+          && policy.evaluateArea4Capability({ principal, grants, codigoArea: page.area, capability: 'lectura', ownerId: 3, permissionsAdopted: true })
       assert.equal(await status(path), expected ? 200 : 403, `${template.id} ${page.path}`)
     }
   }
