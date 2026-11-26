@@ -188,7 +188,9 @@ async function main() {
   for (const kind of ['composer-mail', 'composer-meet', 'drawer-mail', 'drawer-meet'] as const) {
     for (const response of pendingBodies) {
       await test(`${kind}: pendiente exacto sin éxito, conserva contenido y reintento habilitado ${response.code || response.codigo || 'sandbox'}`, async () => {
-        const f = ui(kind, { sync: true, responses: [response, { success: true, linkedToOutlook: true, acceptedByMicrosoft: true }] })
+        // 26/11 21:21: la ficha cerrada no hace POST. La negativa del servidor
+        // se conserva con UI habilitada; el cierre sin POST tiene batería propia.
+        const f = ui(kind, { sync: true, ...(kind === 'drawer-mail' ? { outlook: { envios: true } } : {}), responses: [response, { success: true, linkedToOutlook: true, acceptedByMicrosoft: true }] })
         await f.submit(); assertPending(f, kind !== 'drawer-meet')
         assert.equal(f.counters.payloads.length, 1)
         if (kind.endsWith('meet')) assert.equal(f.counters.payloads[0].syncOutlook, true)
@@ -202,11 +204,13 @@ async function main() {
   for (const kind of ['composer-mail', 'drawer-mail'] as const) {
     await test(`${kind}: cierre sin conexión es informativo y no cambia Mi Outlook por corporativo`, async () => {
       const f = ui(kind, { outlook: { connected: false, mail: false } }); await f.submit(); assertPending(f)
-      assert.equal(f.counters.payloads[0].viaOutlook, true)
+      if (kind === 'drawer-mail') assert.equal(f.counters.payloads.length, 0)
+      else assert.equal(f.counters.payloads[0].viaOutlook, true)
     })
     await test(`${kind}: corporativo también cierra informativamente`, async () => {
       const f = ui(kind); f.chooseCorporate(); await f.submit(); assertPending(f)
-      assert.equal(f.counters.payloads[0].viaOutlook, false)
+      if (kind === 'drawer-mail') assert.equal(f.counters.payloads.length, 0)
+      else assert.equal(f.counters.payloads[0].viaOutlook, false)
     })
     await test(`${kind}: una denegación auth no se disfraza de pendiente ni éxito`, async () => {
       const f = ui(kind, { outlook: { envios: true }, responses: [{ error: 'No autorizado.' }] }); await f.submit()

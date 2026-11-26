@@ -9,6 +9,7 @@
 import prisma from './prisma'
 import type { NivelResumen } from './area1-crm-resumen-vista'
 import { leerSubidaCliente, type SubidaCliente } from './area1-subida-cliente'
+import { leerRentabilidadFicha, normalizarCodigoFicha, type RentabilidadFicha, type ProyeccionFichaRentabilidad } from './area1-ficha-rentabilidad'
 
 export const SIN_DATO = 'sin dato'
 const ZONA = 'Europe/Madrid'
@@ -23,8 +24,8 @@ export const num = (v: unknown): number | null => {
 }
 export const eur = (v: number, d = 0) => `${v.toLocaleString('es-ES', { minimumFractionDigits: d, maximumFractionDigits: d, useGrouping: 'always' } as Intl.NumberFormatOptions)} €`
 export const pct = (v: number, d = 1) => `${v.toLocaleString('es-ES', { minimumFractionDigits: d, maximumFractionDigits: d })} %`
-/** Códigos ISP: «006004» (facturas) y «6004» (Rentabilidad) son el mismo cliente. */
-export const normCodigo = (v: unknown) => (v == null ? '' : String(v).trim().replace(/^0+(?=\d)/, ''))
+/** Códigos ISP: «006004» = «6004»; «ISP000014» = «14». */
+export const normCodigo = normalizarCodigoFicha
 export function iniciales(nombre: string | null | undefined): string {
   const limpio = (nombre || '').replace(/[,.]/g, ' ').replace(/\b(S\.?L\.?U?|S\.?A\.?|SLU|SL|SA|SCP|SCCL|CB)\b/gi, ' ').trim()
   const p = limpio.split(/\s+/).filter((x) => /[A-Za-zÀ-ÿ0-9]/.test(x))
@@ -182,7 +183,7 @@ export type FichaCliente = {
   comunicaciones: Array<[string, string, string]>
   contratos: ContratoFicha[]
   facturacion: { meses: string[]; serie: number[]; hayFacturas: boolean; cobrado: number | null; pendiente: number | null; formaPago: string | null; facturas: FacturaFicha[]; anio: string }
-  rentabilidad: null | { mes: string | null; meses: string[]; ingreso: number[]; coste: number[]; hay: boolean }
+  rentabilidad: RentabilidadFicha | null
   subida: SubidaCliente | null
   contextoIa: ContextoResumenIa
   correoPrincipal: { contactoId: string | null }
@@ -253,29 +254,19 @@ export async function cargarFichaCliente(empresaId: string, nivel: NivelResumen,
   const devoluciones = facturas.length ? await prisma.devolucionRemesa.findMany({ where: { facturaId: { in: facturas.map((f) => f.id) } }, select: { facturaId: true, importe: true, fechaDevolucion: true, numeroFactura: true } }) : []
   const devueltas = new Set(devoluciones.map((d) => d.facturaId))
 
-  // Rentabilidad (solo gerente y superadmin): un cálculo por mes (CIERRE si existe; si no, el último).
+  // Rentabilidad (solo gerente y superadmin): PROYECCION/version DESC, 12 meses completos.
+  // Cliente y contratos salen de los mismos IDs de foto; nunca fuentes vivas ni recalculado.
   let rent: FichaCliente['rentabilidad'] = null
-  const margenContrato = new Map<string, number | null>()
-  let margenUltimo: { mes: string; pct: number | null; margen: number | null } | null = null
+  let margenContrato = new Map<string, number | null>()
+  let margenUltimo: ProyeccionFichaRentabilidad['margenUltimo'] = null
   if (verMargen && codigosNorm.length) {
-    const filas = await prisma.$queryRaw<Array<{ month: string; income: number | null; cost: number | null; margin: number | null }>>`
-      WITH s AS (SELECT DISTINCT ON (month) month, payload FROM rentabilidad_snapshots ORDER BY month, (kind = 'CIERRE') DESC, created_at DESC)
-      SELECT s.month, SUM((c->>'income')::float8) AS income, SUM((c->>'cost')::float8) AS cost, SUM((c->>'margin')::float8) AS margin
-      FROM s, jsonb_array_elements(COALESCE(s.payload->'clients', '[]'::jsonb)) c
-      WHERE ltrim(c->>'clientCode', '0') = ANY(${codigosNorm}::text[])
-      GROUP BY s.month ORDER BY s.month DESC LIMIT 12`
-    const porMes = new Map(filas.map((f) => [f.month, f]))
-    const ultimo = filas[0] || null
-    if (ultimo) {
-      margenUltimo = { mes: ultimo.month, margen: ultimo.margin, pct: ultimo.income ? (Number(ultimo.margin) / Number(ultimo.income)) * 100 : null }
-      const cs = await prisma.$queryRaw<Array<{ code: string; pct: number | null }>>`
-        WITH s AS (SELECT payload FROM rentabilidad_snapshots WHERE month = ${ultimo.month} ORDER BY (kind = 'CIERRE') DESC, created_at DESC LIMIT 1)
-        SELECT ltrim(c->>'contractCode', '0') AS code, (c->>'marginPct')::float8 AS pct
-        FROM s, jsonb_array_elements(COALESCE(s.payload->'contracts', '[]'::jsonb)) c
-        WHERE ltrim(c->>'clientCode', '0') = ANY(${codigosNorm}::text[])`
-      for (const c of cs) margenContrato.set(c.code, c.pct)
-    }
-    rent = { mes: ultimo?.month || null, meses, ingreso: meses.map((m) => Number(porMes.get(m)?.income || 0)), coste: meses.map((m) => Number(porMes.get(m)?.cost || 0)), hay: filas.length > 0 }
+    const lectura = await leerRentabilidadFicha(prisma, codigosNorm, hoy)
+    rent = lectura.rentabilidad
+    margenContrato = lectura.margenContrato
+    margenUltimo = lectura.margenUltimo
+  } else if (verMargen) {
+    // SIN_VINCULO explícito y sin consultar fotos de otros clientes.
+    rent = (await leerRentabilidadFicha(prisma, [], hoy)).rentabilidad
   }
 
   const subida = codigosContrato.length || empresa.nif ? await leerSubidaCliente({ codigosContrato, cif: empresa.nif }) : null
@@ -379,7 +370,7 @@ export async function cargarFichaCliente(empresaId: string, nivel: NivelResumen,
     { etiqueta: 'Cuota mensual', valor: cuota.total == null ? SIN_DATO : eur(cuota.total), sub: contratos.length ? `${cuota.activos} ${cuota.activos === 1 ? 'contrato activo' : 'contratos activos'}${cuota.sinImporte ? ` · ${cuota.sinImporte} sin importe` : ''}` : 'sin contratos de ISP Gestión', go: 'contratos' },
     { etiqueta: 'Facturado 12 meses', valor: facturado12 == null ? SIN_DATO : eur(facturado12), sub: facturado12 == null ? 'sin facturas en el panel' : 'base sin IVA · facturas desde enero de 2026', go: 'facturacion' },
     verMargen
-      ? { etiqueta: margenUltimo ? `Margen ${nombreMes(margenUltimo.mes)}` : 'Margen último mes', valor: margenUltimo?.pct == null ? SIN_DATO : pct(margenUltimo.pct), clase: margenUltimo?.pct == null ? undefined : margenUltimo.pct < 0 ? 'bad' : margenUltimo.pct < 20 ? 'low' : 'ok', sub: margenUltimo?.margen == null ? 'sin cálculo de Rentabilidad' : `${eur(margenUltimo.margen)}/mes de margen`, go: 'rentabilidad' }
+      ? { etiqueta: margenUltimo ? `Margen ${nombreMes(margenUltimo.mes)}` : 'Margen último mes', valor: margenUltimo?.pct == null ? SIN_DATO : pct(margenUltimo.pct), clase: margenUltimo?.pct == null ? undefined : margenUltimo.pct < 0 ? 'bad' : margenUltimo.pct < 20 ? 'low' : 'ok', sub: (margenUltimo?.margen == null ? 'sin cálculo de Rentabilidad' : `${eur(margenUltimo.margen)}/mes de margen`) + (margenUltimo?.hayEstimados && margenUltimo.costeEstimado != null && margenUltimo.costeEstimado > 0 ? ` · incluye ${eur(margenUltimo.costeEstimado, 2)} estimados` : ''), go: 'rentabilidad' }
       : { etiqueta: 'Margen último mes', valor: 'sin acceso', sub: 'lo ven gerencia y superadmin', go: 'rentabilidad' },
     { etiqueta: 'Subida 2027', valor: subida ? `+${pct(subida.pctMedio)}` : 'sin propuesta', sub: subida ? `+${eur(subida.subidaMes)}/mes${subida.fechaLimiteAviso ? ` · aviso antes del ${subida.fechaLimiteAviso}` : ''}` : 'no hay escenario aprobado', go: 'rentabilidad' },
     { etiqueta: 'Pendiente de cobro', valor: pendiente == null ? SIN_DATO : eur(pendiente), sub: devPend.length ? `${devPend.length} ${devPend.length === 1 ? 'recibo devuelto' : 'recibos devueltos'}` : pendiente == null ? 'sin facturas en el panel' : 'ningún recibo devuelto', go: 'facturacion' },

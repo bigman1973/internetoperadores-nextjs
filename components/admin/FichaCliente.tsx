@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { EventoFicha, FichaCliente as Ficha } from '@/lib/area1-ficha-cliente'
+import type { EstadoMesFicha, FotoFichaRentabilidad } from '@/lib/area1-ficha-rentabilidad'
 import { isM365LegacyPending, M365_LEGACY_PENDING_MESSAGE } from '@/lib/m365-legacy-policy'
 
 type Conexion = { enabled: boolean; connected: boolean; email: string | null; mail?: boolean; m365?: boolean; envios?: boolean }
@@ -20,26 +21,34 @@ const FIL: Array<[string, string]> = [['all', 'Todo'], ['mail', 'Correos'], ['me
 const reqId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `ficha-${Date.now()}-${Math.random().toString(36).slice(2)}`)
 const pctTxt = (v: number) => `${v.toLocaleString('es-ES', { maximumFractionDigits: 1 })} %`
 
-function Bars({ meses, a, b }: { meses: string[]; a: number[]; b?: number[] }) {
-  const max = Math.max(...a, ...(b || [])) * 1.1
-  if (!(max > 0)) return <p className="small muted" style={{ margin: 0 }}>sin dato</p>
-  const W = 820, H = 200, pl = 40, pb = 24, bw = (W - pl) / a.length
+function Bars({ meses, a, b, fotos, estados }: { meses: string[]; a: Array<number | null>; b?: Array<number | null>; fotos?: Array<FotoFichaRentabilidad | null>; estados?: EstadoMesFicha[] }) {
+  // Comparar ingreso/coste sólo cuando ambos constan en la foto. null nunca significa cero.
+  const conocido = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v)
+  const disponibles = meses.map((_, i) => conocido(a[i]) && (!b || conocido(b[i])) && (!fotos || Boolean(fotos[i])) && (!estados || estados[i] === 'DISPONIBLE'))
+  const motivo = (i: number) => estados?.[i] === 'SIN_VINCULO' ? 'sin vínculo ISP' : estados?.[i] === 'SIN_FOTO' ? 'sin foto preparada' : estados?.[i] === 'SIN_CLIENTE' ? 'cliente ausente en la foto' : estados?.[i] === 'SIN_COSTE' ? 'sin coste conocido' : 'datos incompletos'
+  const huecos = meses.map((m, i) => !disponibles[i] ? `${m}: sin dato (${motivo(i)})` : null).filter(Boolean)
+  if (!disponibles.some(Boolean)) return <p className="small muted" style={{ margin: 0 }}>{huecos.length ? huecos.join(' · ') : 'sin dato'}</p>
+  const valores = meses.flatMap((_, i) => disponibles[i] ? [a[i]!, ...(b ? [b[i]!] : [])] : [])
+  const min = Math.min(0, ...valores) * 1.1, max = Math.max(0, ...valores) * 1.1
+  const W = 820, H = 200, pl = 40, pb = 24, bw = (W - pl) / meses.length
+  const y = (v: number) => H - pb - (H - pb - 10) * (v - min) / (max - min || 1)
+  const cero = y(0)
   const MES = meses.map((m) => ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'][Number(m.slice(5, 7)) - 1])
-  return <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Gráfico por mes">
-    {[0, 0.5, 1].map((t) => { const y = H - pb - (H - pb - 10) * t; return <g key={t}><line x1={pl} x2={W} y1={y} y2={y} stroke="var(--line)" /><text x={pl - 6} y={y + 4} textAnchor="end">{Math.round(max * t / 1000)}k</text></g> })}
-    {a.map((v, i) => {
-      const x = pl + i * bw + bw * 0.15, w = b ? bw * 0.33 : bw * 0.7, h = (H - pb - 10) * v / max
-      const h2 = b ? (H - pb - 10) * b[i] / max : 0
+  return <><svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Gráfico por mes">
+    {[0, 0.5, 1].map((t) => { const valor = min + (max - min || 1) * t, pos = y(valor); return <g key={t}><line x1={pl} x2={W} y1={pos} y2={pos} stroke="var(--line)" /><text x={pl - 6} y={pos + 4} textAnchor="end">{Math.round(valor / 1000)}k</text></g> })}
+    {meses.map((m, i) => {
+      const x = pl + i * bw + bw * 0.15, w = b ? bw * 0.33 : bw * 0.7
+      const foto = fotos?.[i], origen = foto ? ` · foto ${foto.kind} v${foto.version} (${foto.id})` : ''
       return <g key={i}>
-        <rect x={x} y={H - pb - h} width={w} height={h} rx="2" fill="var(--before)"><title>{`${MES[i]}: ${eur(v)}`}</title></rect>
-        {b && <rect x={x + w + 2} y={H - pb - h2} width={w} height={h2} rx="2" fill="var(--accent)"><title>{`Coste ${MES[i]}: ${eur(b[i])}`}</title></rect>}
-        <text x={pl + i * bw + bw / 2} y={H - 6} textAnchor="middle">{MES[i]}</text>
+        {disponibles[i] && <rect x={x} y={Math.min(cero, y(a[i]!))} width={w} height={Math.abs(cero - y(a[i]!))} rx="2" fill="var(--before)"><title>{`${b ? 'Ingreso ' : ''}${m}: ${eur(a[i]!)}${origen}`}</title></rect>}
+        {disponibles[i] && b && <rect x={x + w + 2} y={Math.min(cero, y(b[i]!))} width={w} height={Math.abs(cero - y(b[i]!))} rx="2" fill="var(--accent)"><title>{`Coste ${m}: ${eur(b[i]!)}${origen}`}</title></rect>}
+        <text x={pl + i * bw + bw / 2} y={H - 6} textAnchor="middle"><title>{`${m}${disponibles[i] ? origen : `: sin dato (${motivo(i)})`}`}</title>{MES[i]} {m.slice(2, 4)}</text>
       </g>
     })}
-  </svg>
+  </svg>{huecos.length > 0 && <p className="small muted" style={{ margin: '6px 0 0' }}>{huecos.join(' · ')}</p>}</>
 }
 
-function Timeline({ eventos, onOpen, pie }: { eventos: EventoFicha[]; onOpen: (c: Cajon) => void; pie?: ReactNode }) {
+function Timeline({ eventos, onOpen, pie, conexion }: { eventos: EventoFicha[]; onOpen: (c: Cajon) => void; pie?: ReactNode; conexion: Conexion }) {
   const [filter, setFilter] = useState('all')
   const lista = eventos.filter((e) => filter === 'all' || e.cat === filter)
   return <>
@@ -51,9 +60,9 @@ function Timeline({ eventos, onOpen, pie }: { eventos: EventoFicha[]; onOpen: (c
         <div className="h"><b>{e.titulo}</b><span className={`src ${e.fuente === 'Outlook' ? 'o' : ''}`}>{e.fuente}</span>{e.etiqueta && <span className="src">{e.etiqueta}</span>}<span className="when">{e.cuando}</span></div>
         <div className="x">{e.tipo} · {e.quien}</div>
         {e.texto && <div className="x" style={{ color: 'var(--fg)' }}>{e.texto}</div>}
-        {e.acciones.length > 0 && <div className="acts">
+        {conexion.envios !== false && e.acciones.length > 0 && <div className="acts">
           <button className="btn small" type="button" onClick={() => onOpen({ kind: 'mail', para: e.contactoId, asunto: `Re: ${e.titulo}` })}>Responder</button>
-          <button className="btn small" type="button" data-open="ai" onClick={() => onOpen({ kind: 'ai', para: e.contactoId, asunto: `Re: ${e.titulo}`, objetivo: 'Responder a su último correo' })}>Responder con IA</button>
+          {conexion.m365 !== false && <button className="btn small" type="button" data-open="ai" onClick={() => onOpen({ kind: 'ai', para: e.contactoId, asunto: `Re: ${e.titulo}`, objetivo: 'Responder a su último correo' })}>Responder con IA</button>}
         </div>}
       </div></div>)}
     </div>
@@ -66,6 +75,13 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
   const [toastMsg, setToastMsg] = useState<string | null>(null)
   const toastT = useRef<ReturnType<typeof setTimeout> | null>(null)
   const toast = useCallback((m: string) => { setToastMsg(m); if (toastT.current) clearTimeout(toastT.current); toastT.current = setTimeout(() => setToastMsg(null), 2600) }, [])
+  // Los callbacks retenidos consultan las props vigentes, no la puerta del render que los creó.
+  const conexionVigente = useRef(m365.conexion)
+  conexionVigente.current = m365.conexion
+  const abrirCajon = useCallback((c: Cajon) => {
+    if (c && c.kind !== 'meet' && (conexionVigente.current.envios === false || (c.kind === 'ai' && conexionVigente.current.m365 === false))) return toast(M365_LEGACY_PENDING_MESSAGE)
+    setCajon(c)
+  }, [toast])
   const show = useCallback((v: string) => { const x = (VISTAS.includes(v as Vista) ? v : 'resumen') as Vista; setVista(x); history.replaceState(null, '', `#${x}`) }, [])
   useEffect(() => { const h = location.hash.slice(1); if (VISTAS.includes(h as Vista)) setVista(h as Vista) }, [])
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setCajon(null) }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [])
@@ -73,17 +89,25 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
   // «Lo que hay que saber» (IA, caché diaria)
   const [ai, setAi] = useState<{ puntos: string[] | null; error: string | null }>({ puntos: null, error: null })
   useEffect(() => {
+    if (conexionVigente.current.envios === false || conexionVigente.current.m365 === false) {
+      setAi({ puntos: null, error: M365_LEGACY_PENDING_MESSAGE })
+      return
+    }
     let vivo = true
-    fetch(`/api/admin/crm/empresas/${encodeURIComponent(ficha.empresa.id)}/resumen-ia`, { cache: 'no-store' })
-      .then(async (r) => { const d = await r.json().catch(() => ({})); if (!vivo) return; if (!r.ok || !Array.isArray(d.puntos)) setAi({ puntos: null, error: d.error || 'Resumen con IA no disponible.' }); else setAi({ puntos: d.puntos, error: null }) })
-      .catch(() => vivo && setAi({ puntos: null, error: 'Resumen con IA no disponible.' }))
-    return () => { vivo = false }
-  }, [ficha.empresa.id])
+    const controller = new AbortController()
+    setAi({ puntos: null, error: null })
+    fetch(`/api/admin/crm/empresas/${encodeURIComponent(ficha.empresa.id)}/resumen-ia`, { cache: 'no-store', signal: controller.signal })
+      .then(async (r) => { const d = await r.json().catch(() => ({})); if (!vivo || conexionVigente.current.envios === false || conexionVigente.current.m365 === false) return; if (!r.ok || !Array.isArray(d.puntos)) setAi({ puntos: null, error: d.error || 'Resumen con IA no disponible.' }); else setAi({ puntos: d.puntos, error: null }) })
+      .catch(() => vivo && conexionVigente.current.envios !== false && conexionVigente.current.m365 !== false && setAi({ puntos: null, error: 'Resumen con IA no disponible.' }))
+    return () => { vivo = false; controller.abort() }
+  }, [ficha.empresa.id, m365.conexion.envios, m365.conexion.m365])
 
   // Correos recibidos de Outlook: solo lectura, se piden al pulsar y no se guardan en la ficha.
-  const outlookCorreo = m365.conexion.enabled && m365.conexion.connected && !!m365.conexion.mail
+  const outlookCorreo = m365.conexion.enabled && m365.conexion.m365 !== false && m365.conexion.connected && !!m365.conexion.mail
   const [recibidos, setRecibidos] = useState<{ estado: 'idle' | 'cargando' | 'ok' | 'error'; eventos: EventoFicha[]; msg: string | null }>({ estado: 'idle', eventos: [], msg: null })
   async function cargarRecibidos() {
+    const conexion = conexionVigente.current
+    if (!conexion.enabled || conexion.m365 === false || !conexion.connected || !conexion.mail) return
     setRecibidos((r) => ({ ...r, estado: 'cargando', msg: null }))
     try {
       const r = await fetch(`/api/admin/crm/empresas/${encodeURIComponent(ficha.empresa.id)}/correos-recibidos`, { cache: 'no-store' })
@@ -108,8 +132,8 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
   const [guardando, setGuardando] = useState(false)
   const principal = ficha.personas[0]?.id || null
   async function guardarComp() {
-    if (tipoComp === 'Correo') return setCajon({ kind: 'mail' })
-    if (tipoComp === 'Reunión') return setCajon({ kind: 'meet' })
+    if (tipoComp === 'Correo') return abrirCajon({ kind: 'mail' })
+    if (tipoComp === 'Reunión') return abrirCajon({ kind: 'meet' })
     if (!principal) return toast('Añade antes una persona a la ficha para registrar actividad.')
     if (!puedeEscribir) return toast('No tienes permiso para registrar actividad.')
     if (textoComp.trim().length < 2) return toast('Escribe el texto antes de guardar.')
@@ -154,9 +178,9 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
           </div>
           <div className="scn">
             <span className={`pill ${e.estado.tono}`}>{e.estado.txt}</span>
-            <button className="btn primary" type="button" data-open="mail" onClick={() => setCajon({ kind: 'mail' })}>Escribir correo</button>
-            <button className="btn" type="button" data-open="meet" onClick={() => setCajon({ kind: 'meet' })}>Nueva reunión</button>
-            <button className="btn" type="button" data-open="ai" onClick={() => setCajon({ kind: 'ai' })}>Redactar con IA</button>
+            {m365.conexion.envios !== false && <button className="btn primary" type="button" data-open="mail" onClick={() => abrirCajon({ kind: 'mail' })}>Escribir correo</button>}
+            <button className="btn" type="button" data-open="meet" onClick={() => abrirCajon({ kind: 'meet' })}>Nueva reunión</button>
+            {m365.conexion.envios !== false && m365.conexion.m365 !== false && <button className="btn" type="button" data-open="ai" onClick={() => abrirCajon({ kind: 'ai' })}>Redactar con IA</button>}
             <select className="f" aria-label="Más acciones" value="Más" onChange={(ev) => mas(ev.target.value)}><option>Más</option><option>Nuevo negocio</option><option>Nueva tarea</option><option>Registrar llamada</option><option>Añadir persona</option><option>Editar datos</option><option>Exportar ficha</option></select>
           </div>
         </div>
@@ -179,20 +203,20 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
         <div className="lay">
           <div style={{ display: 'grid', gap: 18, minWidth: 0 }}>
             <div className="panel ai">
-              <h2>Lo que hay que saber <span className="small muted" style={{ fontWeight: 400, fontFamily: 'var(--f-body)' }}>· resumen con IA, actualizado hoy</span></h2>
+              <h2>Lo que hay que saber {m365.conexion.envios !== false && m365.conexion.m365 !== false && <span className="small muted" style={{ fontWeight: 400, fontFamily: 'var(--f-body)' }}>· resumen con IA, actualizado hoy</span>}</h2>
               <ul id="aiSum">
-                {ai.puntos ? ai.puntos.map((x, i) => <li key={i}>{x}</li>) : <li>{ai.error || 'Preparando el resumen…'}</li>}
+                {m365.conexion.envios === false || m365.conexion.m365 === false ? <li role="status" aria-live="polite">{M365_LEGACY_PENDING_MESSAGE}</li> : ai.puntos ? ai.puntos.map((x, i) => <li key={i}>{x}</li>) : <li>{ai.error || 'Preparando el resumen…'}</li>}
               </ul>
-              <div className="row"><button className="btn small primary" type="button" data-open="ai" onClick={() => setCajon({ kind: 'ai', objetivo: 'Correo de seguimiento' })}>Proponer correo de seguimiento</button><button className="btn small" type="button" onClick={() => setCajon({ kind: 'meet' })}>Preparar la próxima reunión</button><span className="small muted">La IA propone; tú revisas y envías.</span></div>
+              <div className="row">{m365.conexion.envios !== false && m365.conexion.m365 !== false && <button className="btn small primary" type="button" data-open="ai" onClick={() => abrirCajon({ kind: 'ai', objetivo: 'Correo de seguimiento' })}>Proponer correo de seguimiento</button>}<button className="btn small" type="button" onClick={() => abrirCajon({ kind: 'meet' })}>Preparar la próxima reunión</button>{m365.conexion.envios !== false && m365.conexion.m365 !== false && <span className="small muted">La IA propone; tú revisas y envías.</span>}</div>
             </div>
             <div className="panel">
               <h2>Actividad</h2>
               <div className="composer">
-                <div className="seg" role="group" aria-label="Tipo">{tipos.map((t) => <button key={t} type="button" aria-pressed={tipoComp === t} onClick={() => setTipoComp(t)}>{t}</button>)}</div>
+                <div className="seg" role="group" aria-label="Tipo">{tipos.filter((t) => t !== 'Correo' || m365.conexion.envios !== false).map((t) => <button key={t} type="button" aria-pressed={tipoComp === t} onClick={() => setTipoComp(t)}>{t}</button>)}</div>
                 <textarea placeholder={tipoComp === 'Tarea' ? 'Escribe la tarea (vence mañana).' : tipoComp === 'Llamada' ? 'Resume la llamada.' : tipoComp === 'Correo' || tipoComp === 'Reunión' ? `Pulsa Guardar para abrir el panel de ${tipoComp === 'Correo' ? 'correo' : 'reunión'}.` : 'Escribe una nota. Usa @ para mencionar a un compañero.'} value={textoComp} onChange={(ev) => setTextoComp(ev.target.value)} />
                 <div className="row" style={{ justifyContent: 'flex-end', marginTop: 8 }}><button className="btn small primary" type="button" disabled={guardando} onClick={guardarComp}>{guardando ? 'Guardando…' : 'Guardar'}</button></div>
               </div>
-              <Timeline eventos={eventos} onOpen={setCajon} pie={pieOutlook} />
+              <Timeline eventos={eventos} onOpen={abrirCajon} pie={pieOutlook} conexion={m365.conexion} />
             </div>
           </div>
           <aside className="side">
@@ -209,7 +233,7 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
             </div>
             <div className="panel">
               <h2>Personas</h2>
-              <div id="people">{ficha.personas.length ? ficha.personas.slice(0, 6).map((p) => <div className="person" key={p.id}><span className="av">{p.iniciales}</span><div style={{ minWidth: 0 }}><div>{p.nombre}</div><div className="role">{p.papel}</div></div><button className="btn small" type="button" data-open="mail" disabled={!p.email} onClick={() => setCajon({ kind: 'mail', para: p.id })}>Escribir</button></div>) : <p className="small muted" style={{ margin: 0 }}>sin dato: no hay personas vinculadas.</p>}</div>
+              <div id="people">{ficha.personas.length ? ficha.personas.slice(0, 6).map((p) => <div className="person" key={p.id}><span className="av">{p.iniciales}</span><div style={{ minWidth: 0 }}><div>{p.nombre}</div><div className="role">{p.papel}</div></div>{m365.conexion.envios !== false && <button className="btn small" type="button" data-open="mail" disabled={!p.email} onClick={() => abrirCajon({ kind: 'mail', para: p.id })}>Escribir</button>}</div>) : <p className="small muted" style={{ margin: 0 }}>sin dato: no hay personas vinculadas.</p>}</div>
             </div>
             <div className="panel">
               <h2>Negocios abiertos</h2>
@@ -232,7 +256,7 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
       </section>
 
       <section className="view" id="v-actividad" hidden={vista !== 'actividad'}>
-        <div className="panel"><h2>Toda la actividad</h2><p className="help">Correos de Outlook, reuniones, llamadas, notas, tareas, cambios en ISP Gestión e historial importado de HubSpot.</p><Timeline eventos={eventos} onOpen={setCajon} pie={pieOutlook} /></div>
+        <div className="panel"><h2>Toda la actividad</h2><p className="help">Correos de Outlook, reuniones, llamadas, notas, tareas, cambios en ISP Gestión e historial importado de HubSpot.</p><Timeline eventos={eventos} onOpen={abrirCajon} pie={pieOutlook} conexion={m365.conexion} /></div>
       </section>
 
       <section className="view" id="v-contratos" hidden={vista !== 'contratos'}>
@@ -276,7 +300,7 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
       <section className="view" id="v-personas" hidden={vista !== 'personas'}>
         <div className="panel"><h2>Personas de contacto</h2><div className="tablewrap"><table id="tP">
           <thead><tr><th>Nombre</th><th>Cargo y papel</th><th>Correo</th><th>Último contacto</th><th></th></tr></thead>
-          <tbody>{ficha.personas.length ? ficha.personas.map((p) => <tr key={p.id}><td><a href={`/admin/crm/contactos/${encodeURIComponent(p.id)}`}>{p.nombre}</a></td><td>{p.papel}</td><td>{p.email || 'sin dato'}</td><td>{p.ultimo}</td><td><button className="btn small" type="button" data-open="mail" disabled={!p.email} onClick={() => setCajon({ kind: 'mail', para: p.id })}>Escribir</button></td></tr>)
+          <tbody>{ficha.personas.length ? ficha.personas.map((p) => <tr key={p.id}><td><a href={`/admin/crm/contactos/${encodeURIComponent(p.id)}`}>{p.nombre}</a></td><td>{p.papel}</td><td>{p.email || 'sin dato'}</td><td>{p.ultimo}</td><td>{m365.conexion.envios !== false && <button className="btn small" type="button" data-open="mail" disabled={!p.email} onClick={() => abrirCajon({ kind: 'mail', para: p.id })}>Escribir</button>}</td></tr>)
             : <tr><td colSpan={5} className="muted">sin dato: no hay personas vinculadas.</td></tr>}</tbody>
         </table></div></div>
       </section>
@@ -286,7 +310,8 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
           <div className="panel"><h2>Ingreso y coste por mes</h2>
             {ficha.rentabilidad ? <>
               <div className="legend"><span><i style={{ background: 'var(--before)' }} />Ingreso</span><span><i style={{ background: 'var(--accent)' }} />Coste</span></div>
-              <div className="bars" id="rbars">{ficha.rentabilidad.hay ? <Bars meses={ficha.rentabilidad.meses} a={ficha.rentabilidad.ingreso} b={ficha.rentabilidad.coste} /> : <p className="small muted" style={{ margin: 0 }}>sin dato: este cliente no aparece en los cálculos de Rentabilidad.</p>}</div>
+              <p className="small muted">{ficha.rentabilidad.snapshot ? <>Mes de la última foto preparada: <b>{ficha.rentabilidad.snapshot.month}</b> · foto {ficha.rentabilidad.snapshot.kind} v{ficha.rentabilidad.snapshot.version} ({ficha.rentabilidad.snapshot.id}){ficha.rentabilidad.snapshot.createdAt ? ` · preparada ${ficha.rentabilidad.snapshot.createdAt}` : ''}.</> : 'sin dato: no hay foto preparada para esta ficha.'} El coste incluye importes estimados cuando constan en la foto; los meses sin datos completos no se dibujan.</p>
+              <div className="bars" id="rbars"><Bars meses={ficha.rentabilidad.meses} a={ficha.rentabilidad.ingreso} b={ficha.rentabilidad.coste} fotos={ficha.rentabilidad.fotos} estados={ficha.rentabilidad.estados} /></div>
               <p className="small muted" style={{ margin: '8px 0 0' }}><a href="/admin/rentabilidad">Abrir en Rentabilidad</a></p>
             </> : <p className="small muted" style={{ margin: 0 }}>{ficha.verMargen ? 'sin dato: no hay código ISP para cruzar con Rentabilidad.' : 'Los ingresos, costes y márgenes los ven gerencia y superadmin.'}</p>}
           </div>
@@ -302,12 +327,12 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
               <div><span>Subida propuesta</span><span>sin propuesta</span></div>
               <div><span>Estado</span><span className="st w">No hay escenario aprobado</span></div>
             </>}
-          </div><div className="row" style={{ marginTop: 12 }}><a className="btn small" href="/admin/subida-precios">Abrir en el simulador</a><button className="btn small primary" type="button" data-open="ai" disabled={!ficha.subida} onClick={() => setCajon({ kind: 'ai', objetivo: 'Avisar de la actualización de tarifas de 2027' })}>Preparar aviso con IA</button></div></div>
+          </div><div className="row" style={{ marginTop: 12 }}><a className="btn small" href="/admin/subida-precios">Abrir en el simulador</a>{m365.conexion.envios !== false && m365.conexion.m365 !== false && <button className="btn small primary" type="button" data-open="ai" disabled={!ficha.subida} onClick={() => abrirCajon({ kind: 'ai', objetivo: 'Avisar de la actualización de tarifas de 2027' })}>Preparar aviso con IA</button>}</div></div>
         </div>
       </section>
     </main>
 
-    {cajon && <Drawer key={`${cajon.kind}-${cajon.para || ''}-${cajon.objetivo || ''}`} cajon={cajon} ficha={ficha} m365={m365} puedeEscribir={puedeEscribir} onClose={() => setCajon(null)} onOpen={setCajon} toast={toast} />}
+    {cajon && <Drawer key={`${cajon.kind}-${cajon.para || ''}-${cajon.objetivo || ''}`} cajon={cajon} ficha={ficha} m365={m365} puedeEscribir={puedeEscribir} onClose={() => setCajon(null)} onOpen={abrirCajon} toast={toast} />}
     <div className="toast" id="toast" hidden={!toastMsg}>{toastMsg}</div>
   </>
 }
@@ -319,7 +344,10 @@ function FragmentKv({ k, v }: { k: string; v: string }) {
 function Drawer({ cajon, ficha, m365, puedeEscribir, onClose, onOpen, toast }: { cajon: NonNullable<Cajon>; ficha: Ficha; m365: M365; puedeEscribir: boolean; onClose: () => void; onOpen: (c: Cajon) => void; toast: (m: string) => void }) {
   const conEmail = ficha.personas.filter((p) => p.email)
   const [para, setPara] = useState<string>(cajon.para && conEmail.some((p) => p.id === cajon.para) ? cajon.para : conEmail[0]?.id || '')
-  const outlookListo = m365.conexion.enabled && m365.conexion.connected && Boolean(m365.conexion.mail)
+  const conexionVigente = useRef(m365.conexion)
+  conexionVigente.current = m365.conexion
+  const propuestaVigente = useRef<AbortController | null>(null)
+  const outlookListo = m365.conexion.enabled && m365.conexion.m365 !== false && m365.conexion.connected && Boolean(m365.conexion.mail)
   const [viaOutlook, setViaOutlook] = useState(m365.conexion.enabled)
   const [asunto, setAsunto] = useState(cajon.asunto || '')
   const [objetivo, setObjetivo] = useState(cajon.objetivo || '')
@@ -330,21 +358,37 @@ function Drawer({ cajon, ficha, m365, puedeEscribir, onClose, onOpen, toast }: {
   const [pendiente, setPendiente] = useState(false)
   const [avisosIa, setAvisosIa] = useState<string[] | null>(null)
   const isAi = cajon.kind === 'ai'
+  // Se relee tras cada await: React puede sustituir la conexión durante la petición.
+  const iaCerrada = () => conexionVigente.current.envios === false || conexionVigente.current.m365 === false
   async function proponer() {
+    if (iaCerrada()) return setPendiente(true)
     setError(null)
     if (!para) return setError('Elige a quién escribes (la persona necesita correo).')
     const obj = objetivo.trim() || 'Correo de seguimiento'
+    propuestaVigente.current?.abort()
+    const controller = new AbortController()
+    propuestaVigente.current = controller
     setOcupado('ia')
     try {
       const qs = new URLSearchParams({ objetivo: obj, tono: 'cercano' })
-      const r = await fetch(`/api/admin/crm/contactos/${encodeURIComponent(para)}/m365/borrador?${qs}`, { cache: 'no-store' })
+      const r = await fetch(`/api/admin/crm/contactos/${encodeURIComponent(para)}/m365/borrador?${qs}`, { cache: 'no-store', signal: controller.signal })
       const d = await r.json().catch(() => ({}))
+      if (controller.signal.aborted || iaCerrada()) return
       if (!r.ok || !d.asunto) throw new Error(d.error || 'No se pudo generar el borrador.')
       setAsunto(d.asunto); setCuerpo(d.cuerpo); setBorradorIa(true); setAvisosIa(Array.isArray(d.avisos) ? d.avisos : [])
-    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo generar el borrador.') } finally { setOcupado(null) }
+    } catch (e) { if (!controller.signal.aborted && !iaCerrada()) setError(e instanceof Error ? e.message : 'No se pudo generar el borrador.') } finally { if (propuestaVigente.current === controller) setOcupado(null) }
   }
-  useEffect(() => { if (isAi && para) void proponer() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (conexionVigente.current.envios === false || conexionVigente.current.m365 === false) { propuestaVigente.current?.abort(); setOcupado(null); return }
+    if (isAi && para) void proponer()
+    return () => { propuestaVigente.current?.abort() }
+  }, [m365.conexion.envios, m365.conexion.m365]) // eslint-disable-line react-hooks/exhaustive-deps
+  function abrirIa() {
+    if (conexionVigente.current.envios === false || conexionVigente.current.m365 === false) return setPendiente(true)
+    onOpen({ kind: 'ai', para, asunto })
+  }
   async function enviar() {
+    if (conexionVigente.current.envios === false) return setPendiente(true)
     setError(null)
     setPendiente(false)
     const p = conEmail.find((x) => x.id === para)
@@ -408,11 +452,12 @@ function Drawer({ cajon, ficha, m365, puedeEscribir, onClose, onOpen, toast }: {
   return <div className="drawer" id="drawer" role="dialog" aria-label="Redactar">
     <div className="row" style={{ justifyContent: 'space-between' }}><h2>{isAi ? 'Correo con IA' : 'Nuevo correo'}</h2><button className="btn ghost" type="button" data-close onClick={onClose}>✕</button></div>
     {sinPermiso}
-    {(pendiente || m365.conexion.envios === false) && <div className="notice" role="status" aria-live="polite" style={{ background: '#eff6ff', color: '#1e3a8a' }}>{M365_LEGACY_PENDING_MESSAGE}</div>}
+    {(pendiente || m365.conexion.envios === false || (isAi && m365.conexion.m365 === false)) && <div className="notice" role="status" aria-live="polite" style={{ background: '#eff6ff', color: '#1e3a8a' }}>{M365_LEGACY_PENDING_MESSAGE}</div>}
     {m365.aviso && <div className="notice">Pruebas: los correos se desvían a la dirección de prueba; ningún cliente los recibe.</div>}
+    <fieldset disabled={m365.conexion.envios === false || (isAi && m365.conexion.m365 === false)} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
     <label>Enviar desde</label><div className="seg" role="group"><button type="button" aria-pressed={viaOutlook} disabled={!m365.conexion.enabled} onClick={() => setViaOutlook(true)}>Mi Outlook</button><button type="button" aria-pressed={!viaOutlook} onClick={() => setViaOutlook(false)}>Buzón corporativo</button></div>
     {viaOutlook && outlookListo && <p className="small muted" style={{ margin: '6px 0 0' }}>{m365.conexion.email} · queda en Enviados</p>}
-    {viaOutlook && m365.conexion.enabled && m365.conexion.m365 !== false && !outlookListo && <p className="small muted" style={{ margin: '6px 0 0' }}><a href={m365.connectUrl}>{m365.conexion.connected ? 'Conceder permiso de correo' : 'Conectar mi Outlook'}</a> para enviar desde tu buzón.</p>}
+    {viaOutlook && m365.conexion.envios !== false && m365.conexion.enabled && m365.conexion.m365 !== false && !outlookListo && <p className="small muted" style={{ margin: '6px 0 0' }}><a href={m365.connectUrl}>{m365.conexion.connected ? 'Conceder permiso de correo' : 'Conectar mi Outlook'}</a> para enviar desde tu buzón.</p>}
     {!viaOutlook && <p className="small muted" style={{ margin: '6px 0 0' }}>{m365.corporativo}</p>}
     <label>Para</label><select value={para} onChange={(e) => setPara(e.target.value)}>{conEmail.length ? conEmail.map((p) => <option key={p.id} value={p.id}>{p.nombre}{p.papel !== 'sin dato' ? ` · ${p.papel}` : ''}</option>) : <option value="">sin dato: ninguna persona con correo</option>}</select>
     <label>Asunto</label><input value={asunto} onChange={(e) => setAsunto(e.target.value)} />
@@ -420,12 +465,14 @@ function Drawer({ cajon, ficha, m365, puedeEscribir, onClose, onOpen, toast }: {
     <label>Mensaje</label><textarea value={ocupado === 'ia' ? 'Redactando…' : cuerpo} onChange={(e) => { setCuerpo(e.target.value) }} />
     {avisosIa && <p className="small muted" style={{ margin: '6px 0 0' }}><b>Borrador propuesto por IA.</b> Revísalo antes de enviar.{avisosIa.length ? ` ${avisosIa.join(' ')}` : ''}</p>}
     {error && <div className="notice">{error}</div>}
-    <div className="row" style={{ marginTop: 12, justifyContent: 'space-between' }}>{isAi ? <button className="btn" type="button" disabled={ocupado != null} onClick={proponer}>Otra versión</button> : <button className="btn" type="button" data-open="ai" onClick={() => onOpen({ kind: 'ai', para, asunto })}>Redactar con IA</button>}<div className="row"><button className="btn" type="button" data-close onClick={onClose}>Cancelar</button><button className="btn primary" type="button" disabled={!puedeEscribir || ocupado != null} onClick={enviar}>{ocupado === 'enviar' ? 'Enviando…' : 'Enviar'}</button></div></div>
-    <p className="small muted">Queda en tus Enviados de Outlook y en esta ficha. Las respuestas del cliente aparecen en la actividad.</p>
+    <div className="row" style={{ marginTop: 12, justifyContent: 'space-between' }}>{m365.conexion.envios !== false && m365.conexion.m365 !== false && (isAi ? <button className="btn" type="button" disabled={ocupado != null} onClick={proponer}>Otra versión</button> : <button className="btn" type="button" data-open="ai" onClick={abrirIa}>Redactar con IA</button>)}<div className="row"><button className="btn" type="button" data-close onClick={onClose}>Cancelar</button><button className="btn primary" type="button" disabled={!puedeEscribir || ocupado != null} onClick={enviar}>{ocupado === 'enviar' ? 'Enviando…' : 'Enviar'}</button></div></div>
+    </fieldset>
+    {(m365.conexion.envios === false || (isAi && m365.conexion.m365 === false)) && <button className="btn" type="button" data-close onClick={onClose}>Cerrar</button>}
+    {m365.conexion.envios !== false && <p className="small muted">Queda en tus Enviados de Outlook y en esta ficha. Las respuestas del cliente aparecen en la actividad.</p>}
   </div>
 }
 
-// Sólo los POST de correo o reunión solicitada en Outlook convierten el cierre en aviso.
+// Respuestas de acciones externas: el cierre nunca se interpreta como un éxito local.
 function isEnvioPendiente(data: unknown): boolean {
   if (isM365LegacyPending(data)) return true
   if (!data || typeof data !== 'object') return false
