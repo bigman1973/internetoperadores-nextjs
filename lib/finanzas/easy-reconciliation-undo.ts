@@ -1,6 +1,6 @@
 import { Prisma, type PrismaClient } from '@prisma/client'
 import prisma from '@/lib/prisma'
-import { assertPrototypeStaging, PrototypeStagingError } from '@/lib/finanzas/prototype-staging'
+import { assertFinanceEasyRuntime, FinanceEasyRuntimeError, PrototypeStagingError } from '@/lib/finanzas/prototype-staging'
 import { requireB4ActorAccess } from '@/lib/finanzas/reconciliation-auth'
 import { B4ServiceError, deshacerB4Tx } from '@/lib/finanzas/reconciliation-db'
 
@@ -127,7 +127,7 @@ async function originalLines(tx: Tx, operationId: string): Promise<OriginalLine[
 }
 
 function asEasyError(error: unknown): never {
-  if (error instanceof EasyUndoServiceError || error instanceof PrototypeStagingError) throw error
+  if (error instanceof EasyUndoServiceError || error instanceof PrototypeStagingError || error instanceof FinanceEasyRuntimeError) throw error
   if (error instanceof B4ServiceError) throw new EasyUndoServiceError(error.status, error.code, error.message, error.details)
   throw error
 }
@@ -170,8 +170,8 @@ async function undoEasyParsedTx(tx: Tx, actorId: number, input: EasyUndoInput) {
 /** Reverses a Modo Fácil receipt inside a caller-owned SERIALIZABLE transaction. */
 export async function undoEasyTx(tx: Prisma.TransactionClient, actorId: number, raw: unknown) {
   const input = parseEasyUndoInput(raw)
-  // This remains before every database read, including the permission lookup.
-  await assertPrototypeStaging()
+  // Same promoted fence as confirming; live identity is checked in this transaction.
+  await assertFinanceEasyRuntime(tx)
   await requireLiveEasyUndoAccess(actorId)
   try {
     return await undoEasyParsedTx(tx as Tx, actorId, input)
@@ -184,11 +184,14 @@ export async function undoEasyTx(tx: Prisma.TransactionClient, actorId: number, 
 export async function undoEasy(actorId: number, raw: unknown) {
   const input = parseEasyUndoInput(raw)
   // This must precede the live actor lookup and opening of the write transaction.
-  await assertPrototypeStaging()
+  await assertFinanceEasyRuntime()
   await requireLiveEasyUndoAccess(actorId)
   try {
     return await db().$transaction(
-      (tx) => undoEasyParsedTx(tx as Tx, actorId, input),
+      async (tx) => {
+        await assertFinanceEasyRuntime(tx)
+        return undoEasyParsedTx(tx as Tx, actorId, input)
+      },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 45_000 },
     )
   } catch (error) {
@@ -198,7 +201,7 @@ export async function undoEasy(actorId: number, raw: unknown) {
 
 /** Route-facing conversion does not disclose foreign receipt identities or internals. */
 export function easyUndoErrorResponse(error: unknown): { status: number; body: Record<string, unknown> } {
-  if (error instanceof PrototypeStagingError) return { status: error.status, body: { error: error.message, codigo: error.code } }
+  if (error instanceof PrototypeStagingError || error instanceof FinanceEasyRuntimeError) return { status: error.status, body: { error: error.message, codigo: error.code } }
   if (error instanceof EasyUndoServiceError) return { status: error.status, body: { error: error.message, codigo: error.code, ...(error.details === undefined ? {} : { errors: error.details }) } }
   const code = (error as any)?.code
   if (code === 'P2002' || code === 'P2034') return { status: 409, body: { error: 'Conflicto concurrente; relea y reintente con la misma clave.', codigo: 'CONCURRENT_CONFLICT' } }
