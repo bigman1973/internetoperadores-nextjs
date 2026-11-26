@@ -3902,7 +3902,7 @@ export const AREA4_DASHBOARD_BLOCKS: readonly Area4DashboardDefinition[] = [
   { id: 'decisiones', sectionKey: 'usuarios-permisos', sourcePath: '/admin/usuarios', title: 'Necesita tu decisión', help: 'Lo que está parado esperando un sí o un no tuyo.', reader: 'decisions' },
   { id: 'facturado', sectionKey: 'facturacion', sourcePath: '/admin/facturacion', title: 'Facturado por mes · {year}', help: '{month} va en curso.', reader: 'finance', chart: 'money' },
   { id: 'avisos', sectionKey: 'conciliacion', sourcePath: '/admin/finanzas/conciliar', title: 'Avisos', help: '', reader: 'finance' },
-  { id: 'margen', sectionKey: 'rentabilidad', sourcePath: '/admin/rentabilidad', title: 'Margen por mes', help: 'Margen conocido; provisional si faltan costes o repartos.', reader: 'rentabilidad', chart: 'percent' },
+  { id: 'margen', sectionKey: 'rentabilidad', sourcePath: '/admin/rentabilidad', title: 'Margen por mes', help: 'Margen conocido; provisional solo con fiabilidad inferior al 60 %.', reader: 'rentabilidad', chart: 'percent' },
   { id: 'mi-dia', sectionKey: 'crm', sourcePath: '/admin/crm', title: 'Mi día', help: 'Reuniones guardadas y tareas del CRM.', reader: 'crm' },
   { id: 'altas', sectionKey: 'altas-pendientes', sourcePath: '/admin/altas-pendientes', title: 'Altas pendientes', help: 'Contratos firmados que aún no están en ISP.', reader: 'soon' },
   { id: 'permanencias', sectionKey: 'contratos', sourcePath: '/admin/contratos', title: 'Permanencias que acaban', help: 'Próximos 60 días: buena ocasión para renovar.', reader: 'soon' },
