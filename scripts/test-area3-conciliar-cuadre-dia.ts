@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs'
 import { analizarCuadreDia, ignorarDuplicadosImportacion, type FilaCuadre } from '../lib/finanzas/conciliar-cuadre-dia'
 
 let pasadas = 0
+let intentadas = 0
 function t(nombre: string, fn: () => void) {
+  intentadas++
   try { fn(); pasadas++; console.log(`  ok  ${nombre}`) } catch (e) { console.error(`  FALLA  ${nombre}\n${(e as Error).message}`); process.exitCode = 1 }
 }
 const f = (dia: string, importe: number, saldo: number | null): FilaCuadre => ({ dia, importe, saldo })
@@ -17,9 +19,12 @@ t('mismo día con varios órdenes válidos: se acepta a nivel de día (saldo de 
   const r = analizarCuadreDia([f('2026-01-01', 100, 100), f('2026-01-02', 10, 110), f('2026-01-02', -10, 100), f('2026-01-02', 5, 105), f('2026-01-02', -5, 100), f('2026-01-03', 1, 101)])
   assert.equal(r.cuadra, true, JSON.stringify(r.huecos))
 })
-t('el orden del día no importa: filas desordenadas dentro del día cuadran', () => {
+t('filas del mismo día que no encadenan se rechazan, aunque se reordenen', () => {
+  // El caso anterior esperaba OK erróneamente: desde 50, las transiciones
+  // 70→90, 50→40 y 40→100 no encadenan todas. Reordenar no rellena ese hueco.
   const r = analizarCuadreDia([f('2026-01-01', 50, 50), f('2026-01-02', 20, 90), f('2026-01-02', -10, 40), f('2026-01-02', 60, 100)].sort(() => 0))
-  assert.equal(r.cuadra, true, JSON.stringify(r.huecos))
+  assert.equal(r.cuadra, false, JSON.stringify(r.huecos))
+  assert.equal(r.estado, 'HUECO'); assert.ok(r.huecos.length > 0)
 })
 t('un apunte que falta NO cuadra y se explica con el importe', () => {
   const r = analizarCuadreDia([f('2026-01-01', 100, 100), f('2026-01-02', -30, 70), f('2026-01-02', -1, 39), f('2026-01-03', 5, 44)])
@@ -91,4 +96,4 @@ t('la ficha de cuenta nunca muta datos: el módulo no importa prisma ni escribe'
   const c = readFileSync('lib/finanzas/conciliar-cuadre-dia.ts', 'utf8')
   assert.equal(/prisma|\.update\(|\.delete\(|\.create\(/.test(c), false)
 })
-console.log(`OK: ${pasadas}/${pasadas} comprobaciones del cuadre por día.`)
+console.log(`${pasadas === intentadas ? 'OK' : 'FALLO'}: ${pasadas}/${intentadas} comprobaciones del cuadre por día; ${intentadas - pasadas} fallos.`)
