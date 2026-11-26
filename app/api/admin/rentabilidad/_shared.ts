@@ -14,6 +14,7 @@ export function failure(error: unknown) {
       EXCEPTION_ALREADY_RESOLVED:'La excepción ya está resuelta. Reábrela antes de guardar una decisión diferente.',
       ORIGIN_NOT_ALLOWED:'La operación debe iniciarse desde la misma página de staging.',
       ALIAS_CONFLICT:'La fila contiene valores contradictorios para el mismo campo. Revisa su origen antes de importarla.',
+      FOTO_DESGLOSE_NO_DISPONIBLE:'La foto del desglose ya no está disponible para este mes. Recarga la pantalla o revisa las fuentes.',
     };
     return reply({error:messages[error.code]??error.code,code:error.code},error.status);
   }
@@ -23,7 +24,7 @@ export function failure(error: unknown) {
 }
 const text = z.string().trim().min(1).max(240);
 const optionalText = z.string().trim().max(240).optional();
-export const querySchema = z.object({ month: monthSchema.optional(), mode: z.enum(['real', 'contratado']).default('real'), detalle: z.enum(['cliente', 'producto']).optional(), clave: z.string().trim().min(1).max(200).optional(), vista: z.enum(['facturado', 'coste', 'contratos']).optional() }).strict().refine(q => !q.detalle || (!!q.clave && !!q.vista && !!q.month), { message: 'DETALLE_INCOMPLETO' });
+export const querySchema = z.object({ month: monthSchema.optional(), mode: z.enum(['real', 'contratado']).default('real'), detalle: z.enum(['cliente', 'producto']).optional(), clave: z.string().trim().min(1).max(200).optional(), vista: z.enum(['facturado', 'coste', 'contratos']).optional(), snapshot: z.string().uuid().optional() }).strict().refine(q => !q.detalle || (!!q.clave && !!q.vista && !!q.month), { message: 'DETALLE_INCOMPLETO' }).refine(q => !q.snapshot || !!q.detalle, { message: 'SNAPSHOT_SOLO_DETALLE' });
 export function parseQuery(req: NextRequest) {
   const params = req.nextUrl.searchParams;
   if (Array.from(params.keys()).some(key => params.getAll(key).length !== 1)) throw new RentabilidadError('DUPLICATED_PARAMETER');

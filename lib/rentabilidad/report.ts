@@ -379,6 +379,7 @@ export async function getRentabilidadReport(month?:string,mode='real'):Promise<a
   const latest=snapshots.find((s:any)=>s.kind==='PROYECCION')||snapshots[0];
   const flatten=(rows:any[])=>rows.map(r=>({...r.payload,key:r.key,version:r.version,kind:r.kind,actorId:r.actorId,createdAt:r.createdAt,sourceHash:r.sourceHash}));
   const live={runs:runs.map(r=>({...r.payload,id:r.id,process:r.process,sourceHash:r.sourceHash,createdAt:r.createdAt})).reverse(),syncStatus:rentabilidadAutomationStatus(runs),ruleHistory:flatten(ruleHistory),externalCostHistory:flatten(externalCostHistory),resolvedExceptions:flatten(resolved),snapshots:snapshots.map((s:any)=>({id:s.id,month:s.month,version:s.version,kind:s.kind,createdAt:s.createdAt,sourceHash:s.sourceHash}))};
-  if(!latest)return {period,mode,summary:null,products:[],monthly:[],clients:[],contracts:[],comparison:[],alerts:[],rules:[],externalCosts:[],controls:{},references:[],notices:['Aún no hay una proyección preparada para este mes. Recalcular solo para el superadmin.'],...live};
-  return compactReportPresentation(applyReportMode({...latest.payload,period,...live},mode));
+  if(!latest)return {period,mode,snapshot:null,summary:null,products:[],monthly:[],clients:[],contracts:[],comparison:[],alerts:[],rules:[],externalCosts:[],controls:{},references:[],notices:['Aún no hay una proyección preparada para este mes. Recalcular solo para el superadmin.'],...live};
+  const snapshot={id:latest.id,month:latest.month,version:latest.version,kind:latest.kind,sourceHash:latest.sourceHash,createdAt:latest.createdAt};
+  return compactReportPresentation(applyReportMode({...latest.payload,period,...live,snapshot},mode));
 }

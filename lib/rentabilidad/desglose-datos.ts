@@ -4,10 +4,12 @@
  * No escribe, no recalcula y no toca la foto guardada.
  */
 import { Prisma } from '@prisma/client'
+import { z } from 'zod'
 import { monthSchema, RentabilidadError } from './types'
 import { shiftMonth } from './engine'
 import { assertRentabilidadConfiguration } from './store'
-import { codigosContratos, construirDesglose, idsFacturasRecibidas, seriesDelProducto, type DatosDesglose, type DesgloseResultado, type DesgloseTipo, type DesgloseVista } from './desglose'
+import { codigosContratos, construirDesglose, idsFacturasRecibidas, seriesDelProducto, type DatosDesglose, type DesgloseTipo, type DesgloseVista } from './desglose'
+import { conFoto, fechaFoto, metadataFoto, type DesgloseConFoto, type FotoMetadata } from './desglose-foto'
 
 async function db() {
   assertRentabilidadConfiguration()
@@ -20,17 +22,34 @@ const normCif = (v: unknown) => (v === null || v === undefined ? '' : String(v))
 const iso = (d: unknown) => (d instanceof Date ? d.toISOString() : String(d ?? '')).slice(0, 10)
 const numero = (v: unknown) => (v === null || v === undefined ? 0 : Number(v))
 
-/** Misma foto que enseña la pantalla: la última proyección del mes (o la más reciente si no hay). */
-export async function fotoCompleta(month: string): Promise<any | null> {
+type FotoRow = FotoMetadata & { payload: any }
+/** Un id solicitado jamás cae a la última foto, ni siquiera si pertenece a otro mes. */
+export async function leerFoto(month: string, snapshotId?: string): Promise<{ payload: any; snapshot: FotoMetadata } | null> {
   monthSchema.parse(month)
+  if (snapshotId !== undefined) z.string().uuid().parse(snapshotId)
   const prisma = await db()
-  const rows = await prisma.$queryRaw<{ payload: any }[]>(Prisma.sql`
-    SELECT payload FROM rentabilidad_snapshots WHERE month = ${month}
+  const rows = snapshotId !== undefined
+    ? await prisma.$queryRaw<FotoRow[]>(Prisma.sql`
+      SELECT id, month, version, kind, source_hash AS "sourceHash", created_at AS "createdAt", payload
+      FROM rentabilidad_snapshots WHERE id = ${snapshotId} AND month = ${month} LIMIT 1`)
+    : await prisma.$queryRaw<FotoRow[]>(Prisma.sql`
+    SELECT id, month, version, kind, source_hash AS "sourceHash", created_at AS "createdAt", payload
+    FROM rentabilidad_snapshots WHERE month = ${month}
     ORDER BY (kind = 'PROYECCION') DESC, version DESC LIMIT 1`)
-  return rows[0]?.payload ?? null
+  const row = rows[0]
+  if (!row?.payload || row.month !== month || (snapshotId !== undefined && row.id !== snapshotId)) {
+    if (snapshotId !== undefined) throw new RentabilidadError('FOTO_DESGLOSE_NO_DISPONIBLE', 404)
+    return null
+  }
+  return { payload: row.payload, snapshot: metadataFoto(row) }
 }
 
-export async function leerDatos(payload: any, tipo: DesgloseTipo, clave: string, vista: DesgloseVista, month: string): Promise<DatosDesglose> {
+/** Compatibilidad para callers antiguos que solo necesitan el payload completo. */
+export async function fotoCompleta(month: string): Promise<any | null> {
+  return (await leerFoto(month))?.payload ?? null
+}
+
+export async function leerDatos(payload: any, tipo: DesgloseTipo, clave: string, vista: DesgloseVista, month: string, createdAt?: unknown): Promise<DatosDesglose> {
   const datos: DatosDesglose = { lineas: [], emitidas: [], recibidas: [], series: [], versiones: [] }
   const prisma = await db()
   const contratos = codigosContratos(payload, tipo, clave)
@@ -69,18 +88,21 @@ export async function leerDatos(payload: any, tipo: DesgloseTipo, clave: string,
       const rows = await prisma.$queryRaw<any[]>(Prisma.sql`SELECT id, proveedor, num_factura, fecha, base, concepto FROM facturas_recibidas WHERE id = ANY(${ids}::text[])`)
       datos.recibidas = rows.map(r => ({ id: String(r.id), proveedor: r.proveedor ?? null, numero: r.num_factura ?? null, fecha: r.fecha ? iso(r.fecha) : null, base: r.base === null ? null : numero(r.base), concepto: r.concepto ?? null }))
     }
-  } else if (contratos.length) {
+  } else if (contratos.length && fechaFoto(createdAt)) {
+    // created_at existe en el almacén de versiones (TIMESTAMP(3)); sin fecha, sin dato.
+    const corte = fechaFoto(createdAt)!
     const rows = await prisma.$queryRaw<any[]>(Prisma.sql`
       SELECT DISTINCT ON (stable_key) stable_key AS codigo, payload FROM rentabilidad_versiones
-      WHERE kind = 'contract' AND stable_key = ANY(${contratos}::text[]) ORDER BY stable_key, version DESC`)
+      WHERE kind = 'contract' AND stable_key = ANY(${contratos}::text[]) AND created_at <= ${corte}::timestamp
+      ORDER BY stable_key, version DESC LIMIT ${contratos.length}`)
     datos.versiones = rows.map(r => ({ codigo: String(r.codigo), payload: r.payload ?? {} }))
   }
   return datos
 }
 
-export async function desglose(month: string, tipo: DesgloseTipo, clave: string, vista: DesgloseVista): Promise<DesgloseResultado | null> {
-  const payload = await fotoCompleta(month)
-  if (!payload) return null
-  const datos = await leerDatos(payload, tipo, clave, vista, month)
-  return construirDesglose(payload, tipo, clave, vista, month, datos)
+export async function desglose(month: string, tipo: DesgloseTipo, clave: string, vista: DesgloseVista, snapshotId?: string): Promise<DesgloseConFoto | null> {
+  const foto = await leerFoto(month, snapshotId)
+  if (!foto) return null
+  const datos = await leerDatos(foto.payload, tipo, clave, vista, month, foto.snapshot.createdAt)
+  return conFoto(construirDesglose(foto.payload, tipo, clave, vista, month, datos), foto.snapshot)
 }
