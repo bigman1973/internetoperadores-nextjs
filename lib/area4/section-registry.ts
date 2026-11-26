@@ -35,7 +35,7 @@ export type Area4Surface = Readonly<{
     stagingImport?: 'isp-multipart-v1' | 'hubspot-confirm-v1' | 'isp-vinculos-v1' | 'isp-vinculos-bloque-v1';
     requiredActions?: Readonly<Partial<Record<'GET' | 'HEAD' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS', readonly Area4ActionLetter[]>>> }>;
   baselineDescriptor?: string; menu?: readonly Area4SurfaceMenu[];
-  availability?: Readonly<{ stagingOnly?: boolean; needsFinance?: boolean; conciliarOnly?: boolean; financeSuffix?: boolean; replacedByConciliar?: boolean; closedByGate?: "crmImportaciones" }>;
+  availability?: Readonly<{ stagingOnly?: boolean; needsFinance?: boolean; conciliarOnly?: boolean; financeSuffix?: boolean; replacedByConciliar?: boolean; closedByGate?: "crmImportaciones" | "documentosPanel" }>;
   easy?: 'conciliar' | 'modo-facil' | 'para-pedir';
 }>
 export type Area4UsersRowMetadata = Readonly<{ key: string; label: string; order: number }>
@@ -2833,7 +2833,7 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         kind: "api",
         actions: ["V", "E"],
         request: { multipartBodyLimit: 4 * 1024 * 1024 + 16 * 1024, requiredActions: { GET: ["V"], POST: ["V", "E"] } },
-        availability: { stagingOnly: true },
+        availability: { closedByGate: "documentosPanel" },
       },
       {
         path: "/api/admin/finanzas/documentos/[id]",
@@ -2841,14 +2841,14 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         actions: ["V", "E", "C"],
         // Native command guard repeats C for VALIDAR/ARCHIVAR, not for GUARDAR.
         request: { commandBodyLimit: 16 * 1024, confirmCommands: ["VALIDAR", "ARCHIVAR"], requiredActions: { GET: ["V"], POST: ["V", "E"] } },
-        availability: { stagingOnly: true },
+        availability: { closedByGate: "documentosPanel" },
       },
       {
         path: "/api/admin/finanzas/documentos/comparacion",
         kind: "api",
         actions: ["V"],
         request: { requiredActions: { GET: ["V"] } },
-        availability: { stagingOnly: true },
+        availability: { closedByGate: "documentosPanel" },
       },
       {
         path: "/admin/finanzas/facturas",

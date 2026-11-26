@@ -2,7 +2,7 @@
 /**
  * Área 1 · Ficha de cliente del CRM. Marcado, clases y textos copiados de maqueta_crm_ficha_cliente_aprobada.html;
  * los datos de ejemplo se sustituyen por los reales (FichaCliente, lib/area1-ficha-cliente.ts) y lo que falta sale «sin dato».
- * Correo, IA y reunión reutilizan las rutas de contacto (a59b2880/2df60a2d): POST /actividades y GET /m365/borrador.
+ * Correo/IA/Outlook conservan las rutas de contacto. La actividad local usa POST de empresa, con persona opcional.
  * La IA solo propone: el envío lo hace siempre la persona con «Enviar».
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -20,6 +20,14 @@ const ICON: Record<string, string> = { mail: '@', meet: '▣', isp: 'ISP', note:
 const FIL: Array<[string, string]> = [['all', 'Todo'], ['mail', 'Correos'], ['meet', 'Reuniones'], ['note', 'Notas y llamadas'], ['isp', 'ISP Gestión']]
 const reqId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `ficha-${Date.now()}-${Math.random().toString(36).slice(2)}`)
 const pctTxt = (v: number) => `${v.toLocaleString('es-ES', { maximumFractionDigits: 1 })} %`
+const mesTxt = (m: string) => `${['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'][Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`
+
+/** Defensa visual: mantiene importes y null entregados, nunca dibuja meses futuros. */
+function graficoFacturadoFicha(facturacion: Ficha['facturacion'], hoyIso: string) {
+  const corte = hoyIso?.slice(0, 7)
+  const points = facturacion.meses.flatMap((mes, i) => /^20\d{2}-(0[1-9]|1[0-2])$/.test(mes) && corte && mes <= corte ? [{ mes, value: facturacion.serie[i] ?? null }] : [])
+  return { meses: points.map(p => p.mes), serie: points.map(p => p.value) }
+}
 
 function Bars({ meses, a, b, fotos, estados }: { meses: string[]; a: Array<number | null>; b?: Array<number | null>; fotos?: Array<FotoFichaRentabilidad | null>; estados?: EstadoMesFicha[] }) {
   // Comparar ingreso/coste sólo cuando ambos constan en la foto. null nunca significa cero.
@@ -69,7 +77,7 @@ function Timeline({ eventos, onOpen, pie, conexion }: { eventos: EventoFicha[]; 
   </>
 }
 
-export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Ficha; m365: M365; puedeEscribir: boolean }) {
+export default function FichaCliente({ ficha, m365, puedeEscribir, puedeEscribirContactos = puedeEscribir }: { ficha: Ficha; m365: M365; puedeEscribir: boolean; puedeEscribirContactos?: boolean }) {
   const [vista, setVista] = useState<Vista>('resumen')
   const [cajon, setCajon] = useState<Cajon>(null)
   const [toastMsg, setToastMsg] = useState<string | null>(null)
@@ -130,12 +138,13 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
   const [tipoComp, setTipoComp] = useState<(typeof tipos)[number]>('Nota')
   const [textoComp, setTextoComp] = useState('')
   const [guardando, setGuardando] = useState(false)
-  const principal = ficha.personas[0]?.id || null
+  const [personaComp, setPersonaComp] = useState('')
   async function guardarComp() {
     if (tipoComp === 'Correo') return abrirCajon({ kind: 'mail' })
     if (tipoComp === 'Reunión') return abrirCajon({ kind: 'meet' })
-    if (!principal) return toast('Añade antes una persona a la ficha para registrar actividad.')
+    if (guardando) return
     if (!puedeEscribir) return toast('No tienes permiso para registrar actividad.')
+    if (personaComp && (!puedeEscribirContactos || !ficha.personas.some(p => p.id === personaComp))) return toast('No puedes asociar esta persona a la actividad.')
     if (textoComp.trim().length < 2) return toast('Escribe el texto antes de guardar.')
     setGuardando(true)
     try {
@@ -143,7 +152,7 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
       const body = tipoComp === 'Nota' ? { type: 'NOTA', description: textoComp.trim() }
         : tipoComp === 'Llamada' ? { type: 'LLAMADA', direction: 'SALIENTE', result: 'CONTACTADO', description: textoComp.trim() }
           : { type: 'TAREA', title: textoComp.trim().slice(0, 250), description: textoComp.trim(), activityDate: new Date().toISOString(), followUp: { dueAt: manana.toISOString(), title: textoComp.trim().slice(0, 250), priority: 'MEDIA' } }
-      const r = await fetch(`/api/admin/crm/contactos/${encodeURIComponent(principal)}/actividades`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clientRequestId: reqId(), ...body }) })
+      const r = await fetch(`/api/admin/crm/empresas/${encodeURIComponent(ficha.empresa.id)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'registrar_actividad', clientRequestId: reqId(), contactId: personaComp || null, ...body }) })
       const d = await r.json().catch(() => ({}))
       if (!r.ok || !d.success) throw new Error(d.error || 'No se pudo guardar.')
       setTextoComp(''); toast('Guardado en la ficha.'); setTimeout(() => location.reload(), 600)
@@ -153,6 +162,11 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
   // Contratos
   const [qc, setQc] = useState(''); const [fc, setFc] = useState('')
   const contratos = useMemo(() => ficha.contratos.filter((c) => (!fc || c.estado === fc) && (!qc || [c.codigo, c.producto, c.sede, c.estado].join(' ').toLowerCase().includes(qc.toLowerCase()))), [ficha.contratos, qc, fc])
+  const facturado = graficoFacturadoFicha(ficha.facturacion, ficha.hoyIso)
+  const mesMargen = ficha.verMargen ? ficha.rentabilidad?.mes : null
+  const fotoMargen = ficha.rentabilidad?.snapshot
+  const origenMargen = fotoMargen && fotoMargen.month === mesMargen ? `foto ${fotoMargen.kind} v${fotoMargen.version}` : 'sin foto preparada'
+  const detalleMargen = mesMargen ? `${mesTxt(mesMargen)} · mes cerrado por calendario · ${origenMargen}${fotoMargen?.kind === 'PROYECCION' ? ' · no acredita cierre certificado' : ''}` : 'sin dato del último mes cerrado por calendario'
 
   function mas(v: string) {
     if (v === 'Nuevo negocio') location.href = '/admin/crm/pipelines'
@@ -213,8 +227,9 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
               <h2>Actividad</h2>
               <div className="composer">
                 <div className="seg" role="group" aria-label="Tipo">{tipos.filter((t) => t !== 'Correo' || m365.conexion.envios !== false).map((t) => <button key={t} type="button" aria-pressed={tipoComp === t} onClick={() => setTipoComp(t)}>{t}</button>)}</div>
+                {tipoComp !== 'Correo' && tipoComp !== 'Reunión' && <label className="small">Persona (opcional)<select aria-label="Persona de la actividad (opcional)" value={personaComp} disabled={!puedeEscribirContactos || guardando} onChange={(ev) => setPersonaComp(ev.target.value)}><option value="">Solo empresa · sin persona</option>{ficha.personas.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}</select></label>}
                 <textarea placeholder={tipoComp === 'Tarea' ? 'Escribe la tarea (vence mañana).' : tipoComp === 'Llamada' ? 'Resume la llamada.' : tipoComp === 'Correo' || tipoComp === 'Reunión' ? `Pulsa Guardar para abrir el panel de ${tipoComp === 'Correo' ? 'correo' : 'reunión'}.` : 'Escribe una nota. Usa @ para mencionar a un compañero.'} value={textoComp} onChange={(ev) => setTextoComp(ev.target.value)} />
-                <div className="row" style={{ justifyContent: 'flex-end', marginTop: 8 }}><button className="btn small primary" type="button" disabled={guardando} onClick={guardarComp}>{guardando ? 'Guardando…' : 'Guardar'}</button></div>
+                <div className="row" style={{ justifyContent: 'flex-end', marginTop: 8 }}><button className="btn small primary" type="button" disabled={guardando || (tipoComp === 'Correo' ? !puedeEscribirContactos : !puedeEscribir)} onClick={guardarComp}>{guardando ? 'Guardando…' : 'Guardar'}</button></div>
               </div>
               <Timeline eventos={eventos} onOpen={abrirCajon} pie={pieOutlook} conexion={m365.conexion} />
             </div>
@@ -262,10 +277,10 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
       <section className="view" id="v-contratos" hidden={vista !== 'contratos'}>
         <div className="panel">
           <h2>Contratos y servicios</h2>
-          <p className="help">Vienen de ISP Gestión. Margen del último mes cerrado, del módulo de Rentabilidad.{ficha.verMargen ? '' : ' Los márgenes los ven gerencia y superadmin.'}</p>
+          <p className="help">Vienen de ISP Gestión. Margen del último mes cerrado por calendario, del módulo de Rentabilidad.{ficha.verMargen ? ` ${detalleMargen}. El tipo de foto no certifica el cierre del mes.` : ' Los márgenes los ven gerencia y superadmin.'}</p>
           <div className="row" style={{ marginBottom: 10 }}><input className="search" type="search" placeholder="Buscar contrato, sede o producto" id="qc" value={qc} onChange={(ev) => setQc(ev.target.value)} /><select className="f" id="fc" value={fc} onChange={(ev) => setFc(ev.target.value)}><option value="">Todos los estados</option><option>Activo</option><option>Baja</option></select></div>
           <div className="tablewrap"><table id="tC">
-            <thead><tr><th>Contrato</th><th>Producto</th><th>Sede</th><th className="n">Cuota/mes</th><th>Estado ISP</th><th>Fin permanencia</th>{ficha.verMargen && <th className="n">Margen</th>}</tr></thead>
+            <thead><tr><th>Contrato</th><th>Producto</th><th>Sede</th><th className="n">Cuota/mes</th><th>Estado ISP</th><th>Fin permanencia</th>{ficha.verMargen && <th className="n" title={detalleMargen}>Margen{mesMargen ? ` ${mesTxt(mesMargen)}` : ''}</th>}</tr></thead>
             <tbody>{contratos.length ? contratos.map((c) => <tr key={c.codigo}><td className="num">{c.codigo}</td><td>{c.producto}</td><td>{c.sede}</td><td className="n">{c.cuota == null ? 'sin dato' : eur(c.cuota, 2)}</td><td><span className={`st ${c.estado === 'Baja' ? 'o' : ''}`}>{c.estado}</span></td><td>{c.finPermanencia}</td>{ficha.verMargen && <td className="n">{c.margenPct == null ? 'sin dato' : <span className={`m ${c.margenPct < 0 ? 'bad' : c.margenPct < 20 ? 'low' : 'ok'}`}>{pctTxt(c.margenPct)}</span>}</td>}</tr>)
               : <tr><td colSpan={ficha.verMargen ? 7 : 6} className="muted">sin dato: {ficha.contratos.length ? 'ningún contrato coincide con el filtro.' : 'no hay contratos de ISP Gestión vinculados a esta ficha.'}</td></tr>}</tbody>
           </table></div>
@@ -274,7 +289,7 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
 
       <section className="view" id="v-facturacion" hidden={vista !== 'facturacion'}>
         <div className="grid3" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr)', gap: 18 }}>
-          <div className="panel"><h2>Facturado, últimos 12 meses</h2><div className="bars" id="bars">{ficha.facturacion.hayFacturas ? <Bars meses={ficha.facturacion.meses} a={ficha.facturacion.serie} /> : <p className="small muted" style={{ margin: 0 }}>sin dato: no hay facturas de este cliente en el panel.</p>}</div></div>
+          <div className="panel"><h2>Facturado, últimos 12 meses</h2><p className="small muted">El mes actual está abierto y es provisional. No se muestran meses futuros; sin dato no significa cero.</p><div className="bars" id="bars">{ficha.facturacion.hayFacturas ? <Bars meses={facturado.meses} a={facturado.serie} /> : <p className="small muted" style={{ margin: 0 }}>sin dato: no hay facturas de este cliente en el panel.</p>}</div></div>
           <div className="panel"><h2>Cobros</h2><div className="cons" id="cobros">
             <div><span>Cobrado en {ficha.facturacion.anio}</span><span>{ficha.facturacion.cobrado == null ? 'sin dato' : eur(ficha.facturacion.cobrado)}</span></div>
             <div><span>Pendiente</span><span>{ficha.facturacion.pendiente == null ? 'sin dato' : <span className={`st ${ficha.facturacion.pendiente > 0 ? 'b' : ''}`}>{eur(ficha.facturacion.pendiente)}</span>}</span></div>
@@ -310,7 +325,7 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
           <div className="panel"><h2>Ingreso y coste por mes</h2>
             {ficha.rentabilidad ? <>
               <div className="legend"><span><i style={{ background: 'var(--before)' }} />Ingreso</span><span><i style={{ background: 'var(--accent)' }} />Coste</span></div>
-              <p className="small muted">{ficha.rentabilidad.snapshot ? <>Mes de la última foto preparada: <b>{ficha.rentabilidad.snapshot.month}</b> · foto {ficha.rentabilidad.snapshot.kind} v{ficha.rentabilidad.snapshot.version} ({ficha.rentabilidad.snapshot.id}){ficha.rentabilidad.snapshot.createdAt ? ` · preparada ${ficha.rentabilidad.snapshot.createdAt}` : ''}.</> : 'sin dato: no hay foto preparada para esta ficha.'} El coste incluye importes estimados cuando constan en la foto; los meses sin datos completos no se dibujan.</p>
+              <p className="small muted">{detalleMargen}{ficha.rentabilidad.snapshot ? <> ({ficha.rentabilidad.snapshot.id}){ficha.rentabilidad.snapshot.createdAt ? ` · preparada ${ficha.rentabilidad.snapshot.createdAt}` : ''}.</> : '.'} El mes actual está abierto: no se muestra su coste provisional. El coste de los meses cerrados por calendario incluye importes estimados cuando constan en la foto; los meses sin datos completos no se dibujan.</p>
               <div className="bars" id="rbars"><Bars meses={ficha.rentabilidad.meses} a={ficha.rentabilidad.ingreso} b={ficha.rentabilidad.coste} fotos={ficha.rentabilidad.fotos} estados={ficha.rentabilidad.estados} /></div>
               <p className="small muted" style={{ margin: '8px 0 0' }}><a href="/admin/rentabilidad">Abrir en Rentabilidad</a></p>
             </> : <p className="small muted" style={{ margin: 0 }}>{ficha.verMargen ? 'sin dato: no hay código ISP para cruzar con Rentabilidad.' : 'Los ingresos, costes y márgenes los ven gerencia y superadmin.'}</p>}
@@ -332,7 +347,7 @@ export default function FichaCliente({ ficha, m365, puedeEscribir }: { ficha: Fi
       </section>
     </main>
 
-    {cajon && <Drawer key={`${cajon.kind}-${cajon.para || ''}-${cajon.objetivo || ''}`} cajon={cajon} ficha={ficha} m365={m365} puedeEscribir={puedeEscribir} onClose={() => setCajon(null)} onOpen={abrirCajon} toast={toast} />}
+    {cajon && <Drawer key={`${cajon.kind}-${cajon.para || ''}-${cajon.objetivo || ''}`} cajon={cajon} ficha={ficha} m365={m365} puedeEscribir={cajon.kind === 'meet' ? puedeEscribir : puedeEscribirContactos} puedeEscribirContactos={puedeEscribirContactos} onClose={() => setCajon(null)} onOpen={abrirCajon} toast={toast} />}
     <div className="toast" id="toast" hidden={!toastMsg}>{toastMsg}</div>
   </>
 }
@@ -341,7 +356,7 @@ function FragmentKv({ k, v }: { k: string; v: string }) {
   return <><dt>{k}</dt><dd>{v}</dd></>
 }
 
-function Drawer({ cajon, ficha, m365, puedeEscribir, onClose, onOpen, toast }: { cajon: NonNullable<Cajon>; ficha: Ficha; m365: M365; puedeEscribir: boolean; onClose: () => void; onOpen: (c: Cajon) => void; toast: (m: string) => void }) {
+function Drawer({ cajon, ficha, m365, puedeEscribir, puedeEscribirContactos = puedeEscribir, onClose, onOpen, toast }: { cajon: NonNullable<Cajon>; ficha: Ficha; m365: M365; puedeEscribir: boolean; puedeEscribirContactos?: boolean; onClose: () => void; onOpen: (c: Cajon) => void; toast: (m: string) => void }) {
   const conEmail = ficha.personas.filter((p) => p.email)
   const [para, setPara] = useState<string>(cajon.para && conEmail.some((p) => p.id === cajon.para) ? cajon.para : conEmail[0]?.id || '')
   const conexionVigente = useRef(m365.conexion)
@@ -412,7 +427,7 @@ function Drawer({ cajon, ficha, m365, puedeEscribir, onClose, onOpen, toast }: {
   const [fecha, setFecha] = useState(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(manana))
   const [hora, setHora] = useState('10:00')
   const [dur, setDur] = useState('30')
-  const [invitados, setInvitados] = useState<string[]>(conEmail[0] ? [conEmail[0].id] : [])
+  const [invitados, setInvitados] = useState<string[]>([])
   // Al cerrar la salida CRM, una reunión nueva empieza sólo en la ficha.
   // Una elección Outlook posterior sigue siendo explícita y nunca se transforma en éxito local.
   const [enOutlook, setEnOutlook] = useState(m365.conexion.enabled && m365.conexion.envios !== false)
@@ -420,14 +435,18 @@ function Drawer({ cajon, ficha, m365, puedeEscribir, onClose, onOpen, toast }: {
   async function crearReunion() {
     setError(null)
     setPendiente(false)
-    const ids = invitados.length ? invitados : ficha.personas[0] ? [ficha.personas[0].id] : []
-    if (!ids.length) return setError('Añade antes una persona a la ficha.')
+    if (!puedeEscribir || ocupado) return setError('No tienes permiso para registrar esta reunión.')
+    if (enOutlook && conexionVigente.current.envios === false) return setPendiente(true)
+    const ids = enOutlook && !invitados.length && conEmail[0] ? [conEmail[0].id] : invitados
+    if (enOutlook && !ids.length) return setError('Elige una persona con correo para la reunión de Outlook.')
+    if (ids.length && (!puedeEscribirContactos || ids.some(id => !ficha.personas.some(p => p.id === id)))) return setError('No puedes asociar estas personas a la reunión.')
     if (!titulo.trim()) return setError('Escribe el título de la reunión.')
     const cuandoD = new Date(`${fecha}T${hora}:00`)
     if (Number.isNaN(cuandoD.getTime())) return setError('Revisa la fecha y la hora.')
     setOcupado('reunion')
     try {
-      const r = await fetch(`/api/admin/crm/contactos/${encodeURIComponent(ids[0])}/actividades`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'REUNION', clientRequestId: reqId(), title: titulo.trim(), description: `Reunión con ${ficha.empresa.nombre}: ${titulo.trim()}`, activityDate: cuandoD.toISOString(), durationMinutes: Number(dur), contactIds: ids.slice(1), syncOutlook: enOutlook, onlineMeeting: enOutlook && teams, inviteAttendees: enOutlook }) })
+      const url = enOutlook ? `/api/admin/crm/contactos/${encodeURIComponent(ids[0])}/actividades` : `/api/admin/crm/empresas/${encodeURIComponent(ficha.empresa.id)}`
+      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...(enOutlook ? {} : { action: 'registrar_actividad' }), type: 'REUNION', clientRequestId: reqId(), title: titulo.trim(), description: `Reunión con ${ficha.empresa.nombre}: ${titulo.trim()}`, activityDate: cuandoD.toISOString(), durationMinutes: Number(dur), contactIds: enOutlook ? ids.slice(1) : ids, syncOutlook: enOutlook, onlineMeeting: enOutlook && teams, inviteAttendees: enOutlook }) })
       const d = await r.json().catch(() => ({}))
       if (enOutlook && isEnvioPendiente(d)) return setPendiente(true)
       if (!r.ok || !d.success) throw new Error(d.error || 'No se pudo programar la reunión.')
@@ -440,12 +459,13 @@ function Drawer({ cajon, ficha, m365, puedeEscribir, onClose, onOpen, toast }: {
     {sinPermiso}
     <label>Título</label><input value={titulo} onChange={(e) => setTitulo(e.target.value)} />
     <label>Cuándo</label><div className="row"><input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} style={{ flex: '1 1 140px' }} /><input type="time" value={hora} onChange={(e) => setHora(e.target.value)} style={{ flex: '1 1 90px' }} /><select value={dur} onChange={(e) => setDur(e.target.value)} style={{ flex: '1 1 100px' }}><option value="30">30 min</option><option value="45">45 min</option><option value="60">1 h</option></select></div>
-    <label>Invitados</label><select multiple size={3} value={invitados} onChange={(e) => setInvitados([...e.target.selectedOptions].map((o) => o.value))}>{conEmail.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}</select>
+    <label>Personas (opcionales en reunión local)</label><select aria-label="Personas de la reunión (opcionales)" multiple size={3} value={invitados} disabled={!puedeEscribirContactos} onChange={(e) => setInvitados([...e.target.selectedOptions].map((o) => o.value))}>{(enOutlook ? conEmail : ficha.personas).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}</select>
+    {!enOutlook && <p className="small muted">Sin selección se registra solo en la empresa. No se crean eventos ni se envían invitaciones.</p>}
     <label className="chk" style={{ display: 'flex', color: 'var(--fg)' }}><input type="checkbox" checked={enOutlook} disabled={!m365.conexion.enabled} onChange={(e) => setEnOutlook(e.target.checked)} style={{ width: 'auto' }} /> Crear en mi calendario de Outlook</label>
     <label className="chk" style={{ display: 'flex', color: 'var(--fg)' }}><input type="checkbox" checked={teams} disabled={!enOutlook} onChange={(e) => setTeams(e.target.checked)} style={{ width: 'auto' }} /> Añadir reunión de Microsoft Teams</label>
     {m365.conexion.enabled && m365.conexion.m365 !== false && !m365.conexion.connected && <p className="small muted"><a href={m365.connectUrl}>Conectar mi Outlook</a> para crear la reunión en tu calendario.</p>}
     {(pendiente || (m365.conexion.envios === false && enOutlook)) && <div className="notice" role="status" aria-live="polite" style={{ background: '#eff6ff', color: '#1e3a8a' }}>{M365_LEGACY_PENDING_MESSAGE}</div>}
-    {m365.aviso && <div className="notice">Pruebas: los invitados se cambian por la dirección de prueba.</div>}
+    {enOutlook && m365.aviso && <div className="notice">Pruebas: los invitados se cambian por la dirección de prueba.</div>}
     {error && <div className="notice">{error}</div>}
     <div className="row" style={{ justifyContent: 'flex-end', marginTop: 12 }}><button className="btn" type="button" data-close onClick={onClose}>Cancelar</button><button className="btn primary" type="button" disabled={!puedeEscribir || ocupado != null} onClick={crearReunion}>{ocupado ? 'Creando…' : 'Crear reunión'}</button></div>
   </div>

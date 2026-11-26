@@ -214,7 +214,7 @@ async function run() {
   const routeFile = 'app/api/admin/finanzas/documentos/comparacion/route.ts'
   const source = fs.readFileSync(routeFile, 'utf8')
   const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText
-  let authenticated = true, active = true, invoiceRead = true, b4Read = true, payrollRead = false, stage = true, acting = false
+  let authenticated = true, active = true, invoiceRead = true, b4Read = true, payrollRead = false, stage = true, acting = false, productionContext = false
   let providerReads = 0, bytesReads = 0, stageChecks = 0, dbReads = 0
   let downloadSize = 1, oversizedReport = false, nativeLimitError = false
   class StageError extends Error { status = 404; code = 'STAGING_PROTOTYPE_ONLY' }
@@ -223,6 +223,9 @@ async function run() {
   const emptyDb = { findMany: async (args: any) => { dbReads += 1; assert.ok(args.select); assert.ok(args.take > 0); return [] } }
   const fakeDb = new Proxy({ facturaRecibida: emptyDb, revisionLecturaFacturaRecibida: emptyDb, auditoriaCalidadFactura: emptyDb, nominaDocumento: emptyDb, documentoEmpleado: emptyDb }, { get(target, key) { if (key in target) return (target as any)[key]; throw new Error(`NO_DB_WRITES_OR_OTHER_MODELS: ${String(key)}`) } })
   const mocks: Record<string, any> = {
+    '@/lib/finanzas/documentos-panel': { createDocumentosPanelForRequest: async () => { if (!stage) throw new StageError(); return { context: { stageOnly: !productionContext, environment: productionContext ? 'production' : 'staging' }, assertAccess: async () => {} } }, documentosPanelError: () => json({error:'closed'},403) },
+    '@/lib/finanzas/documentos-panel-runtime': { DOCUMENTOS_PRODUCTION_ROOT: 'DocumentosPanelProduccion' },
+    '@/lib/finanzas/documentos-production-comparacion': { crearComparacionProductionSelected: () => ({ providers: ['carpetas','manual'].map(key => ({ key, scope: key === 'manual' ? 'DocumentosPanelProduccion' : ROOT, read: async () => { throw Error('DOCUMENTOS_SELECTED_AUTH_MISSING') } })), readBytes: () => { throw Error('NO_AUTHORIZED_SELECTED_INVENTORY') } }) },
     'next/server': {},
     'next-auth': { getServerSession: async () => authenticated ? { user: { id: '7', userType: 'admin', role: 'STALE_ROLE' }, ...(acting ? { impersonation: {} } : {}) } : null },
     '@/lib/auth': { authOptions: {} }, '@/lib/prisma': { __esModule: true, default: fakeDb },
@@ -297,6 +300,15 @@ async function run() {
       assert.equal(body.codigo, 'DOCUMENTOS_COMPARACION_RESPONSE_LIMIT')
     }
     oversizedReport = false
+  })
+  await test('Production comparación incompleta por auth Selected ausente; no fallback genérico ni descarga inventada', async () => {
+    productionContext = true
+    const before = { providerReads, bytesReads }
+    const response = await routeExports.GET(req()); assert.equal(response.status, 200)
+    const result = await response.json(); assert.equal(result.estado, 'INCOMPLETO'); assert.equal(result.semanaCompleta, false); assert.equal(result.inventarioCompleto, false)
+    assert.ok(result.inventoryCompleteness.find((i:any) => i.proveedor === 'manual').incidencias.some((x:string) => x.includes('PROVIDER_READ_FAILED')))
+    assert.equal((await routeExports.GET(req('?archivo=' + 'a'.repeat(32)))).status, 404)
+    assert.deepEqual({ providerReads, bytesReads }, before); productionContext = false
   })
   await test('métodos mutadores405 sin lectura ni writes, UI sólo fetch manual y CSV snapshot', async () => {
     const before = { dbReads, providerReads, bytesReads }

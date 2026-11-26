@@ -34,14 +34,15 @@ export default async function CrmCompanyDetailPage({ params, searchParams }: { p
   const nuevaDisponible = !editar && yo?.activo === true && fichaNuevaDisponibleParaRol(yo.rol, yo.roles)
   if (nuevaDisponible) {
     const nivel = nivelDe(yo?.rol || relatedUser.role || null, yo?.roles)
-    const [ficha, conexion, permiso] = await Promise.all([
+    const [ficha, conexion, permisoEmpresa, permisoContacto] = await Promise.all([
       cargarFichaCliente(id, nivel),
       getOutlookConnectionStatus(userId),
+      verificarPermisoServer(userId, 'admin.crm.empresas', yo?.rol || relatedUser.role),
       verificarPermisoServer(userId, 'admin.crm.contactos', yo?.rol || relatedUser.role),
     ])
     if (!ficha) notFound()
     return <div className={`io-ui area1-ficha ${ioFontClasses}`}>
-      <FichaCliente ficha={ficha} puedeEscribir={Boolean(permiso.escritura)} m365={{ aviso: avisoAislamiento(), conexion, corporativo: getDefaultEmailSender(), connectUrl: `/api/admin/integraciones/outlook/connect?returnTo=${encodeURIComponent(`/admin/crm/empresas/${id}`)}` }} />
+      <FichaCliente ficha={ficha} puedeEscribir={Boolean(permisoEmpresa.escritura) && !session.impersonation} puedeEscribirContactos={Boolean(permisoContacto.escritura) && !session.impersonation} m365={{ aviso: avisoAislamiento(), conexion, corporativo: getDefaultEmailSender(), connectUrl: `/api/admin/integraciones/outlook/connect?returnTo=${encodeURIComponent(`/admin/crm/empresas/${id}`)}` }} />
     </div>
   }
   const [, company] = await Promise.all([

@@ -139,7 +139,8 @@ function harness(name: 'default' | 'Drawer', props: any, options: { defer?: bool
     location: { hash: '', reload() { reloads++ } },
     setTimeout(fn: () => void, ms: number) { if (ms < 1000) fn(); return 0 },
     fetch(url: string, init: any) {
-      assert.ok(/^\/api\/admin\/crm\/(?:empresas|contactos)\/[^/]+\/(?:resumen-ia|correos-recibidos|m365\/borrador\?|actividades)/.test(url), `Ruta mock inesperada: ${url}`)
+      const empresaLocal = /^\/api\/admin\/crm\/empresas\/[^/]+$/.test(url) && init.method === 'POST' && JSON.parse(init.body).action === 'registrar_actividad'
+      assert.ok(empresaLocal || /^\/api\/admin\/crm\/(?:empresas|contactos)\/[^/]+\/(?:resumen-ia|correos-recibidos|m365\/borrador\?|actividades)/.test(url), `Ruta mock inesperada: ${url}`)
       const call = { url, init, body: init.body ? JSON.parse(init.body) : undefined }
       calls.push(call)
       if (options.defer) return new Promise(resolve => deferred.push({ call, resolve }))
@@ -307,6 +308,41 @@ async function main() {
       assert.ok(!h.all.some(n => n.props.role === 'status'))
     }
   })
+  for (const [label, type] of [['Nota', 'NOTA'], ['Llamada', 'LLAMADA'], ['Tarea', 'TAREA']] as const) {
+    await test(`empresa sin personas: UI ${label} guarda sin contacto ni proveedor`, async () => {
+      const props = { ...fichaProps(closed), ficha: { ...fixture, personas: [] }, puedeEscribirContactos: false }
+      const h = harness('default', props)
+      h.button(label).props.onClick(); h.render()
+      h.find(n => n.type === 'textarea').props.onChange({ target: { value: 'Actividad solo empresa' } }); h.render()
+      await h.button('Guardar').props.onClick(); await settle(); h.render()
+      assert.equal(h.calls.length, 1); assert.equal(h.calls[0].url, '/api/admin/crm/empresas/empresa-fixture')
+      assert.equal(h.calls[0].body.type, type); assert.equal(h.calls[0].body.action, 'registrar_actividad'); assert.equal(h.calls[0].body.contactId, null)
+      assert.equal(h.counters.reloads, 1)
+    })
+  }
+  await test('empresa con personas: selección explícita opcional y permiso local independiente', async () => {
+    const h = harness('default', fichaProps(closed))
+    h.find(n => n.props['aria-label'] === 'Persona de la actividad (opcional)').props.onChange({ target: { value: 'persona-fixture' } }); h.render()
+    h.find(n => n.type === 'textarea').props.onChange({ target: { value: 'Nota con persona' } }); h.render()
+    await h.button('Guardar').props.onClick(); await settle()
+    assert.equal(h.calls[0].body.contactId, 'persona-fixture'); assert.equal(h.calls[0].url, '/api/admin/crm/empresas/empresa-fixture')
+    const denied = harness('default', { ...fichaProps(closed), puedeEscribir: false, puedeEscribirContactos: true })
+    denied.find(n => n.type === 'textarea').props.onChange({ target: { value: 'No guardar' } }); denied.render()
+    await denied.button('Guardar').props.onClick(); assert.equal(denied.calls.length, 0)
+  })
+  await test('reunión local empresa sin personas: UI guarda local y no coge persona implícita', async () => {
+    const h = harness('Drawer', { ...drawerProps('meet', closed), ficha: { ...fixture, personas: [] }, puedeEscribirContactos: false })
+    await h.button('Crear reunión').props.onClick(); await settle(); h.render()
+    assert.equal(h.calls.length, 1); assert.equal(h.calls[0].url, '/api/admin/crm/empresas/empresa-fixture')
+    assert.deepEqual(h.calls[0].body.contactIds, []); assert.equal(h.calls[0].body.syncOutlook, false); assert.equal(h.counters.closes, 1)
+  })
+  await test('elección explícita de Outlook cerrada nunca se convierte en éxito local', async () => {
+    const h = harness('Drawer', drawerProps('meet', closed))
+    const checkbox = h.find(n => n.type === 'input' && n.props.type === 'checkbox')
+    checkbox.props.onChange({ target: { checked: true } }); h.render()
+    await h.button('Crear reunión').props.onClick(); await settle(); h.render()
+    assert.equal(h.calls.length, 0); assert.equal(h.counters.closes, 0); assert.ok(h.all.some(n => n.props.role === 'status'))
+  })
   await test('lectura Outlook sigue separada del envío y callback viejo no lee tras cierre M365', async () => {
     const h = harness('default', fichaProps({ ...open, envios: false, connected: true, mail: true }))
     const read = h.button('Ver correos recibidos en mi Outlook').props.onClick
@@ -347,9 +383,11 @@ async function main() {
       mes: '2026-10', meses: ['2026-09', '2026-10'], ingreso: [null, 100], coste: [null, 80], hay: true,
       snapshot, fotos: [null, snapshot], estados: ['SIN_FOTO', 'DISPONIBLE'],
     } } })
-    assert.ok(html.includes('Mes de la última foto preparada: <b>2026-10</b>'))
-    assert.ok(html.includes('foto PROYECCION v2 (oct-foto2)') && html.includes(snapshot.createdAt))
-    assert.ok(html.includes('El coste incluye importes estimados cuando constan en la foto'))
+    // El mes terminado se etiqueta por calendario, sin convertir PROYECCION en CIERRE.
+    assert.ok(html.includes('octubre 2026 · mes cerrado por calendario'))
+    assert.ok(html.includes('foto PROYECCION v2') && html.includes('(oct-foto2)') && html.includes(snapshot.createdAt))
+    assert.ok(html.includes('no acredita cierre certificado') && html.includes('incluye importes estimados cuando constan en la foto'))
+    assert.ok(html.includes('El mes actual está abierto: no se muestra su coste provisional'))
     assert.ok(html.includes('2026-09: sin dato (sin foto preparada)'))
     assert.equal((html.match(/<rect /g) || []).length, 2)
   })

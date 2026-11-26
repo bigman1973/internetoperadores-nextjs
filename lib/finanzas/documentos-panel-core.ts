@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { claveCanonicaFactura, esFechaDocumentoIso, esImporteCentimosFinito, fechaDocumentoUtc, totalCuadraEnCentimos } from './invoice-quality'
 
 export const DOCUMENTOS_PANEL_ROOT = 'STAGING_FINANZAS_NO_CONTABILIZAR/DocumentosPanel'
+export const DOCUMENTOS_PRODUCTION_ROOT = 'DocumentosPanelProduccion'
 export const DOCUMENTOS_PANEL_SCOPE = 'DOCUMENTOS_PANEL_V1'
 export const DOCUMENTOS_PANEL_SCHEMA = 'documentos-panel/v1'
 export const MAX_FILE_BYTES = 4 * 1024 * 1024
@@ -13,7 +14,7 @@ export type DocumentType = 'FACTURA_RECIBIDA' | 'CONFIRMING' | 'NOMINA' | 'OTRO'
 export type EstadoPanel = 'SUBIDA_RESERVADA' | 'PENDIENTE_REVISION' | 'VALIDADA_PENDIENTE_ARCHIVO' | 'ARCHIVADA'
 export type FileInput = { bytes: Buffer; nombreOriginal: string; mime: 'application/pdf' | 'image/jpeg' | 'image/png'; extension: 'pdf' | 'jpg' | 'png'; hash: string; tipo: DocumentType; solicitudId: string }
 export type Location = { driveId: string; itemId: string; parentId: string; nombre: string; ruta: string; hash: string }
-export type Snapshot = { schema: typeof DOCUMENTOS_PANEL_SCHEMA; hash: string; estado: EstadoPanel; tipo: DocumentType; nombreOriginal: string; mime: FileInput['mime']; extension: FileInput['extension']; storageName: string; lectura: { texto: string; aviso: string; campos: Metadata }; original: Location | null; actual: Location | null; solicitudSubida: string; solicitudValidacion?: string; huellaValidacion?: string; archivo?: { nombre: string; solicitudId: string; huella: string; token: string; leaseUntil: number }; error?: string | null }
+export type Snapshot = { schema: typeof DOCUMENTOS_PANEL_SCHEMA; root?: string; hash: string; estado: EstadoPanel; tipo: DocumentType; nombreOriginal: string; mime: FileInput['mime']; extension: FileInput['extension']; storageName: string; lectura: { texto: string; aviso: string; campos: Metadata }; original: Location | null; actual: Location | null; solicitudSubida: string; subida?: { actorId: number; token: string; leaseUntil: number }; solicitudValidacion?: string; huellaValidacion?: string; archivo?: { nombre: string; solicitudId: string; huella: string; actorId?: number; token: string; leaseUntil: number }; error?: string | null }
 export class DocumentosPanelError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message) }
 }
@@ -137,12 +138,46 @@ export function publicDocument(row: any) {
   return { id: row.id, version: row.version, hash: s.hash, estado: s.estado, tipo: s.tipo, nombreOriginal: s.nombreOriginal, nombreActual: s.actual?.nombre ?? null, rutaActual: s.actual?.ruta ?? null, originalDisponible: !!s.original, campos, lectura: s.lectura, facturaId: row.facturaResueltaId ?? null, error: s.error ?? null }
 }
 // The real service is exercised with fake DB/provider. No Prisma/provider imported here.
-export type PanelDeps = { db: any; guard: (write: boolean, confirm: boolean, tx?: any) => Promise<number>; lock: (tx: any, key: string) => Promise<void>; canonical: (tx: any, key: string) => Promise<any[]>; provider: { upload: (file: FileInput, name: string) => Promise<Location>; original: (location: Location, file: { hash: string; mime: FileInput['mime']; extension: FileInput['extension'] }) => Promise<Buffer>; archive: (location: Location, name: string, file: { hash: string; mime: FileInput['mime']; extension: FileInput['extension'] }) => Promise<Location> }; parse?: typeof parseLocalDocument; now?: () => number }
+export type PanelDeps = { root?: string; db: any; guard: (write: boolean, confirm: boolean, tx?: any) => Promise<number>; lock: (tx: any, key: string) => Promise<void>; canonical: (tx: any, key: string) => Promise<any[]>; provider: { upload: (file: FileInput, name: string) => Promise<Location>; original: (location: Location, file: { hash: string; mime: FileInput['mime']; extension: FileInput['extension'] }) => Promise<Buffer>; archive: (location: Location, name: string, file: { hash: string; mime: FileInput['mime']; extension: FileInput['extension'] }) => Promise<Location> }; parse?: typeof parseLocalDocument; now?: () => number }
 export function createDocumentosPanelService(deps: PanelDeps) {
+  const root = deps.root ?? DOCUMENTOS_PANEL_ROOT
+  if (![DOCUMENTOS_PANEL_ROOT, DOCUMENTOS_PRODUCTION_ROOT].includes(root)) fail(503, 'DOCUMENTOS_ROOT_INVALIDO', 'Namespace documental no aprobado.')
+  const scopedSnapshot = (row: any) => {
+    const s = snapshotOf(row)
+    if ((s.root ?? DOCUMENTOS_PANEL_ROOT) !== root || [s.original, s.actual].some(l => l && !l.ruta.startsWith(`${root}/`))) fail(409, 'DOCUMENTOS_NAMESPACE_MISMATCH', 'Documento ajeno al namespace del entorno.')
+    return s
+  }
   const now = deps.now ?? Date.now
-  const txRun = <T>(fn: (tx: any, actorId: number) => Promise<T>, confirm = false): Promise<T> => deps.db.$transaction(async (tx: any) => fn(tx, await deps.guard(true, confirm, tx)), { isolationLevel: 'Serializable', maxWait: 5000, timeout: 10000 })
-  const audit = (tx: any, row: any, actorId: number, accion: string, solicitudId: string | null, detalle: any) => tx.auditoriaCalidadFactura.create({ data: { revisionId: row.id, facturaId: row.facturaResueltaId ?? null, actorId, accion: `DOCUMENTOS_PANEL_${accion}`, solicitudId, huellaSolicitud: hashJson(detalle), detalle } })
-  const load = async (tx: any, id: string) => { uuid(id); await deps.lock(tx, `documentos-panel:id:${id}`); const row = await tx.revisionLecturaFacturaRecibida.findUnique({ where: { id } }); if (!row) fail(404, 'DOCUMENTO_NO_ENCONTRADO', 'Documento inexistente.'); snapshotOf(row); return row }
+  // Retry ONLY aborted SQL transactions, never ambiguous commit errors or provider IO.
+  const txRun = async <T>(fn: (tx: any, actorId: number) => Promise<T>, confirm: boolean, expectedActor: number): Promise<T> => {
+    for (let attempt = 0; ; attempt++) {
+      try { return await deps.db.$transaction(async (tx: any) => {
+        const actorId = await deps.guard(true, confirm, tx)
+        if (actorId !== expectedActor) fail(403, 'ACTOR_CHANGED', 'La identidad cambió durante la acción.')
+        return fn(tx, actorId)
+      }, { isolationLevel: 'Serializable', maxWait: 5000, timeout: 10000 }) } catch (error) {
+        if (attempt >= 2 || !['P2034', '40001', '40P01'].includes((error as any)?.code)) throw error
+      }
+    }
+  }
+  // Fingerprints describe normalized commands, NOT a person's identity, lease,
+  // token, timestamp, mutable location or provider response. Phase is explicit.
+  const commandHash = (comando: string, input: unknown) => hashJson({ schema: DOCUMENTOS_PANEL_SCHEMA, root, comando, input })
+  const phaseHash = (comando: string, huella: string, fase: string) => hashJson({ schema: DOCUMENTOS_PANEL_SCHEMA, root, comando, huella, fase })
+  const receipt = async (tx: any, actorId: number, solicitudId: string, comando: string, huella: string) => {
+    // Global B2 key: lock BEFORE a hash/document lock, including cross-action replays.
+    await deps.lock(tx, `documentos-panel:solicitud:${actorId}:${solicitudId}`)
+    const rows = await tx.auditoriaCalidadFactura.findMany({ where: { actorId, solicitudId }, take: 2 })
+    if (rows.length && (rows.length !== 1 || rows[0].detalle?.comando !== comando || rows[0].detalle?.huella !== huella || rows[0].huellaSolicitud !== phaseHash(comando, huella, 'COMANDO'))) fail(409, 'IDEMPOTENCY_CONFLICT', 'Solicitud reutilizada con otro documento, acción o contenido.')
+    return rows[0] ?? null
+  }
+  const audit = (tx: any, row: any, actorId: number, accion: string, solicitudId: string, comando: string, huella: string, detalle: any, isReceipt = false) => tx.auditoriaCalidadFactura.create({ data: {
+    revisionId: row.id, facturaId: row.facturaResueltaId ?? null, actorId, accion: `DOCUMENTOS_PANEL_${accion}`,
+    // One immutable command receipt; auxiliary events obey the existing partial index.
+    solicitudId: isReceipt ? solicitudId : null, huellaSolicitud: phaseHash(comando, huella, isReceipt ? 'COMANDO' : accion),
+    detalle: { ...detalle, schema: DOCUMENTOS_PANEL_SCHEMA, root, comando, huella, solicitudId, fase: accion },
+  } })
+  const load = async (tx: any, id: string) => { uuid(id); await deps.lock(tx, `documentos-panel:id:${id}`); const row = await tx.revisionLecturaFacturaRecibida.findUnique({ where: { id } }); if (!row) fail(404, 'DOCUMENTO_NO_ENCONTRADO', 'Documento inexistente.'); scopedSnapshot(row); return row }
   const update = async (tx: any, row: any, s: Snapshot, extra: any = {}) => {
     const saved = await tx.revisionLecturaFacturaRecibida.updateMany({ where: { id: row.id, version: row.version }, data: { ...extra, datosOcrRaw: JSON.stringify(s), estadoCarpeta: s.estado, version: { increment: 1 } } })
     if (saved.count !== 1) fail(409, 'VERSION_CONFLICT', 'El documento cambió; vuelva a cargarlo.')
@@ -155,12 +190,12 @@ export function createDocumentosPanelService(deps: PanelDeps) {
       await deps.guard(false, false)
       if (!Number.isSafeInteger(offset) || offset < 0 || offset > 100000 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) fail(400, 'PAGINACION_INVALIDA', 'Paginación inválida.')
       const rows = await deps.db.revisionLecturaFacturaRecibida.findMany({ where: { motivoRevision: DOCUMENTOS_PANEL_SCOPE }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: offset, take: limit + 1 })
-      return { documentos: rows.slice(0, limit).map(publicDocument), nextOffset: rows.length > limit ? offset + limit : null }
+      return { documentos: rows.slice(0, limit).map((row: any) => { scopedSnapshot(row); return publicDocument(row) }), nextOffset: rows.length > limit ? offset + limit : null }
     },
     async get(id: string, original = false) {
       await deps.guard(false, false); uuid(id)
       const row = await deps.db.revisionLecturaFacturaRecibida.findUnique({ where: { id } }); if (!row) fail(404, 'DOCUMENTO_NO_ENCONTRADO', 'Documento inexistente.')
-      const s = snapshotOf(row)
+      const s = scopedSnapshot(row)
       if (!original) return publicDocument(row)
       if (!s.original || !s.actual) fail(409, 'ORIGINAL_NO_DISPONIBLE', 'La subida no se ha verificado.')
       await deps.guard(false, false)
@@ -171,33 +206,59 @@ export function createDocumentosPanelService(deps: PanelDeps) {
     async upload(file: FileInput) {
       // Revalidate even when service is invoked without the HTTP parser.
       file = validateFile(file.bytes, file.nombreOriginal, file.mime, file.tipo, file.solicitudId)
-      await deps.guard(true, false)
+      const expectedActor = await deps.guard(true, false)
+      const huella = commandHash('SUBIR', { hash: file.hash, tipo: file.tipo, mime: file.mime, extension: file.extension, nombreOriginal: file.nombreOriginal })
       const lectura = await (deps.parse ?? parseLocalDocument)(file)
       const reservation = await txRun(async (tx, actorId) => {
+        const replay = await receipt(tx, actorId, file.solicitudId, 'SUBIR', huella)
         await deps.lock(tx, `documentos-panel:hash:${file.hash}`)
         const rows = await tx.revisionLecturaFacturaRecibida.findMany({ where: { motivoRevision: DOCUMENTOS_PANEL_SCOPE, datosOcrRaw: { contains: `"hash":"${file.hash}"` } }, take: 2 })
         if (rows.length > 1) fail(409, 'HASH_LEDGER_CONFLICT', 'Más de una reserva para este hash: revisión requerida.')
-        if (rows[0]) { const s = snapshotOf(rows[0]); if (s.hash !== file.hash) fail(409, 'HASH_LEDGER_CONFLICT', 'Reserva de hash incoherente.'); await audit(tx, rows[0], actorId, 'HASH_REPETIDO', file.solicitudId, { hash: file.hash, estado: s.estado }); return { row: rows[0], repetido: true } }
+        if (replay && replay.revisionId !== rows[0]?.id) fail(409, 'LEDGER_INVALIDO', 'El recibo de subida no corresponde a su documento.')
+        if (rows[0]) {
+          const row = await load(tx, rows[0].id); const s = scopedSnapshot(row)
+          if (s.hash !== file.hash) fail(409, 'HASH_LEDGER_CONFLICT', 'Reserva de hash incoherente.')
+          if (!replay) await audit(tx, row, actorId, 'HASH_REPETIDO', file.solicitudId, 'SUBIR', huella, { hash: file.hash, estado: s.estado }, true)
+          if (s.original || s.solicitudSubida !== file.solicitudId) return { row, repetido: true, completed: true }
+          if (s.subida && s.subida.actorId !== actorId) fail(409, 'RESERVA_CONFLICT', 'La subida pendiente pertenece a otra solicitud humana.')
+          if (s.subida && s.subida.leaseUntil > now()) fail(409, 'SUBIDA_EN_CURSO', 'Subida reservada; espere y reintente con la misma solicitud.')
+          const next = { ...s, subida: { actorId, token: randomUUID(), leaseUntil: now() + 120000 }, error: null }
+          const saved = await update(tx, row, next)
+          await audit(tx, saved, actorId, 'RESERVAR_SUBIDA', file.solicitudId, 'SUBIR', huella, { hash: file.hash, estado: next.estado, token: next.subida.token })
+          return { row: saved, repetido: true, completed: false }
+        }
         const storageName = `${file.hash}.${file.extension}`
-        const s: Snapshot = { schema: DOCUMENTOS_PANEL_SCHEMA, hash: file.hash, estado: 'SUBIDA_RESERVADA', tipo: file.tipo, nombreOriginal: file.nombreOriginal, mime: file.mime, extension: file.extension, storageName, lectura, original: null, actual: null, solicitudSubida: file.solicitudId }
+        const s: Snapshot = { schema: DOCUMENTOS_PANEL_SCHEMA, root, hash: file.hash, estado: 'SUBIDA_RESERVADA', tipo: file.tipo, nombreOriginal: file.nombreOriginal, mime: file.mime, extension: file.extension, storageName, lectura, original: null, actual: null, solicitudSubida: file.solicitudId, subida: { actorId, token: randomUUID(), leaseUntil: now() + 120000 } }
         const row = await tx.revisionLecturaFacturaRecibida.create({ data: { ...metadataData(lectura.campos), motivoRevision: DOCUMENTOS_PANEL_SCOPE, datosOcrRaw: JSON.stringify(s), estadoCarpeta: s.estado } })
-        await audit(tx, row, actorId, 'RESERVAR_SUBIDA', file.solicitudId, { hash: s.hash, estado: s.estado, nombreOriginal: file.nombreOriginal }); return { row, repetido: false }
-      })
-      const s = snapshotOf(reservation.row)
+        await audit(tx, row, actorId, 'RESERVAR_SUBIDA', file.solicitudId, 'SUBIR', huella, { hash: s.hash, estado: s.estado, nombreOriginal: file.nombreOriginal }, true)
+        return { row, repetido: false, completed: false }
+      }, false, expectedActor)
+      const s = scopedSnapshot(reservation.row)
       // A repeated hash ALWAYS reuses its draft; never launches a second file/invoice.
       // For unfinished upload, explicit re-upload with SAME original solicitudId retries safely by hash filename.
-      if (reservation.repetido && (s.original || s.solicitudSubida !== file.solicitudId)) return { ...publicDocument(reservation.row), repetido: true, aviso: 'Hash repetido: se reutiliza el documento. Si la subida quedó reservada, requiere reintento con la solicitud original.' }
-      await deps.guard(true, false)
-      const location = await deps.provider.upload(file, s.storageName)
-      if (location.hash !== file.hash || location.nombre !== s.storageName || location.ruta !== `${DOCUMENTOS_PANEL_ROOT}/Pendientes/${s.storageName}`) fail(502, 'UPLOAD_NO_VERIFICADO', 'Graph no verificó la ubicación y hash del original.')
-      const row = await txRun(async (tx, actorId) => {
-        const row = await load(tx, reservation.row.id); const current = snapshotOf(row)
-        if (current.original) return row
-        const next: Snapshot = { ...current, original: location, actual: location, estado: 'PENDIENTE_REVISION', error: null }
-        const saved = await update(tx, row, next, { oneDriveItemId: location.itemId, oneDriveDriveId: location.driveId, oneDriveRutaActual: location.ruta, archivoOneDrive: location.ruta, carpetaOrigen: `${DOCUMENTOS_PANEL_ROOT}/Pendientes` })
-        await audit(tx, saved, actorId, 'ORIGINAL_VERIFICADO', file.solicitudId, { hash: file.hash, estado: next.estado, ubicacion: location }); return saved
-      })
-      return { ...publicDocument(row), repetido: reservation.repetido }
+      if (reservation.completed) return { ...publicDocument(reservation.row), repetido: true, aviso: 'Hash repetido: se reutiliza el documento. Si la subida quedó reservada, requiere reintento con la solicitud original.' }
+      try {
+        if (await deps.guard(true, false) !== expectedActor) fail(403, 'ACTOR_CHANGED', 'La identidad cambió durante la acción.')
+        const location = await deps.provider.upload(file, s.storageName)
+        if (!location.itemId || !location.driveId || !location.parentId || location.hash !== file.hash || location.nombre !== s.storageName || location.ruta !== `${root}/Pendientes/${s.storageName}`) fail(502, 'UPLOAD_NO_VERIFICADO', 'Graph no verificó la ubicación y hash del original.')
+        const row = await txRun(async (tx, actorId) => {
+          const row = await load(tx, reservation.row.id); const current = scopedSnapshot(row)
+          if (current.subida?.token !== s.subida!.token || current.solicitudSubida !== file.solicitudId || current.hash !== file.hash || current.estado !== 'SUBIDA_RESERVADA' || current.original || current.actual) fail(409, 'RESERVA_CONFLICT', 'Reserva de subida cambiada; no se sustituye el original.')
+          const next: Snapshot = { ...current, original: location, actual: location, estado: 'PENDIENTE_REVISION', subida: { ...current.subida!, leaseUntil: 0 }, error: null }
+          const saved = await update(tx, row, next, { oneDriveItemId: location.itemId, oneDriveDriveId: location.driveId, oneDriveRutaActual: location.ruta, archivoOneDrive: location.ruta, carpetaOrigen: `${root}/Pendientes` })
+          await audit(tx, saved, actorId, 'ORIGINAL_VERIFICADO', file.solicitudId, 'SUBIR', huella, { hash: file.hash, estado: next.estado, ubicacion: location }); return saved
+        }, false, expectedActor)
+        return { ...publicDocument(row), repetido: reservation.repetido }
+      } catch (error) {
+        try { await txRun(async (tx, actorId) => {
+          const row = await load(tx, reservation.row.id); const current = scopedSnapshot(row)
+          if (current.estado === 'SUBIDA_RESERVADA' && current.subida?.token === s.subida!.token) {
+            const saved = await update(tx, row, { ...current, subida: { ...current.subida!, leaseUntil: 0 }, error: 'Subida no confirmada. Reintentar con la misma solicitud.' })
+            await audit(tx, saved, actorId, 'SUBIDA_FALLO', file.solicitudId, 'SUBIR', huella, { hash: file.hash, estado: current.estado, codigo: error instanceof DocumentosPanelError ? error.code : 'PROVIDER_OR_DB_FAILURE' })
+          }
+        }, false, expectedActor) } catch { /* Durable reservation remains; no invented success. */ }
+        throw error
+      }
     },
     async action(id: string, body: Record<string, unknown>) {
       const action = body.action
@@ -206,12 +267,19 @@ export function createDocumentosPanelService(deps: PanelDeps) {
       if (confirm && body.confirmacionHumana !== true) fail(422, 'CONFIRMACION_REQUERIDA', 'Confirmación humana explícita obligatoria.')
       if (action === 'ARCHIVAR' && body.campos !== undefined) fail(400, 'ARCHIVO_METADATA', 'Archivar usa sólo los metadatos ya validados en servidor.')
       const campos = action === 'ARCHIVAR' ? null : parseMetadata(body.campos, action === 'VALIDAR')
-      const huella = hashJson({ action, campos }); await deps.guard(true, confirm)
+      id = uuid(id)
+      if (!Number.isSafeInteger(body.version) || (body.version as number) < 1) fail(409, 'VERSION_CONFLICT', 'Version desactualizada; recargue el documento.')
+      const comando = action as string
+      const huella = commandHash(comando, { id, version: body.version, campos })
+      const expectedActor = await deps.guard(true, confirm)
       if (action !== 'ARCHIVAR') return txRun(async (tx, actorId) => {
-        const row = await load(tx, id); const s = snapshotOf(row)
-        if (action === 'VALIDAR' && s.solicitudValidacion === solicitudId) { if (s.huellaValidacion !== huella) fail(409, 'IDEMPOTENCY_CONFLICT', 'Solicitud reutilizada con cambios.'); if (!row.facturaResueltaId) fail(409, 'VALIDACION_INCOMPLETA', 'No existe factura validada.'); return publicDocument(row) }
-        const replay = await tx.auditoriaCalidadFactura.findMany({ where: { revisionId: id, solicitudId, accion: { in: ['DOCUMENTOS_PANEL_GUARDAR', 'DOCUMENTOS_PANEL_VALIDAR'] } }, take: 2 })
-        if (replay.length) { if (replay.length !== 1 || replay[0].detalle.huella !== huella) fail(409, 'IDEMPOTENCY_CONFLICT', 'Solicitud reutilizada con cambios.'); return publicDocument(row) }
+        const replay = await receipt(tx, actorId, solicitudId, comando, huella)
+        const row = await load(tx, id); const s = scopedSnapshot(row)
+        if (replay) {
+          if (replay.revisionId !== row.id) fail(409, 'LEDGER_INVALIDO', 'Recibo ajeno al documento.')
+          if (action === 'VALIDAR' && (!row.facturaResueltaId || s.solicitudValidacion !== solicitudId || s.huellaValidacion !== huella)) fail(409, 'VALIDACION_INCOMPLETA', 'No existe factura validada por esta solicitud.')
+          return publicDocument(row)
+        }
         guardVersion(row, body.version)
         if (!s.original || s.estado !== 'PENDIENTE_REVISION') fail(409, 'ESTADO_INVALIDO', 'Sólo un original incorporado pendiente admite correcciones/validación.')
         if (action === 'VALIDAR' && s.tipo !== 'FACTURA_RECIBIDA') fail(422, 'TIPO_NO_FACTURA', 'Confirming/nómina/otros permanecen pendientes; no se convierten en factura.')
@@ -220,47 +288,56 @@ export function createDocumentosPanelService(deps: PanelDeps) {
           const canonKey = claveCanonicaFactura(campos!.cif, campos!.numFactura)!
           const existing = await deps.canonical(tx, canonKey)
           if (existing.length) fail(409, 'IDENTIDAD_EXISTENTE', 'Ya existe esta identidad canónica; no se crea una segunda factura.')
-          const factura = await tx.facturaRecibida.create({ data: { ...metadataData(campos!), estado: 'VALIDADA', calidad: 'VALIDA', canonKey, fechaProvenancia: 'DOCUMENTO', naturalezaDocumento: 'FACTURA_RECIBIDA', ocrCompletado: false, datosOcrRaw: JSON.stringify({ schema: DOCUMENTOS_PANEL_SCHEMA, hash: s.hash, correccionManual: true, fechaProvenancia: 'DOCUMENTO', revisionId: id }), oneDriveItemId: s.actual!.itemId, oneDriveDriveId: s.actual!.driveId, archivoOneDrive: s.actual!.ruta, oneDriveRutaActual: s.actual!.ruta, carpetaOrigen: `${DOCUMENTOS_PANEL_ROOT}/Pendientes`, estadoCarpeta: 'VALIDADA_PENDIENTE_ARCHIVO' } })
+          const factura = await tx.facturaRecibida.create({ data: { ...metadataData(campos!), estado: 'VALIDADA', calidad: 'VALIDA', canonKey, fechaProvenancia: 'DOCUMENTO', naturalezaDocumento: 'FACTURA_RECIBIDA', ocrCompletado: false, datosOcrRaw: JSON.stringify({ schema: DOCUMENTOS_PANEL_SCHEMA, hash: s.hash, correccionManual: true, fechaProvenancia: 'DOCUMENTO', revisionId: id }), oneDriveItemId: s.actual!.itemId, oneDriveDriveId: s.actual!.driveId, archivoOneDrive: s.actual!.ruta, oneDriveRutaActual: s.actual!.ruta, carpetaOrigen: `${root}/Pendientes`, estadoCarpeta: 'VALIDADA_PENDIENTE_ARCHIVO' } })
           facturaId = factura.id
         }
         const next: Snapshot = action === 'VALIDAR' ? { ...s, estado: 'VALIDADA_PENDIENTE_ARCHIVO', solicitudValidacion: solicitudId, huellaValidacion: huella } : s
         const saved = await update(tx, row, next, { ...metadataData(campos!), ...(facturaId ? { facturaResueltaId: facturaId, resueltaAt: new Date(now()) } : {}) })
-        await audit(tx, saved, actorId, action as string, solicitudId, { hash: s.hash, estado: next.estado, huella, versionAnterior: row.version, versionResultante: saved.version, antes: publicDocument(row).campos, campos, facturaId }); return publicDocument(saved)
-      }, confirm)
+        await audit(tx, saved, actorId, comando, solicitudId, comando, huella, { hash: s.hash, estado: next.estado, versionAnterior: row.version, versionResultante: saved.version, antes: publicDocument(row).campos, campos, facturaId }, true); return publicDocument(saved)
+      }, confirm, expectedActor)
       const reservation = await txRun(async (tx, actorId) => {
-        const row = await load(tx, id); const s = snapshotOf(row)
+        const replay = await receipt(tx, actorId, solicitudId, comando, huella)
+        const row = await load(tx, id); const s = scopedSnapshot(row)
+        if (replay && replay.revisionId !== row.id) fail(409, 'LEDGER_INVALIDO', 'Recibo ajeno al documento.')
         if (!row.facturaResueltaId || !s.actual || s.tipo !== 'FACTURA_RECIBIDA') fail(409, 'VALIDACION_REQUERIDA', 'Debe validar humanamente la factura antes de archivar.')
-        if (s.estado === 'ARCHIVADA') { if (s.archivo?.solicitudId !== solicitudId) guardVersion(row, body.version); return { row, completed: true } }
-        if (s.estado !== 'VALIDADA_PENDIENTE_ARCHIVO') fail(409, 'ESTADO_INVALIDO', 'Estado no archivable.')
         const name = standardizedName(publicDocument(row).campos, s.extension, s.hash)
-        if (s.archivo && s.archivo.solicitudId !== solicitudId && s.archivo.leaseUntil > now()) fail(409, 'ARCHIVO_EN_CURSO', 'Hay un archivado reservado; espere y recargue.')
+        if (s.estado === 'ARCHIVADA') {
+          if (!s.original || s.actual.itemId !== s.original.itemId || s.actual.driveId !== s.original.driveId || s.actual.hash !== s.hash || s.actual.nombre !== name || s.actual.ruta !== `${root}/Archivadas/${name}`) fail(409, 'ARCHIVO_NO_VERIFICADO', 'El ledger no acredita el mismo original archivado.')
+          if (!replay) {
+            guardVersion(row, body.version)
+            await audit(tx, row, actorId, 'ARCHIVO_YA_VERIFICADO', solicitudId, comando, huella, { hash: s.hash, estado: s.estado }, true)
+          }
+          return { row, completed: true }
+        }
+        if (s.estado !== 'VALIDADA_PENDIENTE_ARCHIVO') fail(409, 'ESTADO_INVALIDO', 'Estado no archivable.')
+        if (s.archivo && (s.archivo.solicitudId !== solicitudId || (s.archivo.actorId !== undefined && s.archivo.actorId !== actorId))) fail(409, 'RESERVA_CONFLICT', 'Reintente el archivado pendiente con la misma solicitud e identidad.')
         if (s.archivo?.leaseUntil && s.archivo.leaseUntil > now()) fail(409, 'ARCHIVO_EN_CURSO', 'Archivado en curso; no se repite la llamada externa.')
-        if (!s.archivo || s.archivo.solicitudId !== solicitudId) guardVersion(row, body.version)
+        if (!s.archivo) guardVersion(row, body.version)
         if (s.archivo?.solicitudId === solicitudId && s.archivo.huella !== huella) fail(409, 'IDEMPOTENCY_CONFLICT', 'Solicitud de archivado modificada.')
-        const next = { ...s, archivo: { nombre: name, solicitudId, huella, token: randomUUID(), leaseUntil: now() + 120000 }, error: null }
+        if (s.archivo && s.archivo.nombre !== name) fail(409, 'RESERVA_CONFLICT', 'Destino de archivado modificado.')
+        const next = { ...s, archivo: { nombre: name, solicitudId, huella, actorId, token: randomUUID(), leaseUntil: now() + 120000 }, error: null }
         const saved = await update(tx, row, next)
-        await audit(tx, saved, actorId, 'RESERVAR_ARCHIVO', solicitudId, { hash: s.hash, estado: next.estado, origen: s.actual, nombre: name, token: next.archivo.token }); return { row: saved, completed: false }
-      }, true)
+        await audit(tx, saved, actorId, 'RESERVAR_ARCHIVO', solicitudId, comando, huella, { hash: s.hash, estado: next.estado, origen: s.actual, nombre: name, token: next.archivo.token }, !replay); return { row: saved, completed: false }
+      }, true, expectedActor)
       if (reservation.completed) return publicDocument(reservation.row)
-      const reserved = snapshotOf(reservation.row)
+      const reserved = scopedSnapshot(reservation.row)
       try {
-        await deps.guard(true, true)
+        if (await deps.guard(true, true) !== expectedActor) fail(403, 'ACTOR_CHANGED', 'La identidad cambió durante la acción.')
         const location = await deps.provider.archive(reserved.actual!, reserved.archivo!.nombre, reserved)
-        if (location.itemId !== reserved.actual!.itemId || location.driveId !== reserved.actual!.driveId || location.hash !== reserved.hash || location.nombre !== reserved.archivo!.nombre || location.ruta !== `${DOCUMENTOS_PANEL_ROOT}/Archivadas/${reserved.archivo!.nombre}`) fail(502, 'ARCHIVO_NO_VERIFICADO', 'Graph no verificó destino/nombre/hash.')
+        if (!location.parentId || location.itemId !== reserved.actual!.itemId || location.driveId !== reserved.actual!.driveId || location.hash !== reserved.hash || location.nombre !== reserved.archivo!.nombre || location.ruta !== `${root}/Archivadas/${reserved.archivo!.nombre}`) fail(502, 'ARCHIVO_NO_VERIFICADO', 'Graph no verificó destino/nombre/hash.')
         return await txRun(async (tx, actorId) => {
-          const row = await load(tx, id); const s = snapshotOf(row)
-          if (s.estado === 'ARCHIVADA') return publicDocument(row)
-          if (s.archivo?.token !== reserved.archivo!.token) fail(409, 'RESERVA_CONFLICT', 'Reserva de archivado cambiada.')
+          const row = await load(tx, id); const s = scopedSnapshot(row)
+          if (s.estado !== 'VALIDADA_PENDIENTE_ARCHIVO' || s.archivo?.token !== reserved.archivo!.token || s.archivo.actorId !== actorId || s.archivo.solicitudId !== solicitudId || s.actual?.itemId !== reserved.actual!.itemId || s.actual?.driveId !== reserved.actual!.driveId || row.facturaResueltaId !== reservation.row.facturaResueltaId) fail(409, 'RESERVA_CONFLICT', 'Reserva de archivado cambiada; no se sustituye el original.')
           const next = { ...s, actual: location, estado: 'ARCHIVADA' as const, archivo: { ...s.archivo!, leaseUntil: 0 }, error: null }
           await tx.facturaRecibida.update({ where: { id: row.facturaResueltaId }, data: { oneDriveRutaActual: location.ruta, archivoOneDrive: location.ruta, estadoCarpeta: next.estado } })
           await tx.historialUbicacionFacturaRecibida.create({ data: { facturaId: row.facturaResueltaId, autorId: actorId, motivo: 'DOCUMENTOS_PANEL_ARCHIVAR_HUMANO', anterior: s.actual, actual: location } })
           const saved = await update(tx, row, next, { oneDriveRutaActual: location.ruta, archivoOneDrive: location.ruta })
-          await audit(tx, saved, actorId, 'ARCHIVADA', solicitudId, { hash: s.hash, estado: next.estado, anterior: s.actual, actual: location }); return publicDocument(saved)
-        }, true)
+          await audit(tx, saved, actorId, 'ARCHIVADA', solicitudId, comando, huella, { hash: s.hash, estado: next.estado, anterior: s.actual, actual: location }); return publicDocument(saved)
+        }, true, expectedActor)
       } catch (error) {
         // No false ARCHIVADA. Provider may have moved the same item already;
         // retry resolves its server-owned ID and verifies the exact target/hash.
-        try { await txRun(async (tx, actorId) => { const row = await load(tx, id); const s = snapshotOf(row); if (s.estado !== 'ARCHIVADA' && s.archivo?.token === reserved.archivo!.token) { const saved = await update(tx, row, { ...s, archivo: { ...s.archivo, leaseUntil: 0 }, error: 'Archivado no confirmado. Reintentar con la misma solicitud.' }); await audit(tx, saved, actorId, 'ARCHIVO_FALLO', solicitudId, { hash: s.hash, estado: 'VALIDADA_PENDIENTE_ARCHIVO', codigo: error instanceof DocumentosPanelError ? error.code : 'PROVIDER_OR_DB_FAILURE' }) } }, true) } catch { /* Reservation remains pending; lease expires. Never forge a receipt. */ }
+        try { await txRun(async (tx, actorId) => { const row = await load(tx, id); const s = scopedSnapshot(row); if (s.estado === 'VALIDADA_PENDIENTE_ARCHIVO' && s.archivo?.token === reserved.archivo!.token) { const saved = await update(tx, row, { ...s, archivo: { ...s.archivo, leaseUntil: 0 }, error: 'Archivado no confirmado. Reintentar con la misma solicitud.' }); await audit(tx, saved, actorId, 'ARCHIVO_FALLO', solicitudId, comando, huella, { hash: s.hash, estado: 'VALIDADA_PENDIENTE_ARCHIVO', codigo: error instanceof DocumentosPanelError ? error.code : 'PROVIDER_OR_DB_FAILURE' }) } }, true, expectedActor) } catch { /* Reservation remains pending; lease expires. Never forge a receipt. */ }
         throw error
       }
     },

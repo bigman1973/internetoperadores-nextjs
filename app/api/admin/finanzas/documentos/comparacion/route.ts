@@ -4,6 +4,8 @@ import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import { checkAdminAreaRead } from '@/lib/api-admin-area-read'
 import { assertPrototypeStaging, PrototypeStagingError } from '@/lib/finanzas/prototype-staging'
+import { createDocumentosPanelForRequest, documentosPanelError } from '@/lib/finanzas/documentos-panel'
+import { crearComparacionProductionSelected } from '@/lib/finanzas/documentos-production-comparacion'
 import { privateJson, requireB4FinanceAccess } from '@/lib/finanzas/reconciliation-auth'
 import { FACTURAS_BASE_PATH, listFolderContents, resolveInvoiceLibrary } from '@/lib/finanzas/microsoft-graph'
 import { descargarGraphPrivadoAcotado, DescargaPrivadaGraphError } from '@/lib/finanzas/descarga-privada-graph'
@@ -28,7 +30,7 @@ function boundedPayload(body: string, headers: Record<string, string>) {
   return new Response(body, { headers: { ...PRIVATE_HEADERS, ...headers } })
 }
 
-/** Staging exclusivamente. Parámetros allowlist, sin actuación y permisos vivos VFactura+B4Read.
+/** Runtime documental autorizado. Parámetros allowlist, sin actuación y permisos vivos VFactura+B4Read.
  * No mailbox, importer, cron, tareas, validación, movimientos Graph ni escrituras DB. */
 export async function GET(request: NextRequest) {
   try {
@@ -45,7 +47,8 @@ export async function GET(request: NextRequest) {
     const liveSession = { ...session, user: { ...session!.user, role: b4.actor.rol, roles: b4.actor.roles } }
     const invoiceDenied = await checkAdminAreaRead('admin.finanzas.facturas', ['CONTABILIDAD'], liveSession)
     if (invoiceDenied) return privateResponse(invoiceDenied)
-    await assertPrototypeStaging()
+    const { context, assertAccess } = await createDocumentosPanelForRequest(request)
+    if (context.stageOnly) await assertPrototypeStaging()
     const params = request.nextUrl.searchParams
     const entries = [...params.entries()]
     if (request.nextUrl.search.length > 512 || entries.some(([key]) => !['from', 'to', 'format', 'archivo'].includes(key))
@@ -65,24 +68,31 @@ export async function GET(request: NextRequest) {
     const protectedReferences = new Set<string>()
     const selectedForHash = new Set<string>()
     let graphScopeReady = false
+    const productionGraph = context.stageOnly ? null : crearComparacionProductionSelected({ knownLegacyRoot: FACTURAS_BASE_PATH,
+      guard: assertAccess, scopeReady: () => graphScopeReady, protectedReferences, selectedForHash, downloadOnly: !!archivo })
     const panelProvider = crearProveedorPanelComparacion(prisma, includePayroll, driveId, protectedReferences, selectedForHash)
     const registry = [
       { ...panelProvider, async read(range: Parameters<typeof ejecutarComparacionDocumental>[0]) {
+        await assertAccess()
         const inventory = await panelProvider.read(range)
         graphScopeReady = inventory.completo && !inventory.truncado
         return inventory
       } },
-      ...crearProveedoresGraphComparacion({ async resolveInvoiceLibrary() {
+      ...(productionGraph ? productionGraph.providers : crearProveedoresGraphComparacion({ async resolveInvoiceLibrary() {
         // No exponer posibles archivos protegidos si falta el registro nativo/ACL
         // por fallo o cap. El registry ejecuta panel primero; nunca autoGraph.
         if (!graphScopeReady) throw new Error('FINANCE_SCOPE_NOT_VERIFIED')
+        await assertAccess()
         return resolveInvoiceLibrary()
-      }, listFolderContents,
+      }, async listFolderContents(...args) { await assertAccess(); return listFolderContents(...args) },
         // La descarga explícita no precalcula hashes de otros archivos.
-        ...(archivo ? {} : { readBytes: descargarGraphPrivadoAcotado }),
-      }, FACTURAS_BASE_PATH, includePayroll, protectedReferences, selectedForHash),
+        ...(archivo ? {} : { async readBytes(drive: string, item: string, max: number) { await assertAccess(); return descargarGraphPrivadoAcotado(drive, item, max) } }),
+      }, FACTURAS_BASE_PATH, includePayroll, protectedReferences, selectedForHash)),
     ]
     const { resultado, inventarios } = await ejecutarComparacionDocumental(range, registry)
+    // Provider failures become INCOMPLETO, but revoked permission/actor must not
+    // deliver even partial metadata. Same request closure retains expected actor.
+    await assertAccess()
     if (archivo) {
       // El navegador no elige ruta, drive, itemId ni URL. Resuelve sólo el inventario
       // Graph íntegro autorizado, nunca un puntero huérfano de DB.
@@ -94,7 +104,9 @@ export async function GET(request: NextRequest) {
         if (panel?.referencia) found = candidates.find(x => x.d.referencia?.driveId === panel.referencia!.driveId && x.d.referencia?.itemId === panel.referencia!.itemId)?.d
       }
       if (!found?.referencia) return privateResponse(privateJson({ error: 'Archivo no verificable en el inventario privado autorizado.' }, 404))
-      const bytes = await descargarGraphPrivadoAcotado(found.referencia.driveId, found.referencia.itemId, COMPARACION_LIMITS.hashBytesPerFile)
+      await assertAccess()
+      const bytes = await (productionGraph ? productionGraph.readBytes(found.referencia.driveId, found.referencia.itemId, COMPARACION_LIMITS.hashBytesPerFile)
+        : descargarGraphPrivadoAcotado(found.referencia.driveId, found.referencia.itemId, COMPARACION_LIMITS.hashBytesPerFile))
       if (bytes.byteLength > RESPONSE_MAX_BYTES) return privateResponse(privateJson({ error: 'El archivo supera 4 MiB.', codigo: 'DOCUMENTOS_COMPARACION_FILE_LIMIT' }, 413))
       return new Response(new Uint8Array(bytes), { headers: { ...PRIVATE_HEADERS, 'Content-Type': 'application/octet-stream',
         'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(found.nombre.replace(/[\r\n"\\/]/g, '_'))}` } })
@@ -103,9 +115,10 @@ export async function GET(request: NextRequest) {
       'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="comparacion-documentos-${range.from}-${range.to}.csv"` })
     return boundedPayload(JSON.stringify(resultado), { 'Content-Type': 'application/json; charset=utf-8' })
   } catch (error) {
-    if (error instanceof DescargaPrivadaGraphError && error.code === 'ARCHIVO_FUERA_DE_LIMITE') return privateResponse(privateJson({ error: 'El archivo supera 4 MiB.', codigo: 'DOCUMENTOS_COMPARACION_FILE_LIMIT' }, 413))
+    if ((error instanceof DescargaPrivadaGraphError && error.code === 'ARCHIVO_FUERA_DE_LIMITE') || (error as any)?.code === 'ARCHIVO_FUERA_DE_LIMITE') return privateResponse(privateJson({ error: 'El archivo supera 4 MiB.', codigo: 'DOCUMENTOS_COMPARACION_FILE_LIMIT' }, 413))
     if (error instanceof RangoComparacionError) return privateResponse(privateJson({ error: error.message }, 400))
     if (error instanceof PrototypeStagingError) return privateResponse(privateJson({ error: error.message, codigo: error.code }, error.status))
+    if (error instanceof Response || (error as any)?.status === 403 || (error as any)?.status === 404) return privateResponse(documentosPanelError(error))
     return privateResponse(privateJson({ error: 'Comparación no verificable. No se han importado documentos, modificado carpetas ni contabilizado importes.', codigo: 'DOCUMENTOS_COMPARACION_READ_FAILED' }, 503))
   }
 }

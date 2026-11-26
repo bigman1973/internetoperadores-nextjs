@@ -146,6 +146,27 @@ test('última foto sin cliente no cae al margen ni contratos de un mes viejo', (
   assert.equal(out.rentabilidad.mes, '2026-10'); assert.equal(out.rentabilidad.snapshot.id, 'oct-p2')
   assert.equal(out.margenUltimo.pct, null); assert.equal(out.margenContrato.size, 0)
 })
+test('octubre sin foto no usa septiembre como último mes cerrado ni arrastra contratos', () => {
+  const out = adapter.proyectarFichaRentabilidad([foto('sep', '2026-09')], [fila(row(), 'cliente', 'sep', '2026-09'), fila({ ...row(), contractCode: '44' }, 'contrato', 'sep', '2026-09')], ['14'], now)
+  assert.equal(out.rentabilidad.mes, '2026-10'); assert.equal(out.rentabilidad.snapshot, null)
+  assert.equal(out.margenUltimo.mes, '2026-10'); assert.equal(out.margenUltimo.pct, null)
+  assert.equal(out.margenContrato.size, 0); assert.equal(out.rentabilidad.estados.at(-1), 'SIN_FOTO')
+  assert.equal(out.rentabilidad.fotos.at(-2).id, 'sep')
+})
+test('v11 octubre PROYECCION común en margen/contrato, noviembre coste 2 y diciembre fuera', () => {
+  const oct = foto('oct-p11', '2026-10', 'PROYECCION', 11), data = row(), contract = row({ contractCode: 'ISP000044', income: 40, rawIncome: 40, cost: 10, rawCost: 10, estimatedCost: 0, rawEstimatedCost: 0 })
+  const photos = [foto('oct-c99', '2026-10', 'CIERRE', 99), foto('oct-p10', '2026-10', 'PROYECCION', 10), oct, foto('nov', '2026-11'), foto('dec', '2026-12')]
+  const rows = [fila(data, 'cliente', oct.id), fila(contract, 'contrato', oct.id), fila(row({ cost: 2, rawCost: 2 }), 'cliente', 'nov', '2026-11'), fila(row(), 'cliente', 'dec', '2026-12')]
+  const before = JSON.stringify({ photos, rows }), out = adapter.proyectarFichaRentabilidad(photos, rows, ['14'], now)
+  assert.equal(out.rentabilidad.snapshot.id, oct.id); assert.equal(out.rentabilidad.snapshot.kind, 'PROYECCION'); assert.equal(out.rentabilidad.snapshot.version, 11)
+  assert.equal(out.margenUltimo.mes, '2026-10'); assert.equal(out.margenUltimo.pct, native.rowTotals(data, 'real').marginPct)
+  assert.equal(out.margenContrato.get('44'), native.rowTotals(contract, 'real').marginPct)
+  assert.equal(out.rentabilidad.meses.at(-1), '2026-10'); assert.ok(!out.rentabilidad.meses.includes('2026-11')); assert.ok(!out.rentabilidad.meses.includes('2026-12'))
+  assert.equal(out.rentabilidad.costeReal.at(-1), native.rowTotals(data, 'real').costReal)
+  assert.equal(out.rentabilidad.costeEstimado.at(-1), native.rowTotals(data, 'real').costEst)
+  assert.equal(out.rentabilidad.calidad.at(-1), native.rowTotals(data, 'real').quality)
+  assert.equal(JSON.stringify({ photos, rows }), before)
+})
 test('cliente y contratos usan el mismo snapshot y excluyen identidades ajenas', () => {
   const good = { ...row(), contractCode: 'ISP000044' }
   const out = project(row(), [fila(good, 'contrato', 'oct-p2', '2026-10', '14', 1, 1), fila({ ...row(), contractCode: '55' }, 'contrato', 'c99'), fila({ ...row(), contractCode: '66' }, 'contrato', 'oct-p2', '2026-10', '99')])
@@ -186,6 +207,17 @@ test('lector SELECT mínimo: 12 cabeceras, scope normalizado, contratos del últ
   }
   assert.equal(calls[1].values.at(-1), 0); assert.equal(calls[2].values.at(-1), 500)
 })
+test('lector fake con solo septiembre: pide contratos para octubre, no sustituye el corte calendario', async () => {
+  const calls: any[] = []
+  const db = { $queryRaw: async (strings: TemplateStringsArray, ...values: any[]) => {
+    calls.push({ sql: strings.join('?'), values })
+    return calls.length === 1 ? [foto('sep', '2026-09')] : [fila(row(), 'cliente', 'sep', '2026-09')]
+  } }
+  const out = await adapter.leerRentabilidadFicha(db, ['14'], now)
+  assert.equal(calls.length, 2); assert.equal(calls[1].values[2], '2026-10')
+  assert.equal(out.margenUltimo.mes, '2026-10'); assert.equal(out.margenUltimo.pct, null)
+  assert.equal(out.rentabilidad.snapshot, null); assert.equal(out.margenContrato.size, 0)
+})
 test('sin vínculo/sin foto: sin consulta privada innecesaria y arrays null', async () => {
   let calls = 0
   const db = { $queryRaw: async () => { calls++; return [] } }
@@ -196,14 +228,14 @@ test('sin vínculo/sin foto: sin consulta privada innecesaria y arrays null', as
   assert.ok(missing.rentabilidad.coste.every((n: any) => n === null))
 })
 
-function fichaHarness() {
+function fichaHarness(invoices: any[] = [], photoAvailable = true) {
   let rentCalls = 0
   const company = { id: 'empresa-14', nombre: 'Empresa ficticia', tipo: 'EMPRESA', contactos: [], clientes: [] }
   const contract = { id: 'k44', codigoContratoIsp: 'ISP000044', activo: true, fechaBaja: null, tarifa: 'Fibra', descripcion: 'Sede ficticia', importeSinIva: 100 }
   const empty = { findMany: async () => [] }
-  const db = { crmEmpresa: { findUnique: async () => company }, ispClienteArea1: { findMany: async () => [{ codigo: 'ISP000014', crmEmpresaId: company.id, contratos: [contract] }] }, factura: empty, crmActividad: empty, crmTarea: empty, area1CrmNegocio: empty, area1CrmConsentimiento: empty, crmNegocioContacto: empty, area1CrmPipeline: empty, devolucionRemesa: empty,
+  const db = { crmEmpresa: { findUnique: async () => company }, ispClienteArea1: { findMany: async () => [{ codigo: 'ISP000014', crmEmpresaId: company.id, contratos: [contract] }] }, factura: { findMany: async () => invoices }, crmActividad: empty, crmTarea: empty, area1CrmNegocio: empty, area1CrmConsentimiento: empty, crmNegocioContacto: empty, area1CrmPipeline: empty, devolucionRemesa: empty,
     $queryRaw: async () => { throw new Error('NO_DIRECT_PRIVATE_SQL') } }
-  const prepared = project(row(), [fila({ ...row(), contractCode: '44' }, 'contrato')])
+  const prepared = photoAvailable ? project(row(), [fila({ ...row(), contractCode: '44' }, 'contrato')]) : adapter.proyectarFichaRentabilidad([], [], ['14'], now)
   const ficha = execute('lib/area1-ficha-cliente.ts', {
     './prisma': { __esModule: true, default: db },
     './area1-subida-cliente': { leerSubidaCliente: async () => null },
@@ -227,10 +259,26 @@ for (const role of ['GERENTE', 'SUPERADMIN']) test(`cargador real VM: ${role} de
   assert.equal(h.calls(), 1); assert.equal(out.rentabilidad.snapshot.id, 'oct-p2')
   assert.equal(out.rentabilidad.meses.at(-1), '2026-10'); assert.equal(out.facturacion.meses.at(-1), '2026-11')
   assert.equal(out.contratos[0].margenPct, h.prepared.margenContrato.get('44'))
-  const kpi = out.kpis.find((k: any) => k.etiqueta === 'Margen octubre')
+  const kpi = out.kpis.find((k: any) => k.etiqueta === 'Margen octubre 2026')
   assert.equal(kpi.valor, h.ficha.pct(h.prepared.margenUltimo.pct))
-  assert.equal(kpi.sub, `${h.ficha.eur(h.prepared.margenUltimo.margen)}/mes de margen · incluye ${h.ficha.eur(h.prepared.margenUltimo.costeEstimado, 2)} estimados`)
+  assert.equal(kpi.sub, `${h.ficha.eur(h.prepared.margenUltimo.margen)}/mes de margen · incluye ${h.ficha.eur(h.prepared.margenUltimo.costeEstimado, 2)} estimados · mes cerrado por calendario · foto PROYECCION v2 · no acredita cierre certificado`)
   assert.equal(h.ficha.contextoTieneCostes(out.contextoIa), false)
+})
+test('cargador fake: facturas futuras excluidas de serie/KPI y huecos sin cero fabricado', async () => {
+  const invoice = (id: string, date: string, base: number) => ({ id, numeroDocumento: id, fecha: new Date(date), base, total: base, totalPendiente: 0, situacion: 'COBRADA' })
+  const h = fichaHarness([invoice('nov', '2026-11-25T10:00:00Z', 40), invoice('dec-future', '2026-12-01T10:00:00Z', 999)])
+  const out = await h.ficha.cargarFichaCliente('empresa-14', 'SUPERADMIN', now)
+  assert.equal(out.facturacion.serie.at(-1), 40)
+  assert.ok(out.facturacion.serie.slice(0, -1).every((value: any) => value === null))
+  assert.deepEqual(json(out.facturacion.facturas).map((f: any) => f.numero), ['nov'])
+  assert.equal(out.kpis.find((k: any) => k.etiqueta === 'Facturado 12 meses').valor, h.ficha.eur(40))
+})
+test('cargador fake: octubre sin foto conserva etiqueta y todos los márgenes sin dato', async () => {
+  const h = fichaHarness([], false), out = await h.ficha.cargarFichaCliente('empresa-14', 'GERENTE', now)
+  const kpi = out.kpis.find((k: any) => k.etiqueta === 'Margen octubre 2026')
+  assert.equal(kpi.valor, 'sin dato'); assert.match(kpi.sub, /sin foto preparada/)
+  assert.equal(out.contratos[0].margenPct, null)
+  assert.equal(out.rentabilidad.mes, '2026-10'); assert.equal(out.rentabilidad.snapshot, null)
 })
 test('fuentes nativas intactas: el adaptador importa puras, no store/report/desglose ni proveedores', () => {
   const source = readFileSync('lib/area1-ficha-rentabilidad.ts', 'utf8')

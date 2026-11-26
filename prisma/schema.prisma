@@ -3872,6 +3872,8 @@ model CrmEmpresa {
   clientes           CrmEmpresaCliente[]
   ispClientesArea1   IspClienteArea1[]
   negociosArea1      Area1CrmNegocio[]
+  actividades       CrmActividad[]
+  tareas            CrmTarea[]
 
   @@index([nombre])
   @@index([nifNormalizado])
@@ -4184,7 +4186,8 @@ model CrmNegocioContacto {
 
 model CrmActividad {
   id                String                 @id @default(cuid())
-  contactoId        String                 @map("contacto_id")
+  contactoId        String?                @map("contacto_id")
+  empresaId         String?                @map("empresa_id")
   tipo              String
   titulo            String?
   descripcion       String                 @db.Text
@@ -4200,12 +4203,14 @@ model CrmActividad {
   creadoPorNombre   String?                @map("creado_por_nombre")
   createdAt         DateTime               @default(now()) @map("created_at")
   updatedAt         DateTime               @updatedAt @map("updated_at")
-  contacto          CrmRegistroHubspot     @relation("CrmActividadPrincipal", fields: [contactoId], references: [id], onDelete: Cascade)
+  contacto          CrmRegistroHubspot?    @relation("CrmActividadPrincipal", fields: [contactoId], references: [id], onDelete: Cascade)
+  empresa           CrmEmpresa?            @relation(fields: [empresaId], references: [id], onDelete: Restrict)
   contactos         CrmActividadContacto[]
   negocios          CrmActividadNegocio[]
   tareaSeguimiento  CrmTarea?
 
   @@index([contactoId, fechaActividad(sort: Desc)])
+  @@index([empresaId, fechaActividad(sort: Desc)], map: "crm_actividades_empresa_fecha_idx")
   @@index([tipo, fechaActividad(sort: Desc)])
   @@index([origen])
   @@map("crm_actividades")
@@ -4237,7 +4242,8 @@ model CrmActividadNegocio {
 
 model CrmTarea {
   id                 String             @id @default(cuid())
-  contactoId         String             @map("contacto_id")
+  contactoId         String?            @map("contacto_id")
+  empresaId          String?            @map("empresa_id")
   actividadOrigenId  String?            @unique @map("actividad_origen_id")
   titulo             String
   descripcion        String?            @db.Text
@@ -4251,10 +4257,12 @@ model CrmTarea {
   completadoAt       DateTime?           @map("completado_at")
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
-  contacto           CrmRegistroHubspot  @relation(fields: [contactoId], references: [id], onDelete: Cascade)
+  contacto           CrmRegistroHubspot? @relation(fields: [contactoId], references: [id], onDelete: Cascade)
+  empresa            CrmEmpresa?         @relation(fields: [empresaId], references: [id], onDelete: Restrict)
   actividadOrigen    CrmActividad?       @relation(fields: [actividadOrigenId], references: [id], onDelete: SetNull)
 
   @@index([contactoId, estado, venceAt])
+  @@index([empresaId, estado, venceAt], map: "crm_tareas_empresa_estado_vence_idx")
   @@index([asignadoAId, estado, venceAt])
   @@map("crm_tareas")
 }

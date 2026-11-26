@@ -47,7 +47,7 @@ const parentPath = 'components/finanzas/conciliar-unificado/ConciliarUnificado.t
 const props = { hoy: '2026-11-26', vistaInicial: 'bandeja', qInicial: '', resumen: { movimientos: 0, entranCentimos: 0, salenCentimos: 0, conciliados: 0, sinTercero: 0 }, cuentas: [], conteos: { reglas: 0, rojas: 0, verdes: 0, cobros: 0, pagos: 0 }, remesas: [] }
 function render(component: any, p: any) { return renderToStaticMarkup(createElement(component, p)) }
 test('las cuatro rutas son NEW, sin menú/baseline y en sus áreas exactas', () => {
-  paths.forEach((path, i) => { const m = area4RegisteredSurface(path, 'api')!; assert.ok(m); assert.equal(m.baseline, false); assert.equal(m.surface.menu, undefined); assert.equal(m.section.areaCode, i === 0 ? 'admin.finanzas.conciliacion' : 'admin.finanzas.facturas'); assert.equal(m.surface.availability?.stagingOnly, true) })
+  paths.forEach((path, i) => { const m = area4RegisteredSurface(path, 'api')!; assert.ok(m); assert.equal(m.baseline, false); assert.equal(m.surface.menu, undefined); assert.equal(m.section.areaCode, i === 0 ? 'admin.finanzas.conciliacion' : 'admin.finanzas.facturas'); if (i === 0) assert.equal(m.surface.availability?.stagingOnly, true); else assert.equal(m.surface.availability?.closedByGate, 'documentosPanel') })
   // Los contratos CRM cambiados son NEW sin perder su descriptor histórico.
   // La evidencia congelada contiene 439; current.baseline es otro contador.
   assert.equal(area4RegistrySurfaceMatches().filter(m => m.surface.baselineDescriptor !== undefined).length, 439)
@@ -81,13 +81,22 @@ test('Production, actuación, claim malformado o Ver como no montan el espacio',
   for (const claim of [{}, false, 0, '']) assert.equal(render(load(workspacePath, { 0: 'manual' }, false, { impersonation: claim }), { stagingOnly: true, acting: false, canWrite: true, onClose() {} }), '')
   assert.equal(render(load(workspacePath, { 0: 'manual' }, false, null, true), { stagingOnly: true, acting: false, canWrite: true, onClose() {} }), '')
 })
-test('padre no ofrece Documentos sin fence servidor/perfil Stage avanzado; seis vistas intactas', () => {
+test('padre no ofrece Documentos sin fence servidor o durante acting; seis vistas intactas', () => {
   const profile = { easyOnly: false, canWrite: true, canManageAutomation: false, environment: 'staging' }
-  for (const [enabled, p, acting] of [[false, profile, false], [true, null, false], [true, { ...profile, environment: 'production' }, false], [true, { ...profile, easyOnly: true }, false], [true, profile, true]] as const) {
+  for (const [enabled, p, acting] of [[false, profile, false], [true, { ...profile, environment: 'production' }, false], [true, profile, true]] as const) {
     const html = render(load(parentPath, { 4: true, 5: p }, acting), { ...props, documentosHabilitados: enabled })
     assert.doesNotMatch(html, />Documentos<|data-documentos-tool/)
   }
   const html = render(load(parentPath, { 4: true, 5: profile }), { ...props, documentosHabilitados: true })
   assert.match(html, />Documentos</); assert.match(html, /data-documentos-tool/)
   assert.deepEqual([...nativeViews.VISTAS], ['bandeja', 'cobros', 'pagos', 'remesas', 'pedir', 'cuentas']); assert.equal(providers, 0)
+})
+
+test('Documentos V exacto permite shell a easyOnly sin habilitar otros perfiles ni tabs', () => {
+  const profile = { easyOnly: true, canWrite: false, canManageAutomation: false, environment: 'production' }
+  const html = render(load(parentPath, { 4: true, 5: profile }), { ...props, documentosHabilitados: true, documentosEnvironment: 'production', documentosCanWrite: false })
+  assert.match(html, />Documentos</); assert.match(html, /data-documentos-tool/); assert.match(html, /data-can-write="false"/)
+  const shell = render(load(workspacePath, { 0: 'confirmings' }), { stagingOnly: false, environment: 'production', eligible: true, acting: false, canWrite: false, onClose() {} })
+  assert.doesNotMatch(shell, /Leer confirming|data-documentos-tool/); assert.match(shell, /escrituras cerradas/)
+  assert.equal(providers, 0)
 })

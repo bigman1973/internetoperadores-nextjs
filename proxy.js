@@ -393,6 +393,7 @@ function financeAreas(pathname) {
     'cortes-cobertura': ['admin.finanzas.importar','admin.finanzas.conciliacion','admin.facturacion'],
     'exportar-a3': ['admin.finanzas.exportar_a3'],
     facturas: ['admin.finanzas.facturas'],
+    documentos: ['admin.finanzas.facturas'],
     'facturas-emitidas': ['admin.finanzas.facturas_emitidas'],
     'importar-movimientos': ['admin.finanzas.importar'],
     'sincronizar-onedrive': ['admin.finanzas.facturas'],
@@ -692,10 +693,12 @@ export async function proxy(request) {
     // Sólo notas/tareas/llamadas/reuniones locales; jamás abre correo ni Graph.
     // El cuerpo se lee de un clon acotado; permisos vivos y readonly siguen debajo.
     const crmActivityPath = request.method === 'POST' && /^\/api\/admin\/crm\/contactos\/[^/]+\/actividades$/.test(path);
-    const crmActivityCommand = crmActivityPath && m365LegacyLocalSandboxEnabled(process.env)
+    // CUID nativo: nunca alcanza /empresas/sync ni otros literales vecinos.
+    const empresaActivityPath = request.method === 'POST' && /^\/api\/admin\/crm\/empresas\/c[a-z0-9]{12,35}$/i.test(path);
+    const crmActivityCommand = (crmActivityPath || empresaActivityPath) && m365LegacyLocalSandboxEnabled(process.env)
       ? await area4JsonCommand(request, 16 * 1024) : null;
     const crmLocalActivityAllowed = crmActivityCommand !== null && !crmActivityCommand.errorStatus
-      && isM365LegacyLocalActivity(crmActivityCommand.body);
+      && (empresaActivityPath ? (await import('@/lib/crm-empresa-actividad-core')).isEmpresaLocalActivityCommand(crmActivityCommand.body) : isM365LegacyLocalActivity(crmActivityCommand.body));
     // Se amplía por bloques validados, nunca por toda el área financiera.
     const allowed = path === '/api/admin/finanzas/sincronizar-onedrive'
       // Only these registered POSTs pass the sandbox; live owner, V/E/C,
@@ -754,6 +757,21 @@ export async function proxy(request) {
   }
   const path = request.nextUrl.pathname;
   const isMutatingApiMethod = !SAFE_API_METHODS.has(request.method);
+  // Exact NEW document surfaces only. Eligibility never bypasses the live
+  // registered V/E/C boundary below and never changes a person's easy profile.
+  let documentRoutingAllowed = false;
+  if (path === '/api/admin/finanzas/documentos' || path.startsWith('/api/admin/finanzas/documentos/')) {
+    const documents = await import('@/lib/area4/documentos-boundary');
+    const context = documents.documentosPanelRequestContext(path, request.method, process.env);
+    if (!context) return privateBoundary({ error: 'Documentos permanece cerrado o la ruta/método no está autorizado.' }, 404);
+    if (request.headers.has('x-io-acting-session') || request.headers.has('next-action')
+      || (isMutatingApiMethod && (request.nextUrl.protocol !== 'https:'
+        || request.headers.get('origin') !== request.nextUrl.origin
+        || request.headers.get('sec-fetch-site') !== 'same-origin'))) {
+      return privateBoundary({ error: 'La acción documental requiere origen propio y sesión ordinaria.' }, 403);
+    }
+    documentRoutingAllowed = true;
+  }
 
   // Perfil mínimo vivo: se comprueba antes de cualquier handler, incluso con
   // un JWT GERENTE anterior o una URL escrita a mano. En producción depende
@@ -781,7 +799,7 @@ export async function proxy(request) {
       }
       if (easyOnly) {
         // Estado/salida son el único escape para una identidad efectiva mínima.
-        if (path !== '/api/admin/actuar-como' && !easyOnlyRequestAllowed(path, request.method, request.nextUrl.searchParams, userId)) {
+        if (path !== '/api/admin/actuar-como' && !documentRoutingAllowed && !easyOnlyRequestAllowed(path, request.method, request.nextUrl.searchParams, userId)) {
           if (path.startsWith('/api/')) return blockedBoundary('Este perfil sólo permite Modo fácil y Para pedir.', 'EASY_ONLY_ACCESS');
           return NextResponse.redirect(new URL(EASY_ONLY_HOME, request.url));
         }

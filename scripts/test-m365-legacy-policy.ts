@@ -13,6 +13,7 @@ import * as highRisk from '../lib/high-risk-api-policy'
 import * as alta from '../lib/altas/contrato-access'
 import * as imports from '../lib/area4/crm-staging-import'
 import * as easy from '../lib/finanzas/easy-access-core'
+import * as empresaActivity from '../lib/crm-empresa-actividad-core'
 
 const STAGE: Record<string,string|undefined> = {
   AREA4_OWNER_USER_ID:'3', FINANCE_STAGING_SANDBOX:'1', VERCEL_ENV:'preview', VERCEL_GIT_COMMIT_REF:'staging',
@@ -85,6 +86,7 @@ function fixture(overrides: Record<string,string|undefined>={}) {
       if(name==='./lib/altas/contrato-access')return alta
       // Context env is passed explicitly: the real helper must not read host secrets.
       if(name==='./lib/m365-legacy-policy')return {...legacy,m365LegacyLocalSandboxEnabled:()=>legacy.m365LegacyLocalSandboxEnabled(env)}
+      if(name==='@/lib/crm-empresa-actividad-core')return empresaActivity
       if(name==='next-auth/jwt')return {getToken:async()=>token}
       if(name==='@/lib/area4/section-registry')return registry
       if(name==='@/lib/area4/policy')return {...policy,
@@ -159,4 +161,38 @@ for(const path of ['/api/admin/leads/42/enviar-email','/api/admin/leads-mantenim
     const response=await f.request(path,{type:'NOTA'})
     assert.equal(response.status,503);assert.equal((await response.json()).message,legacy.M365_LEGACY_PENDING_MESSAGE)
   }
+})
+
+const EMPRESA='/api/admin/crm/empresas/cabcdefghijklmnopqrstuvwx'
+for(const type of ['NOTA','LLAMADA','TAREA','REUNION']) test(`Proxy empresa: ${type} local usa superficie baseline E`,async()=>{
+  const f=fixture();const r=await f.request(EMPRESA,{action:'registrar_actividad',type,syncOutlook:false,onlineMeeting:false,inviteAttendees:false})
+  assert.equal(r.status,200,`${await r.clone().text()} ${f.errors.join('; ')}`)
+})
+for(const body of [{action:'registrar_actividad',type:'CORREO'}, {action:'registrar_actividad',type:'REUNION',syncOutlook:true},
+  {action:'registrar_actividad',type:'NOTA',syncOutlook:'false'}, {action:'registrar_actividad',type:'REUNION',onlineMeeting:true},
+  {action:'registrar_actividad',type:'REUNION',inviteAttendees:1}, {action:'editar',type:'NOTA'}, {type:'NOTA'},
+  {action:'registrar_actividad',accion:'confirmar',type:'NOTA'}, {action:'registrar_actividad',type:'WHATSAPP'}]) test(`Proxy empresa: contrato externo/ambiguo cerrado ${JSON.stringify(body)}`,async()=>{
+  const f=fixture({M365_LEGACY_CRM_EXTERNAL_ENABLED:'1',M365_STAGING_CALENDARIO:'1'});assert.ok((await f.request(EMPRESA,body)).status>=400)
+})
+for(const path of ['/api/admin/crm/empresas/sync','/api/admin/crm/empresas/buscar-contactos',EMPRESA+'/contactos',EMPRESA+'/actividades']) test(`Proxy empresa: nunca abre vecino ${path}`,async()=>{
+  const f=fixture();assert.ok((await f.request(path,{action:'registrar_actividad',type:'NOTA'})).status>=400)
+})
+for(const overrides of [{FINANCE_DEPLOYMENT_READ_ONLY:'1'},{IO_PRODUCTION_READ_ONLY:'1'},{VERCEL_GIT_COMMIT_REF:'otra'},{DATABASE_URL:'postgresql://postgres@127.0.0.1:9/railway'}]) test(`Proxy empresa: conserva readonly/destino ${JSON.stringify(overrides)}`,async()=>{
+  const f=fixture(overrides);assert.ok((await f.request(EMPRESA,{action:'registrar_actividad',type:'NOTA'})).status>=400)
+})
+test('Proxy empresa: ausencia sesión, VISOR y JSON grande no despachan',async()=>{
+  const f=fixture();f.setActor(null);assert.equal((await f.request(EMPRESA,{action:'registrar_actividad',type:'NOTA'})).status,401)
+  f.setActor({id:7,activo:true,rol:'VISOR',roles:[],permisosArea4Vivos:true,perfilAsignado:null,grants:[]});assert.equal((await f.request(EMPRESA,{action:'registrar_actividad',type:'NOTA'})).status,403)
+  const owner=fixture();assert.ok((await owner.request(EMPRESA,{action:'registrar_actividad',type:'NOTA',padding:'x'.repeat(17*1024)})).status>=400)
+})
+
+test('Proxy empresa: E exacta empresa permite local sin C/X ni permiso Contactos; lectura sola deniega',async()=>{
+  const f=fixture()
+  const actor={id:7,activo:true,rol:'VENTAS',roles:[],permisosArea4Vivos:true,perfilAsignado:null,
+    grants:[{codigo:'admin.crm.empresas',lectura:true,escritura:true,confirmar:false,exportar:false}]}
+  f.setActor(actor)
+  const allowed=await f.request(EMPRESA,{action:'registrar_actividad',type:'NOTA'})
+  assert.equal(allowed.status,200,`${await allowed.clone().text()} ${f.errors.join('; ')}`)
+  f.setActor({...actor,grants:[{...actor.grants[0],escritura:false}]})
+  assert.equal((await f.request(EMPRESA,{action:'registrar_actividad',type:'NOTA'})).status,403)
 })

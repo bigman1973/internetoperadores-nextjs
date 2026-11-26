@@ -6,6 +6,7 @@ const API = '/api/admin/finanzas/documentos/comparacion'
 export type DocumentosComparacionProps = Readonly<{
   /** Padre deriva la elegibilidad del registry; API vuelve a exigir VFactura+B4Read. */
   eligible?: boolean; canRead?: boolean; acting?: boolean; stagingOnly?: boolean; from?: string; to?: string;
+  environment?: 'staging' | 'production';
   onCompared?: (result: ResultadoDocumentosComparacion) => void;
 }>
 function csvSnapshot(result: ResultadoDocumentosComparacion) {
@@ -53,7 +54,7 @@ export default function DocumentosComparacion(p: DocumentosComparacionProps = {}
   const controller = useRef<AbortController | null>(null)
   // Montaje sin props permitido sólo para tab Stage del padre; no concede permisos.
   // El servidor sigue cerrando Production y exige VFactura+B4Read vivos.
-  const allowed = (p.eligible ?? p.canRead ?? true) && p.stagingOnly !== false && !p.acting && !viewingAs
+  const allowed = (p.eligible ?? p.canRead ?? true) && (p.stagingOnly !== false || (p.environment === 'production' && p.eligible === true)) && !p.acting && !viewingAs
   // Sólo cancelación/limpieza de datos: nunca carga automática ni Graph en useEffect.
   useEffect(() => { if (!allowed) { controller.current?.abort(); setResult(null); setError(''); setBusy(false) } }, [allowed])
   useEffect(() => () => controller.current?.abort(), [])
@@ -80,7 +81,7 @@ export default function DocumentosComparacion(p: DocumentosComparacionProps = {}
   }
   if (!allowed) return null
   return <section className="rounded-xl border border-orange-200 bg-white p-4 space-y-3" aria-label="Comparación documentos panel y carpetas">
-    <h3 className="font-semibold text-slate-900">Panel vs. carpetas — comparación de solo lectura (staging)</h3>
+    <h3 className="font-semibold text-slate-900">Panel vs. carpetas — comparación parcial de solo lectura ({p.environment === 'production' ? 'Production' : 'staging'})</h3>
     <p className="text-sm text-slate-700">Convivencia 30/11–4/12: carpetas de Lorena siguen RW. Comparar no importa, valida, cobra, archiva ni elimina. Fecha de archivo ≠ fecha de factura ≠ recepción.</p>
     <div className="flex flex-wrap gap-3 items-end"><label className="text-sm">Desde (UTC)<input type="date" value={from} disabled={busy} onChange={e => { setFrom(e.target.value); setResult(null) }} className="block rounded border border-slate-300 p-2" /></label>
       <label className="text-sm">Hasta (UTC)<input type="date" value={to} disabled={busy} onChange={e => { setTo(e.target.value); setResult(null) }} className="block rounded border border-slate-300 p-2" /></label>

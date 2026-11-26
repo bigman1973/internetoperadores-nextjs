@@ -15,7 +15,7 @@ export type RentabilidadFicha = {
   mes: string | null; meses: string[]; ingreso: Array<number | null>; coste: Array<number | null>; hay: boolean
   /** Todos alineados con meses. coste = real + estimado; null no significa cero. */
   costeReal: Array<number | null>; costeEstimado: Array<number | null>; calidad: Array<number | null>; hayEstimados: boolean[]
-  /** La última foto preparada de la ventana, aunque no contenga este cliente. */
+  /** Foto del último mes cerrado por calendario, no un CIERRE certificado ni un mes anterior. */
   snapshot: FotoFichaRentabilidad | null
   fotos: Array<FotoFichaRentabilidad | null>; estados: EstadoMesFicha[]
 }
@@ -83,21 +83,22 @@ export function proyectarFichaRentabilidad(fotos: readonly FotoFichaRentabilidad
     const totals = foto ? cifrasClientes(rows) : null
     return { foto, totals, estado: !scope.size ? 'SIN_VINCULO' as const : !foto ? 'SIN_FOTO' as const : totals?.estado ?? 'SIN_CLIENTE' as const }
   })
-  const ultimo = selected[0] ?? null, ultimoTotal = ultimo ? points.find(p => p.foto?.id === ultimo.id)?.totals : null
+  // Un mes anterior con foto no sustituye al último mes cerrado temporalmente.
+  const mesMargen = meses.at(-1)!, ultimo = porMes.get(mesMargen) ?? null, ultimoTotal = points.at(-1)?.totals
   const margenContrato = new Map<string, number | null>()
-  if (ultimo && ultimoTotal) for (const row of own.filter(f => f.snapshotId === ultimo.id && f.tipo === 'contrato')) {
+  if (ultimo && ultimoTotal) for (const row of own.filter(f => f.month === mesMargen && f.snapshotId === ultimo.id && f.tipo === 'contrato')) {
     const code = normalizarCodigoFicha(row.datos.contractCode)
     if (!code) continue
     // Identidad ambigua: no escoger un margen por el orden de llegada.
     margenContrato.set(code, margenContrato.has(code) ? null : rowTotals(row.datos, 'real').marginPct)
   }
   return {
-    rentabilidad: { mes: ultimo?.month ?? null, meses, ingreso: points.map(p => p.totals?.ingreso ?? null), coste: points.map(p => p.totals?.coste ?? null),
+    rentabilidad: { mes: mesMargen, meses, ingreso: points.map(p => p.totals?.ingreso ?? null), coste: points.map(p => p.totals?.coste ?? null),
       costeReal: points.map(p => p.totals?.costeReal ?? null), costeEstimado: points.map(p => p.totals?.costeEstimado ?? null),
       calidad: points.map(p => p.totals?.calidad ?? null), hayEstimados: points.map(p => p.totals?.hayEstimados ?? false),
       hay: points.some(p => p.totals !== null), snapshot: ultimo, fotos: points.map(p => p.foto), estados: points.map(p => p.estado) },
-    margenUltimo: ultimo ? { mes: ultimo.month, pct: ultimoTotal?.pct ?? null, margen: ultimoTotal?.margen ?? null,
-      costeReal: ultimoTotal?.costeReal ?? null, costeEstimado: ultimoTotal?.costeEstimado ?? null, calidad: ultimoTotal?.calidad ?? null, hayEstimados: ultimoTotal?.hayEstimados ?? false } : null,
+    margenUltimo: { mes: mesMargen, pct: ultimoTotal?.pct ?? null, margen: ultimoTotal?.margen ?? null,
+      costeReal: ultimoTotal?.costeReal ?? null, costeEstimado: ultimoTotal?.costeEstimado ?? null, calidad: ultimoTotal?.calidad ?? null, hayEstimados: ultimoTotal?.hayEstimados ?? false },
     margenContrato,
   }
 }
@@ -117,6 +118,7 @@ export async function leerRentabilidadFicha(db: LectorSqlFicha, codigos: readonl
   const fotos = seleccionarFotosFicha(headers.map(f => ({ ...f, createdAt: f.createdAt instanceof Date ? f.createdAt.toISOString() : f.createdAt })), meses, hoy)
   if (!fotos.length) return proyectarFichaRentabilidad([], [], scope, hoy)
   const ids = fotos.map(f => f.id), filas: FilaFotoFicha[] = []
+  const mesMargen = meses.at(-1)!
   for (let offset = 0; ; offset += PAGE) {
     const page = await db.$queryRaw<FilaFotoFicha[]>`
       WITH selected AS (
@@ -134,7 +136,7 @@ export async function leerRentabilidadFicha(db: LectorSqlFicha, codigos: readonl
         FROM clients c CROSS JOIN LATERAL jsonb_array_elements(
           CASE WHEN jsonb_typeof(c.row->'contracts') = 'array' THEN c.row->'contracts' ELSE '[]'::jsonb END
         ) WITH ORDINALITY k(row, ord)
-        WHERE c.month = ${fotos[0].month}
+        WHERE c.month = ${mesMargen}
       )
       SELECT "snapshotId", month, tipo, "clientIndex", "contractIndex", "clientCode",
         jsonb_build_object('contractCode', row->'contractCode', 'income', row->'income', 'rawIncome', row->'rawIncome',

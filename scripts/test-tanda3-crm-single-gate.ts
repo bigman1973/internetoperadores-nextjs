@@ -88,7 +88,7 @@ function ui(kind: 'composer-mail' | 'composer-meet' | 'drawer-mail' | 'drawer-me
   const policy = load('lib/m365-legacy-policy.ts', {})
   const outlook = { enabled: true, connected: true, mail: true, m365: true, envios: false, email: connection.email, connectedAt: null, lastError: null, ...options.outlook }
   const props: any = drawer ? {
-    cajon: { kind: meeting ? 'meet' : 'mail' }, ficha: { empresa: { nombre: 'Fixture' }, personas: [{ id: 'fixture', nombre: 'Persona fixture', email: 'recipient@example.test', papel: 'sin dato' }] },
+    cajon: { kind: meeting ? 'meet' : 'mail' }, ficha: { empresa: { id: 'empresa-fixture', nombre: 'Fixture' }, personas: [{ id: 'fixture', nombre: 'Persona fixture', email: 'recipient@example.test', papel: 'sin dato' }] },
     m365: { aviso: null, conexion: outlook, corporativo: 'corporativo@example.test', connectUrl: '/unused' }, puedeEscribir: options.canWrite !== false,
     onClose() { closed++ }, onOpen() {}, toast(value: string) { toasts.push(value) },
   } : {
@@ -104,8 +104,10 @@ function ui(kind: 'composer-mail' | 'composer-meet' | 'drawer-mail' | 'drawer-me
     crypto: { randomUUID: () => 'memory-ui-request' }, window: { confirm: () => true, open() { throw new Error('NO_WINDOW') } },
     location: { reload() { reloads++ } }, setTimeout(fn: () => void) { fn(); return 0 },
     async fetch(url: string, init: any) {
-      assert.equal(url, '/api/admin/crm/contactos/fixture/actividades'); assert.equal(init.method, 'POST')
-      payloads.push(JSON.parse(init.body))
+      const payload = JSON.parse(init.body)
+      assert.equal(url, drawer && meeting && payload.syncOutlook === false ? '/api/admin/crm/empresas/empresa-fixture' : '/api/admin/crm/contactos/fixture/actividades'); assert.equal(init.method, 'POST')
+      if (drawer && meeting && payload.syncOutlook === false) assert.equal(payload.action, 'registrar_actividad')
+      payloads.push(payload)
       assert.ok(responses.length, 'Respuesta mock agotada')
       const body = responses.shift()
       return { ok: body.success === true, async json() { return body } }
@@ -190,7 +192,7 @@ async function main() {
       await test(`${kind}: pendiente exacto sin éxito, conserva contenido y reintento habilitado ${response.code || response.codigo || 'sandbox'}`, async () => {
         // 26/11 21:21: la ficha cerrada no hace POST. La negativa del servidor
         // se conserva con UI habilitada; el cierre sin POST tiene batería propia.
-        const f = ui(kind, { sync: true, ...(kind === 'drawer-mail' ? { outlook: { envios: true } } : {}), responses: [response, { success: true, linkedToOutlook: true, acceptedByMicrosoft: true }] })
+        const f = ui(kind, { sync: true, ...(kind.startsWith('drawer') ? { outlook: { envios: true } } : {}), responses: [response, { success: true, linkedToOutlook: true, acceptedByMicrosoft: true }] })
         await f.submit(); assertPending(f, kind !== 'drawer-meet')
         assert.equal(f.counters.payloads.length, 1)
         if (kind.endsWith('meet')) assert.equal(f.counters.payloads[0].syncOutlook, true)

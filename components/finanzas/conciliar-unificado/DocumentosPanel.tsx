@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from 'react'
 export type DocumentosPanelProps = {
   /** Presentation only. API always rechecks real session, live Stage and V/E/C. */
   readOnly?: boolean
+  environment?: 'staging' | 'production'
   onChanged?: () => void | Promise<void>
   className?: string
 }
@@ -17,7 +18,7 @@ async function jsonRequest(url: string, options?: RequestInit) {
   if (!response.ok) throw new Error(`${body.code ? `${body.code}: ` : ''}${body.error ?? 'Operación no confirmada.'}`)
   return body
 }
-export default function DocumentosPanel({ readOnly = false, onChanged, className = '' }: DocumentosPanelProps) {
+export default function DocumentosPanel({ readOnly = false, environment = 'staging', onChanged, className = '' }: DocumentosPanelProps) {
   const [rows, setRows] = useState<Documento[]>([]), [selected, setSelected] = useState<Documento | null>(null)
   const [values, setValues] = useState<Record<string,string>>({}), [canWrite, setCanWrite] = useState(false), [canConfirm, setCanConfirm] = useState(false)
   const [busy, setBusy] = useState(false), [message, setMessage] = useState(''), [reviewed, setReviewed] = useState(false)
@@ -42,7 +43,7 @@ export default function DocumentosPanel({ readOnly = false, onChanged, className
       const form = new FormData(); form.append('archivo',file); form.append('tipo',tipo); form.append('solicitudId',uploadRequest.current); form.append('confirmacionHumana','true')
       const data = await jsonRequest(API, { method: 'POST', body: form })
       await after(data.documento)
-      setMessage(data.documento.repetido ? data.documento.aviso ?? 'Hash repetido: reutilizado, no se creó otro documento/factura.' : 'Original verificado en la carpeta privada Stage. Pendiente de revisión humana.')
+      setMessage(data.documento.repetido ? data.documento.aviso ?? 'Hash repetido: reutilizado, no se creó otro documento/factura.' : 'Original verificado en la carpeta documental privada. Pendiente de revisión humana.')
       uploadRequest.current = null; setFile(null); setUploadConfirmed(false)
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Subida no confirmada.') }
     finally { setBusy(false) }
@@ -78,14 +79,14 @@ export default function DocumentosPanel({ readOnly = false, onChanged, className
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Descarga no confirmada.') }
     finally { setBusy(false) }
   }
-  return <section className={`rounded-xl border border-slate-200 bg-white p-4 ${className}`} aria-label="Documentos manuales Stage">
-    <div className="flex items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">Documentos · circuito manual Stage</h2><p className="text-sm text-slate-600">Entrada manual paralela al correo futuro. Sólo carpeta privada STAGING_FINANZAS_NO_CONTABILIZAR; nada se contabiliza ni se enlaza automáticamente.</p></div><button type="button" disabled={busy} onClick={() => refresh().catch(e => setMessage(e.message))} className="rounded border px-3 py-2 text-sm">Actualizar</button></div>
+  return <section className={`rounded-xl border border-slate-200 bg-white p-4 ${className}`} aria-label="Documentos manuales">
+    <div className="flex items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">Documentos · circuito manual {environment === 'production' ? 'Production' : 'Stage'}</h2><p className="text-sm text-slate-600">Entrada manual paralela al correo futuro. {environment === 'production' ? 'Destino propuesto DocumentosPanelProduccion; adapter Selected pendiente, escritura cerrada.' : 'Sólo carpeta privada STAGING_FINANZAS_NO_CONTABILIZAR.'} Nada se contabiliza ni se enlaza automáticamente.</p></div><button type="button" disabled={busy} onClick={() => refresh().catch(e => setMessage(e.message))} className="rounded border px-3 py-2 text-sm">Actualizar</button></div>
     {message && <p role="status" className="my-3 rounded bg-amber-50 p-3 text-sm text-amber-900">{message}</p>}
     {!writeAllowed && <p className="mt-3 text-sm text-slate-600">Modo lectura o permiso E no concedido. Las acciones también se autorizan en servidor.</p>}
     {writeAllowed && <div className="my-4 grid gap-3 rounded bg-slate-50 p-3 md:grid-cols-2">
       <label className="text-sm">Original PDF/JPEG/PNG (máx. 4 MiB)<input aria-label="Archivo original" type="file" accept=".pdf,.jpg,.jpeg,.png" disabled={busy} className="mt-1 block w-full" onChange={e => { setFile(e.target.files?.[0] ?? null); uploadRequest.current = null; setUploadConfirmed(false) }} /></label>
       <label className="text-sm">Clasificación documental<select className="mt-1 block w-full rounded border p-2" value={tipo} disabled={busy} onChange={e => { setTipo(e.target.value); uploadRequest.current = null }}><option value="FACTURA_RECIBIDA">Factura recibida</option><option value="CONFIRMING">Confirming (sólo pendiente)</option><option value="OTRO">Otro (sólo pendiente)</option></select><span className="text-xs text-slate-500">Nóminas excluidas: requieren canal y permiso protegido.</span></label>
-      <label className="flex gap-2 text-sm"><input type="checkbox" checked={uploadConfirmed} disabled={busy} onChange={e => setUploadConfirmed(e.target.checked)} />Confirmo la incorporación manual de este original a Stage, sin borrar ni sobrescribir.</label>
+      <label className="flex gap-2 text-sm"><input type="checkbox" checked={uploadConfirmed} disabled={busy} onChange={e => setUploadConfirmed(e.target.checked)} />Confirmo la incorporación manual de este original al destino documental autorizado, sin borrar ni sobrescribir.</label>
       <button type="button" className="rounded bg-slate-900 px-3 py-2 text-white disabled:opacity-40" disabled={!file || !uploadConfirmed || busy} onClick={upload}>Incorporar original</button>
     </div>}
     <div className="grid gap-4 lg:grid-cols-[minmax(260px,1fr)_2fr]">

@@ -3,6 +3,11 @@ import { SegmentoCrm } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { authorizeCrmEmpresas } from '@/lib/crm-empresas-auth'
 import { parseEmpresaFields } from '@/lib/crm-empresas'
+import { registrarActividadEmpresa } from '@/lib/crm-empresa-actividad'
+
+export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  return registrarActividadEmpresa(request, context)
+}
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const auth = await authorizeCrmEmpresas(true)

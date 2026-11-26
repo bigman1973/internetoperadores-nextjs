@@ -157,7 +157,7 @@ export default async function CrmPage({ searchParams }: { searchParams: Promise<
                 {d.reunionesHoy.length === 0
                   ? <div className="empty">Sin reuniones registradas en el CRM para hoy.</div>
                   : d.reunionesHoy.map((m) => (
-                    <div className="item" key={m.id}><span className="time">{m.hora}</span><div><div className="t">{m.quien}</div><div className="w">{m.que}</div></div><Link className="btn small" href={`/admin/crm/contactos/${m.contactoId}`}>Abrir</Link></div>
+                    <div className="item" key={m.id}><span className="time">{m.hora}</span><div><div className="t">{m.quien}</div><div className="w">{m.que}</div></div><Link className="btn small" href={m.href}>Abrir</Link></div>
                   ))}
               </>
             )}
@@ -171,7 +171,7 @@ export default async function CrmPage({ searchParams }: { searchParams: Promise<
                   <div key={g}>
                     <div className="eyebrow" style={{ margin: '10px 0 4px' }}>{titulo} · {lista.length}</div>
                     {lista.map((t) => (
-                      <div className="item" key={t.id}><span className={`due ${t.clase}`.trim()}>{t.texto}</span><div><Link href={`/admin/crm/contactos/${t.contactoId}`} style={{ color: 'inherit', textDecoration: 'none' }}><div className="t">{t.titulo}</div><div className="w">{t.detalle}</div></Link></div><TareaHecho id={t.id} deshabilitado={enVerComo} /></div>
+                      <div className="item" key={t.id}><span className={`due ${t.clase}`.trim()}>{t.texto}</span><div><Link href={t.href} style={{ color: 'inherit', textDecoration: 'none' }}><div className="t">{t.titulo}</div><div className="w">{t.detalle}</div></Link></div><TareaHecho id={t.id} deshabilitado={enVerComo} /></div>
                     ))}
                   </div>
                 )

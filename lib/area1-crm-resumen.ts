@@ -83,14 +83,14 @@ export async function cargarResumenCrm(vista: VistaResumen, ahora = new Date()) 
     prisma.crmActividad.findMany({
       where: { ...filtroReuniones, fechaActividad: { gte: hoy, lt: manana } },
       orderBy: { fechaActividad: 'asc' }, take: 8,
-      select: { id: true, titulo: true, descripcion: true, fechaActividad: true, contactoId: true, contacto: { select: { nombre: true, empresa: true } } },
+      select: { id: true, titulo: true, descripcion: true, fechaActividad: true, contactoId: true, empresaId: true, empresa: { select: { nombre: true } }, contacto: { select: { nombre: true, empresa: true } } },
     }),
     prisma.crmActividad.count({ where: { ...filtroReuniones, fechaActividad: { gte: lunes, lt: domingoFin } } }),
     prisma.crmTarea.findMany({
       // Mi día: tareas y seguimientos vencidos, de hoy y del resto de la semana (hasta el domingo).
       where: { ...filtroTareas, estado: 'PENDIENTE', venceAt: { lt: domingoFin } },
       orderBy: { venceAt: 'asc' }, take: 15,
-      select: { id: true, titulo: true, descripcion: true, venceAt: true, contactoId: true, asignadoANombre: true, contacto: { select: { nombre: true, empresa: true } } },
+      select: { id: true, titulo: true, descripcion: true, venceAt: true, contactoId: true, empresaId: true, empresa: { select: { nombre: true } }, asignadoANombre: true, contacto: { select: { nombre: true, empresa: true } } },
     }),
     prisma.crmTarea.count({ where: { ...filtroTareas, estado: 'PENDIENTE', venceAt: { lt: hoy } } }),
     prisma.area1CrmPipeline.findMany({
@@ -216,17 +216,19 @@ export async function cargarResumenCrm(vista: VistaResumen, ahora = new Date()) 
     reunionesHoy: reunionesHoy.map((r) => ({
       id: r.id,
       hora: r.fechaActividad.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' }),
-      quien: r.contacto?.empresa || r.contacto?.nombre || 'Ficha sin nombre',
+      quien: r.empresa?.nombre || r.contacto?.empresa || r.contacto?.nombre || 'Ficha sin nombre',
       que: r.titulo || r.descripcion.slice(0, 90),
       contactoId: r.contactoId,
+      href: r.empresaId ? `/admin/crm/empresas/${encodeURIComponent(r.empresaId)}` : `/admin/crm/contactos/${encodeURIComponent(r.contactoId || '')}`,
     })),
     tareas: tareas.map((t) => ({
       id: t.id,
       grupo: grupoTarea(t.venceAt, hoy, domingoFin) || 'SEMANA',
       ...vencimiento(t.venceAt, ahora),
       titulo: t.titulo,
-      detalle: [t.contacto?.empresa || t.contacto?.nombre, mio ? null : t.asignadoANombre].filter(Boolean).join(' · ') || (t.descripcion || '').slice(0, 90),
+      detalle: [t.empresa?.nombre || t.contacto?.empresa || t.contacto?.nombre, mio ? null : t.asignadoANombre].filter(Boolean).join(' · ') || (t.descripcion || '').slice(0, 90),
       contactoId: t.contactoId,
+      href: t.empresaId ? `/admin/crm/empresas/${encodeURIComponent(t.empresaId)}` : `/admin/crm/contactos/${encodeURIComponent(t.contactoId || '')}`,
     })),
     origenes,
     pipelines: porPipeline,

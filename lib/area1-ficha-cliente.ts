@@ -78,10 +78,11 @@ export function cuotaMensual(contratos: Array<Pick<ContratoFicha, 'cuota' | 'est
   return { total: conImporte.length ? conImporte.reduce((s, c) => s + (c.cuota as number), 0) : null, activos: activos.length, sinImporte: activos.length - conImporte.length }
 }
 export type FacturaFicha = { numero: string; fecha: string; fechaIso: string; mes: string; base: number; total: number; pendiente: number; estado: 'Cobrada' | 'Pendiente' | 'Devuelto' }
-export function serieMensual(facturas: Array<Pick<FacturaFicha, 'mes' | 'base'>>, meses: string[]): number[] {
+export function serieMensual(facturas: Array<Pick<FacturaFicha, 'mes' | 'base'>>, meses: string[]): Array<number | null> {
   const m = new Map<string, number>()
   for (const f of facturas) m.set(f.mes, (m.get(f.mes) || 0) + f.base)
-  return meses.map((x) => Math.round((m.get(x) || 0) * 100) / 100)
+  // No consta factura en ese mes: ausencia, no cero. Un cero documentado sí se conserva.
+  return meses.map((x) => m.has(x) ? Math.round(m.get(x)! * 100) / 100 : null)
 }
 export type DueTarea = { cls: '' | 'bad' | 'ok'; txt: string }
 export function vencimientoTarea(vence: Date, hoy: Date): DueTarea {
@@ -182,7 +183,7 @@ export type FichaCliente = {
   datos: Array<[string, string]>
   comunicaciones: Array<[string, string, string]>
   contratos: ContratoFicha[]
-  facturacion: { meses: string[]; serie: number[]; hayFacturas: boolean; cobrado: number | null; pendiente: number | null; formaPago: string | null; facturas: FacturaFicha[]; anio: string }
+  facturacion: { meses: string[]; serie: Array<number | null>; hayFacturas: boolean; cobrado: number | null; pendiente: number | null; formaPago: string | null; facturas: FacturaFicha[]; anio: string }
   rentabilidad: RentabilidadFicha | null
   subida: SubidaCliente | null
   contextoIa: ContextoResumenIa
@@ -234,12 +235,12 @@ export async function cargarFichaCliente(empresaId: string, nivel: NivelResumen,
       select: { id: true, numeroDocumento: true, fecha: true, base: true, total: true, situacion: true, totalPendiente: true },
       orderBy: { fecha: 'desc' }, take: 400,
     }) : Promise.resolve([]),
-    contactoIds.length ? prisma.crmActividad.findMany({
-      where: { OR: [{ contactoId: { in: contactoIds } }, { contactos: { some: { contactoId: { in: contactoIds } } } }] },
-      select: { id: true, contactoId: true, tipo: true, titulo: true, descripcion: true, metadatos: true, fechaActividad: true, direccion: true, resultado: true, origen: true, creadoPorNombre: true, contacto: { select: { nombre: true, email: true } } },
+    prisma.crmActividad.findMany({
+      where: { OR: [{ empresaId: empresa.id }, ...(contactoIds.length ? [{ empresaId: null, OR: [{ contactoId: { in: contactoIds } }, { contactos: { some: { contactoId: { in: contactoIds } } } }] }] : [])] },
+      select: { id: true, empresaId: true, contactoId: true, tipo: true, titulo: true, descripcion: true, metadatos: true, fechaActividad: true, direccion: true, resultado: true, origen: true, creadoPorNombre: true, contacto: { select: { nombre: true, email: true } } },
       orderBy: { fechaActividad: 'desc' }, take: 120,
-    }) : Promise.resolve([]),
-    contactoIds.length ? prisma.crmTarea.findMany({ where: { contactoId: { in: contactoIds }, estado: { notIn: ['COMPLETADA', 'CANCELADA'] } }, orderBy: { venceAt: 'asc' }, take: 8, select: { titulo: true, venceAt: true } }) : Promise.resolve([]),
+    }),
+    prisma.crmTarea.findMany({ where: { OR: [{ empresaId: empresa.id }, ...(contactoIds.length ? [{ empresaId: null, contactoId: { in: contactoIds } }] : [])], estado: { notIn: ['COMPLETADA', 'CANCELADA'] } }, orderBy: { venceAt: 'asc' }, take: 8, select: { titulo: true, venceAt: true } }),
     prisma.area1CrmNegocio.findMany({
       where: { activo: true, OR: [{ empresaId: empresa.id }, ...(contactoIds.length ? [{ contactoId: { in: contactoIds } }] : [])] },
       include: { etapa: { select: { nombre: true, orden: true } }, pipeline: { select: { nombre: true, etapas: { where: { activo: true }, orderBy: { orden: 'asc' }, select: { nombre: true, orden: true, resultado: true } } } } },
@@ -266,7 +267,9 @@ export async function cargarFichaCliente(empresaId: string, nivel: NivelResumen,
     margenUltimo = lectura.margenUltimo
   } else if (verMargen) {
     // SIN_VINCULO explícito y sin consultar fotos de otros clientes.
-    rent = (await leerRentabilidadFicha(prisma, [], hoy)).rentabilidad
+    const lectura = await leerRentabilidadFicha(prisma, [], hoy)
+    rent = lectura.rentabilidad
+    margenUltimo = lectura.margenUltimo
   }
 
   const subida = codigosContrato.length || empresa.nif ? await leerSubidaCliente({ codigosContrato, cif: empresa.nif }) : null
@@ -285,13 +288,13 @@ export async function cargarFichaCliente(empresaId: string, nivel: NivelResumen,
   const cuota = cuotaMensual(contratos)
 
   // Facturación
-  const facturasF: FacturaFicha[] = facturas.map((f) => ({
+  const facturasF: FacturaFicha[] = facturas.filter((f) => mesDe(f.fecha) <= mesDe(hoy)).map((f) => ({
     numero: f.numeroDocumento, fecha: fechaLarga(f.fecha), fechaIso: f.fecha.toISOString(), mes: mesDe(f.fecha),
     base: Number(f.base), total: Number(f.total), pendiente: Number(f.totalPendiente),
     estado: devueltas.has(f.id) && Number(f.totalPendiente) > 0 ? 'Devuelto' : f.situacion === 'COBRADA' ? 'Cobrada' : 'Pendiente',
   }))
   const serie = serieMensual(facturasF, meses)
-  const facturado12 = facturasF.length ? serie.reduce((s, v) => s + v, 0) : null
+  const facturado12 = serie.some(v => v !== null) ? serie.reduce<number>((s, v) => s + (v ?? 0), 0) : null
   const anio = mesDe(hoy).slice(0, 4)
   const cobrado = facturasF.length ? facturasF.filter((f) => f.mes.startsWith(anio)).reduce((s, f) => s + (f.total - f.pendiente), 0) : null
   const pendiente = facturasF.length ? facturasF.reduce((s, f) => s + f.pendiente, 0) : null
@@ -301,7 +304,7 @@ export async function cargarFichaCliente(empresaId: string, nivel: NivelResumen,
 
   // Personas
   const ultimoPorContacto = new Map<string, { fecha: Date; tipo: string }>()
-  for (const a of actividades) if (!ultimoPorContacto.has(a.contactoId)) ultimoPorContacto.set(a.contactoId, { fecha: a.fechaActividad, tipo: a.tipo })
+  for (const a of actividades) if (a.contactoId && !ultimoPorContacto.has(a.contactoId)) ultimoPorContacto.set(a.contactoId, { fecha: a.fechaActividad, tipo: a.tipo })
   const personas: PersonaFicha[] = empresa.contactos.map((r) => {
     const nombre = r.contacto.nombre || r.contacto.email || 'Contacto sin nombre'
     const cargo = prop(r.contacto.propiedades, 'jobtitle')
@@ -314,7 +317,7 @@ export async function cargarFichaCliente(empresaId: string, nivel: NivelResumen,
   const eventos: EventoFicha[] = actividades.map((a) => {
     const fuente = fuenteActividad(a.origen, a.metadatos)
     const cat = categoriaActividad(a.tipo)
-    const persona = a.contacto?.nombre || a.contacto?.email || SIN_DATO
+    const persona = a.contacto?.nombre || a.contacto?.email || (a.empresaId ? empresa.nombre : SIN_DATO)
     const autor = a.creadoPorNombre || (fuente === 'HubSpot' ? 'HubSpot' : SIN_DATO)
     const quien = a.tipo === 'CORREO' ? (a.direccion === 'ENTRANTE' ? persona : `${autor} → ${persona}`) : a.tipo === 'REUNION' ? persona : autor
     return {
@@ -365,12 +368,13 @@ export async function cargarFichaCliente(empresaId: string, nivel: NivelResumen,
   const ultimoContacto = actividades.find((a) => ['CORREO', 'REUNION', 'LLAMADA', 'WHATSAPP', 'SMS'].includes(a.tipo))
   const sedes = new Set(contratosRaw.map((c) => (c.descripcion || '').trim()).filter(Boolean))
   const devImporte = devPend.reduce((s, d) => s + Number(d.importe), 0)
+  const fuenteMargen = rent?.snapshot ? `foto ${rent.snapshot.kind} v${rent.snapshot.version}${rent.snapshot.kind === 'PROYECCION' ? ' · no acredita cierre certificado' : ''}` : 'sin foto preparada'
 
   const kpis: KpiFicha[] = [
     { etiqueta: 'Cuota mensual', valor: cuota.total == null ? SIN_DATO : eur(cuota.total), sub: contratos.length ? `${cuota.activos} ${cuota.activos === 1 ? 'contrato activo' : 'contratos activos'}${cuota.sinImporte ? ` · ${cuota.sinImporte} sin importe` : ''}` : 'sin contratos de ISP Gestión', go: 'contratos' },
     { etiqueta: 'Facturado 12 meses', valor: facturado12 == null ? SIN_DATO : eur(facturado12), sub: facturado12 == null ? 'sin facturas en el panel' : 'base sin IVA · facturas desde enero de 2026', go: 'facturacion' },
     verMargen
-      ? { etiqueta: margenUltimo ? `Margen ${nombreMes(margenUltimo.mes)}` : 'Margen último mes', valor: margenUltimo?.pct == null ? SIN_DATO : pct(margenUltimo.pct), clase: margenUltimo?.pct == null ? undefined : margenUltimo.pct < 0 ? 'bad' : margenUltimo.pct < 20 ? 'low' : 'ok', sub: (margenUltimo?.margen == null ? 'sin cálculo de Rentabilidad' : `${eur(margenUltimo.margen)}/mes de margen`) + (margenUltimo?.hayEstimados && margenUltimo.costeEstimado != null && margenUltimo.costeEstimado > 0 ? ` · incluye ${eur(margenUltimo.costeEstimado, 2)} estimados` : ''), go: 'rentabilidad' }
+      ? { etiqueta: margenUltimo ? `Margen ${nombreMes(margenUltimo.mes)} ${margenUltimo.mes.slice(0, 4)}` : 'Margen último mes', valor: margenUltimo?.pct == null ? SIN_DATO : pct(margenUltimo.pct), clase: margenUltimo?.pct == null ? undefined : margenUltimo.pct < 0 ? 'bad' : margenUltimo.pct < 20 ? 'low' : 'ok', sub: (margenUltimo?.margen == null ? 'sin dato de Rentabilidad' : `${eur(margenUltimo.margen)}/mes de margen`) + (margenUltimo?.hayEstimados && margenUltimo.costeEstimado != null && margenUltimo.costeEstimado > 0 ? ` · incluye ${eur(margenUltimo.costeEstimado, 2)} estimados` : '') + ` · mes cerrado por calendario · ${fuenteMargen}`, go: 'rentabilidad' }
       : { etiqueta: 'Margen último mes', valor: 'sin acceso', sub: 'lo ven gerencia y superadmin', go: 'rentabilidad' },
     { etiqueta: 'Subida 2027', valor: subida ? `+${pct(subida.pctMedio)}` : 'sin propuesta', sub: subida ? `+${eur(subida.subidaMes)}/mes${subida.fechaLimiteAviso ? ` · aviso antes del ${subida.fechaLimiteAviso}` : ''}` : 'no hay escenario aprobado', go: 'rentabilidad' },
     { etiqueta: 'Pendiente de cobro', valor: pendiente == null ? SIN_DATO : eur(pendiente), sub: devPend.length ? `${devPend.length} ${devPend.length === 1 ? 'recibo devuelto' : 'recibos devueltos'}` : pendiente == null ? 'sin facturas en el panel' : 'ningún recibo devuelto', go: 'facturacion' },
