@@ -1,7 +1,8 @@
 /** Área 1 · Puertas CRM, correos recibidos y bloque de vínculos. Sin BD/red. */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { fichaNuevaHabilitada, importacionesCrmCerradas } from '../lib/area1-puertas-produccion'
+import { fichaNuevaHabilitada, importacionesCrmCerradas, vinculosBloqueProduccionHabilitado } from '../lib/area1-puertas-produccion'
+import { area4VinculosBloqueProductionEnabled } from '../lib/area4/crm-vinculos-production'
 import { m365Habilitado } from '../lib/area1-m365'
 import { m365LegacyEnabled, M365_LEGACY_PENDING_MESSAGE, M365_LEGACY_PENDING_CODE } from '../lib/m365-legacy-policy'
 let ok = 0
@@ -48,11 +49,35 @@ t('correos recibidos: 404 sin M365 antes de autorizar o pedir token; botón ocul
   assert.ok(get.indexOf('!m365Habilitado()') > 0 && get.indexOf('!m365Habilitado()') < get.indexOf('authorizeCrmEmpresas()') && get.indexOf('!m365Habilitado()') < get.indexOf('getOutlookUserAccessToken'))
   assert.ok(leer('components/admin/FichaCliente.tsx').includes('m365.conexion.m365 === false ? null'))
 })
-t('bloque de vínculos: 404 en GET y POST si las importaciones están cerradas', () => {
+t('bloque de vínculos: Production cerrado por defecto; excepción literal propia antes de auth, Stage conserva imports', () => {
   assert.equal(importacionesCrmCerradas(prod), true)
+  assert.equal(vinculosBloqueProduccionHabilitado(prod), false)
+  assert.equal(area4VinculosBloqueProductionEnabled(prod), false)
+  const synthetic = { ...prod, DATABASE_URL: 'postgresql://postgres:synthetic@yamanote.proxy.rlwy.net:34880/railway',
+    FINANCE_STAGING_SANDBOX: '0', FINANCE_DEPLOYMENT_READ_ONLY: '0', IO_PRODUCTION_READ_ONLY: '0' }
+  for (const value of [undefined, '', '0', 'true', 'false', 'yes', '2', '01', '1 ', ' 1', ' 1 ']) {
+    const env = { ...synthetic, AREA1_VINCULOS_BLOQUE_PRODUCCION: value }
+    assert.equal(vinculosBloqueProduccionHabilitado(env), false)
+    assert.equal(area4VinculosBloqueProductionEnabled(env), false)
+  }
+  const open = { ...synthetic, AREA1_VINCULOS_BLOQUE_PRODUCCION: '1' }
+  assert.equal(vinculosBloqueProduccionHabilitado(open), true)
+  assert.equal(area4VinculosBloqueProductionEnabled(open), true)
+  assert.equal(importacionesCrmCerradas(open), true)
+  assert.equal(area4VinculosBloqueProductionEnabled({ ...synthetic, AREA1_IMPORTACIONES_PRODUCCION: '1' }), false)
+  for (const readonly of [{ FINANCE_DEPLOYMENT_READ_ONLY: '1' }, { IO_PRODUCTION_READ_ONLY: '1' }]) {
+    assert.equal(area4VinculosBloqueProductionEnabled({ ...open, ...readonly }), false)
+  }
   const s = leer('app/api/admin/crm/isp/vinculos/bloque/route.ts')
+  const guard = s.slice(s.indexOf('function puertaBloque'), s.indexOf('export async function GET'))
+  assert.ok(guard.includes("if (process.env.VERCEL_ENV !== 'production')"))
+  assert.ok(guard.includes("return importacionesCrmCerradas() ? NextResponse.json({ error: 'No disponible.' }, { status: 404, headers: SIN_CACHE }) : null"))
+  assert.ok(guard.includes("if (!area4VinculosBloqueProductionEnabled() || area4VinculosBloqueProductionSurface(request) !== 'api')"))
+  assert.ok(guard.includes("return NextResponse.json({ error: 'No disponible.' }, { status: 404, headers: SIN_CACHE })"))
+  assert.ok(guard.includes('if (!area4VinculosBloqueProductionOriginAllowed(request))'))
   for (const m of ['export async function GET', 'export async function POST']) {
-    const b = s.slice(s.indexOf(m)); assert.ok(b.indexOf('importacionesCrmCerradas()') > 0 && b.indexOf('importacionesCrmCerradas()') < b.indexOf('autorizarSuperadminIsp()'), m)
+    const b = s.slice(s.indexOf(m))
+    assert.ok(b.indexOf('const puerta = puertaBloque(request)') > 0 && b.indexOf('if (puerta) return puerta') < b.indexOf('autorizarSuperadminIsp()'), m)
   }
 })
 console.log(`\n${ok}/5 OK`)

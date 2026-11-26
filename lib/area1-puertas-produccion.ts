@@ -20,3 +20,10 @@ export function fichaNuevaDisponibleParaRol(rol: string | null | undefined, role
 export function importacionesCrmCerradas(env: Env = process.env): boolean {
   return enProduccion(env) && (env.AREA1_IMPORTACIONES_PRODUCCION || '').trim() !== '1'
 }
+
+/** Tanda 3: solo bloque local. No concede permiso ni abre ISP/HubSpot/manual.
+ * Literal 1 (sin trim/coerción); runtime, DSN y readonly se intersectan aparte.
+ */
+export function vinculosBloqueProduccionHabilitado(env: Env = process.env): boolean {
+  return enProduccion(env) && env.AREA1_VINCULOS_BLOQUE_PRODUCCION === '1'
+}
