@@ -5,6 +5,8 @@ import {
 
 export type FinanceEnvironment = 'staging' | 'production' | null
 export type SidebarPresentation = 'historico' | 'agrupado'
+/** Puertas de producción calculadas en servidor (el cliente no ve process.env). */
+export interface SidebarGates { crmImportacionesCerradas?: boolean }
 
 export type SidebarIconName =
   | 'academicCap' | 'arrowPath' | 'arrowTrendingUp' | 'arrowsRightLeft'
@@ -69,6 +71,7 @@ export function getSidebarNavigation(
   financeEnvironment: FinanceEnvironment,
   conciliarEnabled = financeEnvironment === 'staging',
   presentation: SidebarPresentation = 'historico',
+  gates: SidebarGates = {},
 ): SidebarNavigationEntry[] {
   const adaptItem = (item: SidebarNavigationItem): SidebarNavigationItem | null => {
     const match = area4RegisteredSurface(item.href, 'page')
@@ -78,6 +81,7 @@ export function getSidebarNavigation(
     if (availability?.conciliarOnly && !conciliarEnabled) return null
     if (availability?.replacedByConciliar && conciliarEnabled) return null
     if (availability?.needsFinance && financeEnvironment === null) return null
+    if (availability?.closedByGate === 'crmImportaciones' && gates.crmImportacionesCerradas) return null
     return { ...item,
       name: availability?.financeSuffix && financeEnvironment === 'staging' ? `${item.name} · staging` : item.name,
       subitems: item.subitems?.map(adaptItem).filter((child): child is SidebarNavigationItem => child !== null) }
@@ -115,8 +119,9 @@ export function filterAuthorizedSidebarNavigation(
   conciliarEnabled = financeEnvironment === 'staging',
   presentation: SidebarPresentation = 'historico',
   hasSurfaceAccess: (href: string) => boolean = href => area4RegisteredSurface(href, 'page')?.baseline === true,
+  gates: SidebarGates = {},
 ): SidebarNavigationEntry[] {
-  return getSidebarNavigation(financeEnvironment, conciliarEnabled, presentation)
+  return getSidebarNavigation(financeEnvironment, conciliarEnabled, presentation, gates)
     .flatMap((entry): SidebarNavigationEntry[] => {
       if (!isSidebarNavigationGroup(entry)) return filterItem(entry, hasAccess, hasSurfaceAccess)
       const children = entry.children.flatMap(child => filterItem(child, hasAccess, hasSurfaceAccess))

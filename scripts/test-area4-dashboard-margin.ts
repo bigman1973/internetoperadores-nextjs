@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { totalsOf } from '../app/admin/rentabilidad/io-model'
-import { projectDashboardMargin, latestDashboardMarginSnapshot } from '../lib/area4/dashboard-native-projection'
+import { projectDashboardMargin, latestDashboardMarginSnapshot, esFiabilidadBaja, DASHBOARD_FIABILIDAD_BAJA_PCT } from '../lib/area4/dashboard-native-projection'
 import type { Row } from '../app/admin/rentabilidad/view-model'
 
 // All figures and rows are synthetic: no real product, customer or snapshot data.
@@ -16,7 +16,7 @@ test('usa totalsOf sin otra fórmula: coste real + estimado y calidad original i
   assert.equal(total.margin, 125)
   assert.equal(total.marginPct, 50)
   assert.equal(total.quality, 84)
-  assert.deepEqual(project(rows), { month, value: total.marginPct, reliability: total.quality, provisional: true })
+  assert.deepEqual(project(rows), { month, value: total.marginPct, reliability: total.quality, provisional: false })
   assert.deepEqual(rows, before)
 })
 
@@ -28,14 +28,14 @@ test('filas estructurales vacías con null no anulan el agregado conocido', () =
     { income: 0, cost: 0, pending: true },
   ]
   assert.equal(project([documented, ...emptyRows]).value, totalsOf([documented], 'real').marginPct)
-  assert.equal(project([documented, ...emptyRows]).provisional, true)
+  assert.equal(project([documented, ...emptyRows]).provisional, false)
   assert.equal(project(emptyRows).value, null)
 })
 
 test('ceros numéricos pendientes de productos no ocultan el coste agregado conocido', () => {
   const rows = [documented, { product: 'Servicio ficticio pendiente', contracts: 3, income: 100, rawIncome: 100, cost: 0, rawCost: 0, estimatedCost: 0, pending: true }]
   assert.equal(project(rows).value, totalsOf(rows, 'real').marginPct)
-  assert.equal(project(rows).provisional, true)
+  assert.equal(project(rows).provisional, false)
 })
 
 test('coste null de una fila material bloquea también cuando otras filas tienen coste conocido', () => {
@@ -68,7 +68,7 @@ test('coste cero explícito y no pendiente sí puede acreditar un 100 %', () => 
 test('respeta campos raw y su precisión y no muta filas ni totales', () => {
   const rows = [{ income: 100, rawIncome: 100.004, cost: 60, rawCost: 60.004, estimatedCost: 7, rawEstimatedCost: 10.004 }]
   assert.equal(project(rows).value, totalsOf(rows, 'real').marginPct)
-  assert.equal(project(rows).provisional, true)
+  assert.equal(project(rows).provisional, false)
   assert.equal(project([{ income: '100', cost: '60' }]).value, 40)
   assert.equal(project([{ rawIncome: null, income: 100, rawCost: null, cost: 60 }]).value, 40)
 })
@@ -92,4 +92,21 @@ test('enero permite diciembre del año anterior y no acepta meses malformados o 
   const december = { month: '2026-12', kind: 'PROYECCION', version: 3 }
   assert.deepEqual(latestDashboardMarginSnapshot([december, { month: '2027-01', version: 4 }, { month: '2026-99', version: 90 }, { month: 'unknown', version: 1 }], 2027, 1), december)
   assert.equal(latestDashboardMarginSnapshot([], 2026, 11), undefined)
+})
+
+test('provisional solo con fiabilidad baja (<60 %): la serie de referencia ene-oct deja octubre como único mes provisional', () => {
+  // Fiabilidad (% de coste real) de cada mes en la foto de octubre de staging, 26/11/2026.
+  const calidad: Record<string, number> = { '2026-01': 90.6, '2026-02': 89.5, '2026-03': 91.1, '2026-04': 86.2, '2026-05': 80.4, '2026-06': 87.2, '2026-07': 69.8, '2026-08': 75.1, '2026-09': 77.1, '2026-10': 57.1 }
+  const provisionales = Object.entries(calidad).filter(([, q]) => esFiabilidadBaja(q)).map(([m]) => m)
+  assert.deepEqual(provisionales, ['2026-10'])
+  assert.equal(esFiabilidadBaja(59.9), true)
+  assert.equal(esFiabilidadBaja(60), false)
+  assert.equal(esFiabilidadBaja(null), false)
+  assert.equal(DASHBOARD_FIABILIDAD_BAJA_PCT, 60)
+})
+test('un mes con coste estimado pero fiabilidad alta ya no es provisional; con fiabilidad baja sí', () => {
+  const alta = project([{ product: 'A', income: 100, rawIncome: 100, cost: 80, rawCost: 80, estimatedCost: 20, rawEstimatedCost: 20 }])
+  assert.equal(alta.reliability, 80); assert.equal(alta.provisional, false)
+  const baja = project([{ product: 'A', income: 100, rawIncome: 100, cost: 30, rawCost: 30, estimatedCost: 30, rawEstimatedCost: 30 }])
+  assert.equal(baja.reliability, 50); assert.equal(baja.provisional, true)
 })

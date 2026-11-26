@@ -2,7 +2,8 @@ import Link from 'next/link'
 import { requireAuth } from '../../../lib/middleware/auth'
 import { registrarArea, verificarPermisoServer } from '../../../lib/permisos'
 import { cargarAgendaOutlook, type AgendaOutlook, type ReunionAgenda } from '../../../lib/area1-crm-agenda'
-import { bloqueoActuacion } from '../../../lib/area1-m365'
+import { bloqueoActuacion, m365Habilitado } from '../../../lib/area1-m365'
+import { importacionesCrmCerradas } from '../../../lib/area1-puertas-produccion'
 import prisma from '../../../lib/prisma'
 import { cargarResumenCrm, fmtEur } from '../../../lib/area1-crm-resumen'
 import { nivelDe, resolverVista, type NivelResumen } from '../../../lib/area1-crm-resumen-vista'
@@ -59,7 +60,9 @@ export default async function CrmPage({ searchParams }: { searchParams: Promise<
     }).catch((): AgendaOutlook => ({ estado: 'error', motivo: 'No se ha podido leer tu calendario de Outlook ahora.' })),
     verificarPermisoServer(real.id, 'admin.crm.contactos', session.user.role).catch(() => ({ escritura: false })),
   ])
-  const puedeConectar = !!permisoCrm?.escritura && !vista.verComoActivo && !bloqueoActuacion(session)
+  const puedeConectar = m365Habilitado() && !!permisoCrm?.escritura && !vista.verComoActivo && !bloqueoActuacion(session)
+  // Puerta de producción: con las importaciones cerradas no se ofrece ningún acceso a ISP ni al historial de HubSpot.
+  const importacionesAbiertas = !importacionesCrmCerradas()
   const hoyTxt = d.fecha.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Madrid' })
   const mesTxt = d.fecha.toLocaleDateString('es-ES', { month: 'long', timeZone: 'Europe/Madrid' })
   const enVerComo = vista.verComoActivo
@@ -111,7 +114,7 @@ export default async function CrmPage({ searchParams }: { searchParams: Promise<
             <Link href="/admin/crm/pipelines">Pipelines <b>{n0(d.subnav.pipelines)}</b></Link>
             <Link href="/admin/crm/listas">Listas <b>{n0(d.subnav.listas)} activas</b></Link>
             <Link href="/admin/crm/partners">Partners <b>{n0(d.subnav.partners)}</b></Link>
-            {vista.puede.importarIsp && <Link href="/admin/crm/isp">Importar de ISP</Link>}
+            {vista.puede.importarIsp && importacionesAbiertas && <Link href="/admin/crm/isp">Importar de ISP</Link>}
           </nav>
         </div>
         <div className="kpis">
@@ -282,9 +285,9 @@ export default async function CrmPage({ searchParams }: { searchParams: Promise<
           {vista.puede.limpieza && d.limpieza && (
             <div className="panel">
               <h2>Limpieza de datos pendiente</h2>
-              <div className="q"><span className="big">{d.limpieza.vinculos == null ? '—' : n0(d.limpieza.vinculos)}</span><div className="small">{d.limpieza.vinculos == null ? 'Vínculos ISP ↔ ficha: aún no se ha importado ISP' : 'Vínculos ISP ↔ ficha por confirmar'}</div>{vista.puede.vinculosIsp ? <Link className="btn small" href="/admin/crm/isp">Revisar</Link> : <span />}</div>
+              <div className="q"><span className="big">{d.limpieza.vinculos == null ? '—' : n0(d.limpieza.vinculos)}</span><div className="small">{d.limpieza.vinculos == null ? 'Vínculos ISP ↔ ficha: aún no se ha importado ISP' : 'Vínculos ISP ↔ ficha por confirmar'}</div>{vista.puede.vinculosIsp && importacionesAbiertas ? <Link className="btn small" href="/admin/crm/isp">Revisar</Link> : <span />}</div>
               <div className="q"><span className="big">{d.limpieza.sinEmail == null ? '—' : n0(d.limpieza.sinEmail)}</span><div className="small">{d.limpieza.sinEmail == null ? 'Clientes sin correo: se calcula al importar ISP' : 'Clientes sin correo electrónico'}</div>{d.limpieza.sinEmail ? <Link className="btn small" href="/admin/clientes">Completar</Link> : <span />}</div>
-              <div className="q"><span className="big">—</span><div className="small">Notas, reuniones y tareas de HubSpot sin ficha: se cuentan al simular el historial</div>{vista.puede.importarIsp ? <Link className="btn small" href="/admin/crm/hubspot-historial">Simular</Link> : <span />}</div>
+              <div className="q"><span className="big">—</span><div className="small">Notas, reuniones y tareas de HubSpot sin ficha: se cuentan al simular el historial</div>{vista.puede.importarIsp && importacionesAbiertas ? <Link className="btn small" href="/admin/crm/hubspot-historial">Simular</Link> : <span />}</div>
               <div className="q"><span className="big">{d.brevoListasIO}</span><div className="small">Listas de Brevo marcadas como de IO; el resto de la cuenta del grupo queda bloqueado hasta clasificarlo</div><span /></div>
             </div>
           )}

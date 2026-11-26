@@ -34,7 +34,7 @@ export type Area4Surface = Readonly<{
     stagingImport?: 'isp-multipart-v1' | 'hubspot-confirm-v1';
     requiredActions?: Readonly<Partial<Record<'GET' | 'HEAD' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS', readonly Area4ActionLetter[]>>> }>;
   baselineDescriptor?: string; menu?: readonly Area4SurfaceMenu[];
-  availability?: Readonly<{ stagingOnly?: boolean; needsFinance?: boolean; conciliarOnly?: boolean; financeSuffix?: boolean; replacedByConciliar?: boolean }>;
+  availability?: Readonly<{ stagingOnly?: boolean; needsFinance?: boolean; conciliarOnly?: boolean; financeSuffix?: boolean; replacedByConciliar?: boolean; closedByGate?: "crmImportaciones" }>;
   easy?: 'conciliar' | 'modo-facil' | 'para-pedir';
 }>
 export type Area4UsersRowMetadata = Readonly<{ key: string; label: string; order: number }>
@@ -2474,6 +2474,7 @@ export const AREA4_SECTION_REGISTRY: readonly Area4Section[] = [
         kind: "page",
         actions: ["V"],
         menu: [{"id":"crm-isp:0:0","label":"ISP Gestión","icon":"link","appearances":[{"presentation":"agrupado","order":5,"parent":"crm:0:0"},{"presentation":"historico","order":6,"parent":"container:crm"}]}],
+        availability: {"closedByGate":"crmImportaciones"},
         baselineDescriptor: "[1,\"crm-isp\",\"admin.crm\",\"page\",\"/admin/crm/isp\",[\"V\"],[[\"V\",\"lectura\"]],null,null]",
       },
       {

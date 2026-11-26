@@ -80,7 +80,7 @@ async function main() {
   await t('página: Outlook bloqueado en «Ver como» y en actuación; botón Conectar solo con escritura', () => {
     assert.ok(page.includes('vista.verComoActivo ?') && page.includes('bloqueoActuacion(session)'))
     assert.ok(page.includes("'/api/admin/integraciones/outlook/connect?returnTo=/admin/crm'") && page.includes('Conectar mi Outlook'))
-    assert.ok(/puedeConectar = !!permisoCrm\?\.escritura && !vista\.verComoActivo && !bloqueoActuacion\(session\)/.test(page))
+    assert.ok(/puedeConectar = m365Habilitado\(\) && !!permisoCrm\?\.escritura && !vista\.verComoActivo && !bloqueoActuacion\(session\)/.test(page))
   })
   await t('página: sin datos de ejemplo; tareas en Vencidas / Hoy / Esta semana', () => {
     assert.ok(!/ejemplo|demo|lorem/i.test(page.slice(page.indexOf('<h2>Mi día</h2>'), page.indexOf('Clientes a cuidar'))))

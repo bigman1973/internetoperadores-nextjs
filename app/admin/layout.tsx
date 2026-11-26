@@ -26,6 +26,7 @@ import {
 import AdminSidebarMenu from '@/components/admin/server/AdminSidebarMenu'
 import { AdminSidebarPlaceholder } from '@/components/admin/presentation/AdminSidebarPlaceholder'
 import { isArea4Owner } from '@/lib/area4/policy'
+import { importacionesCrmCerradas } from '@/lib/area1-puertas-produccion'
 import { resolveLiveAdminPrincipal, readLiveArea4Adoption } from '@/lib/area4/live-admin'
 import { readArea4MenuConfiguration, resolveArea4MenuPresentation, type Area4MenuPresentation } from '@/lib/area4/menu-presentation'
 import { readArea4SurfacePermissionSeedWithFallback } from '@/lib/area4/surface-access'
@@ -102,7 +103,8 @@ function getSidebarInitialModel({
     tienePermisosGranulares,
     permissionsAdopted,
     surfacePermissions,
-  }), conciliarEnabled, menuPresentation, href => isOwner || area4SurfaceSeedAllows(surfacePermissions, href))
+  }), conciliarEnabled, menuPresentation, href => isOwner || area4SurfaceSeedAllows(surfacePermissions, href),
+    { crmImportacionesCerradas: importacionesCrmCerradas() })
 
   return {
     mode: isPrivilegedRealRole ? 'privileged' : 'seed',
@@ -218,6 +220,7 @@ export default async function AdminLayout({
               easyOnly={easyOnly}
               financeEnvironment={financeEnvironment}
               conciliarEnabled={conciliarEnabled}
+              crmImportacionesCerradas={importacionesCrmCerradas()}
               initialMenu={initialMenu}
               initialMenuMode={initialSidebar?.mode ?? 'unavailable'}
               initialPermissionSignature={initialSidebar?.permissionSignature}
