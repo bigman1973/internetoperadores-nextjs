@@ -86,7 +86,7 @@ export default function ComprobacionSinMovimientos(p: Readonly<{
             <textarea required rows={3} minLength={8} maxLength={2000} value={draft.note}
               onChange={e => setDraft({ ...draft, note: e.target.value })} style={{ display: 'block', width: '100%' }} />
           </label>
-          <label style={{ display: 'flex', gap: 8, marginTop: 12 }}><input type="checkbox" checked={draft.checked}
+          <label style={{ display: 'flex', gap: 8, marginTop: 12 }}><input type="checkbox" checked={draft.checked} style={{ width: 18, height: 18, flex: '0 0 18px', padding: 0, marginTop: 2 }}
             onChange={e => setDraft({ ...draft, checked: e.target.checked })} />
             Confirmo que he revisado personalmente esta cuenta en el banco y no tiene movimientos nuevos desde el corte actual hasta la fecha indicada. Comprendo que sólo registro cobertura humana auditada.</label>
         </fieldset>
