@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { privateJson, requireB4FinanceAccess, sameOrigin } from '@/lib/finanzas/reconciliation-auth'
-import { assertPrototypeStaging } from '@/lib/finanzas/prototype-staging'
+import { assertFinanceEasyRuntime } from '@/lib/finanzas/prototype-staging'
 import { easyUndoErrorResponse, undoEasy } from '@/lib/finanzas/easy-reconciliation-undo'
 
 export const dynamic = 'force-dynamic'
@@ -45,7 +45,7 @@ function errorResponse(error: unknown) {
 /** Reversión explícita de una confirmación propia Modo Fácil; no acepta datos B4 del cliente. */
 export async function POST(req: NextRequest) {
   try {
-    await assertPrototypeStaging()
+    await assertFinanceEasyRuntime()
     const session = await getServerSession(authOptions)
     const access = await requireB4FinanceAccess('escritura', session)
     if ('response' in access) return access.response
