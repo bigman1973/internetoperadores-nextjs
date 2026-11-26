@@ -92,7 +92,7 @@ async function main() {
     const lib = readFileSync(join(root, 'lib/area1-hubspot-historial.ts'), 'utf8')
     const i = lib.indexOf("if (modo === 'simular') return resultado"); const w = lib.search(/crmSincronizacionHubspot\.create|INSERT INTO/)
     assert.ok(i > 0 && i < w, 'simular vuelve antes de cualquier escritura')
-    const mw = readFileSync(join(root, 'middleware.js'), 'utf8')
+    const mw = readFileSync(join(root, 'proxy.js'), 'utf8')
     assert.ok(mw.includes("['GET', 'HEAD', 'OPTIONS'].includes(request.method)"), 'el sandbox de staging deja pasar GET')
     assert.ok(!mw.includes('/api/admin/crm/hubspot/historial'), 'importar no tiene excepción en el sandbox')
   })

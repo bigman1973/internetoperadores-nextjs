@@ -126,9 +126,9 @@ test('CRM, Rentabilidad y Subida de precios incorporan las superficies reales de
 })
 
 test('la guardia global de páginas/APIs usa el registro y evalúa V/E/C/X antes de high-risk', () => {
-  const middleware = readFileSync(join(root, 'middleware.js'), 'utf8')
+  const middleware = readFileSync(join(root, 'proxy.js'), 'utf8')
   const start = middleware.indexOf('async function area4RegisteredAdminApiBoundary(request)')
-  const end = middleware.indexOf('export async function middleware(request)')
+  const end = middleware.indexOf('export async function proxy(request)')
   assert.ok(start >= 0 && end > start, 'la guardia global debe existir')
   const boundary = middleware.slice(start, end)
   assert.match(boundary, /pathname === '\/admin' \|\| pathname\.startsWith\('\/admin\/'\)/)

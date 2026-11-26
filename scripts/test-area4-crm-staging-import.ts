@@ -63,7 +63,7 @@ const database = {
     return data
   } } }),
 }
-const source = readFileSync('middleware.js', 'utf8') + '\nmodule.exports.area4Boundary = area4RegisteredAdminApiBoundary;'
+const source = readFileSync('proxy.js', 'utf8') + '\nmodule.exports.area4Boundary = area4RegisteredAdminApiBoundary;'
 const code = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText
@@ -155,7 +155,7 @@ async function invoke(path: string, wire?: WireBody, options: {
   let response: NextResponse | null
   try {
     response = await Promise.race([
-      options.boundaryOnly ? mod.exports.area4Boundary(request) : mod.exports.middleware(request),
+      options.boundaryOnly ? mod.exports.area4Boundary(request) : mod.exports.proxy(request),
       new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`UNCONSUMED_CLONE_TIMEOUT ${method} ${path}`)), 3000) }),
     ])
   } finally {

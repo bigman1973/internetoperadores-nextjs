@@ -14,7 +14,7 @@ const productionIdentity = { database_name: 'railway', database_user: 'postgres'
 assert.equal(validateConciliarBoundaryProfile([{ ...productionIdentity, perfil: 'MODO_FACIL_ONLY' }], 'production'), true)
 assert.equal(validateConciliarBoundaryProfile([{ ...productionIdentity, perfil: 'COMPLETO' }], 'production'), false)
 assert.throws(() => validateConciliarBoundaryProfile([{ ...identity, perfil: 'MODO_FACIL_ONLY' }], 'production'), /CONCILIAR_PROFILE_IDENTITY_REQUIRED/)
-const middleware = fs.readFileSync('middleware.js', 'utf8')
+const middleware = fs.readFileSync('proxy.js', 'utf8')
 assert.ok(middleware.includes("token?.impersonation === undefined || token?.impersonation === null"))
 assert.ok(middleware.includes("request.headers.get(EXPECTED_IMPERSONATION_SESSION_HEADER) === null"))
 assert.ok(middleware.includes("headers.delete(IMPERSONATION_HEADER)"))

@@ -1,0 +1,20 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),ts=require('typescript');
+const root=path.resolve(__dirname,'..');
+const pkg=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8'));
+const src=fs.readFileSync(path.join(root,'proxy.js'),'utf8');
+let passing=0;
+function check(name,run){run();passing++;console.log('PASS',name);}
+check('Node fijado a 22.x (no rango abierto)',()=>assert.equal(pkg.engines.node,'22.x'));
+check('entrypoint antiguo retirado',()=>assert.equal(fs.existsSync(path.join(root,'middleware.js')),false));
+check('una función export proxy',()=>assert.equal((src.match(/export async function proxy\(request\)/g)||[]).length,1));
+check('sin export middleware residual',()=>assert.equal(/export\s+(?:async\s+)?function\s+middleware\b/.test(src),false));
+const ast=ts.createSourceFile('proxy.js',src,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
+const config=ast.statements.filter(ts.isVariableStatement).flatMap(s=>s.declarationList.declarations).find(d=>d.name.getText(ast)==='config');
+check('config literal inspeccionable por Next',()=>assert(config&&config.initializer&&ts.isObjectLiteralExpression(config.initializer)));
+const props=config.initializer.properties;
+check('runtime implícito Node sin opción prohibida',()=>assert.equal(props.some(p=>p.name&&p.name.getText(ast)==='runtime'),false));
+const matcher=props.find(p=>p.name&&p.name.getText(ast)==='matcher');
+check('matchers exactos API y páginas, sin cambiar cobertura',()=>assert.deepEqual(matcher.initializer.elements.map(x=>x.text),['/api/:path*','/((?!api|_next/static|_next/image|favicon.ico).*)']));
+check('build y postinstall sin migraciones automáticas',()=>assert(!/migrate\s+deploy|db\s+push/.test(pkg.scripts.build+' '+pkg.scripts.postinstall)));
+console.log(`${passing}/${passing} contrato Node/proxy; sin red, BD ni cookies reales.`);

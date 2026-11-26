@@ -74,7 +74,7 @@ test('el control durante actuación deja pasar sólo salida y replay de inicio, 
   assert.equal(impersonationRouteDecision('/api/admin/actuar-como', 'POST', new URLSearchParams(), undefined, 'cambiar-destino').allowed, false)
   assert.equal(impersonationRouteDecision('/api/admin/actuar-como', 'PUT', new URLSearchParams(), undefined, 'iniciar').allowed, false)
 
-  const middleware = readFileSync(new URL('../middleware.js', import.meta.url), 'utf8')
+  const middleware = readFileSync(new URL('../proxy.js', import.meta.url), 'utf8')
   assert.match(middleware, /action === 'salir' \|\| action === 'iniciar'/)
   assert.doesNotMatch(middleware, /path === '\/api\/admin\/actuar-como'[\s\S]{0,180}request\.method === 'POST' && action\s*===\s*'[^']+'\s*\) return \{ headers \};/)
 })

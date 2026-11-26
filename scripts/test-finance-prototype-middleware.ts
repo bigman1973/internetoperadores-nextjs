@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-const source=readFileSync(new URL('../middleware.js',import.meta.url),'utf8')
+const source=readFileSync(new URL('../proxy.js',import.meta.url),'utf8')
 const start=source.indexOf('function financeAreas(pathname) {')
-const end=source.indexOf('\nexport async function middleware',start)
+const end=source.indexOf('\nexport async function proxy',start)
 assert.ok(start>=0&&end>start)
 const areas=new Function(`${source.slice(start,end)};return financeAreas`)() as (path:string)=>string[]
 for(const path of ['/api/admin/finanzas/modo-facil','/api/admin/finanzas/modo-facil/foto','/api/admin/finanzas/modo-facil/documentos/fixture/archivo','/api/admin/finanzas/analitica-cliente'])assert.deepEqual(areas(path),['admin.finanzas.conciliacion'])

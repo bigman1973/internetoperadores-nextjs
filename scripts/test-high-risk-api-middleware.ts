@@ -24,7 +24,7 @@ let grantedArea: string | null = null
 let grantedAction: 'lectura' | 'escritura' | null = null
 let altaContractToken = 'contract-capability-1234567890'
 
-const source = readFileSync('middleware.js', 'utf8')
+const source = readFileSync('proxy.js', 'utf8')
 const code = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText
@@ -73,7 +73,7 @@ vm.runInNewContext(code, {
   },
 })
 
-const middleware = module.exports.middleware as (request: NextRequest) => Promise<Response>
+const middleware = module.exports.proxy as (request: NextRequest) => Promise<Response>
 
 async function status(path: string, method = 'GET'): Promise<number> {
   return (await middleware(new NextRequest(`https://panel.example.test${path}`, { method }))).status

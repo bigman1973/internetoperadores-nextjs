@@ -431,7 +431,7 @@ async function testIsolationAndStaticNoOutboundGuards(): Promise<void> {
   databaseIdentity = { db: 'io_staging_finanzas', usuario: 'io_staging_finanzas' };
 
   // Static regression checks cover the two B1 no-outbound perimeter controls without importing/running them.
-  const middleware = fs.readFileSync('middleware.js', 'utf8');
+  const middleware = fs.readFileSync('proxy.js', 'utf8');
   assert.match(middleware, /FINANCE_STAGING_SANDBOX === '1'/);
   assert.match(middleware, /path === '\/api\/admin\/finanzas\/sincronizar-onedrive'/);
   assert.match(middleware, /path\.startsWith\('\/api\/cron\/'\)/);

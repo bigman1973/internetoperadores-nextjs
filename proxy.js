@@ -619,7 +619,7 @@ async function area4RegisteredAdminApiBoundary(request) {
   }
 }
 
-export async function middleware(request) {
+export async function proxy(request) {
   const timingStart = performance.now();
   const traceTiming = phase => {
     if (process.env.FINANCE_STAGING_SANDBOX === '1' && ['/admin/finanzas/conciliar', '/api/admin/finanzas/conciliar'].includes(request.nextUrl.pathname)) {
@@ -931,7 +931,6 @@ export async function middleware(request) {
 
 // Configurar qué rutas proteger
 export const config = {
-  runtime: 'nodejs',
   matcher: [
     '/api/:path*',
     /*

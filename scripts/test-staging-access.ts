@@ -6,13 +6,13 @@ import * as access from '../lib/staging-access'
 import { highRiskApiRequirement } from '../lib/high-risk-api-policy'
 import { hasAltaContractCapability } from '../lib/altas/contrato-access'
 
-const source = fs.readFileSync('middleware.js', 'utf8')
+const source = fs.readFileSync('proxy.js', 'utf8')
   .replace(/^import .+;\n/gm, '')
   .replace(/  const \{ STAGING_ACCESS_PATH, STAGING_ACCESS_HEADERS, stagingAccessHtml, safeStagingReturn, readStagingAccessForm \} = await import\('\.\/lib\/staging-access'\);/, '')
   .replace(/const validUser = [^;]+;/, "const validUser = 'synthetic-reviewer';")
   .replace(/const validPassword = [^;]+;/, "const validPassword = 'synthetic-password';")
-  .replace('export async function middleware', 'async function middleware')
-  .replace('export const config', 'const config') + '\nthis.run = middleware;'
+  .replace('export async function proxy', 'async function proxy')
+  .replace('export const config', 'const config') + '\nthis.run = proxy;'
 let checks = 0
 function check(condition: unknown) { assert.ok(condition); checks++ }
 async function run(path: string, options: { method?: string; headers?: Record<string, string>; body?: string; cookie?: boolean; production?: boolean; env?: Record<string, string> } = {}) {

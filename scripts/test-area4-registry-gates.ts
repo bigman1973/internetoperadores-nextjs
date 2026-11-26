@@ -9,7 +9,7 @@ import * as crmStagingImport from '../lib/area4/crm-staging-import'
 
 // Runs the exact sandbox block copied from current middleware source in a VM.
 // This is not an HTTP acceptance test, and it never executes any handler.
-const source = readFileSync('middleware.js', 'utf8')
+const source = readFileSync('proxy.js', 'utf8')
 const start = source.indexOf("  if (process.env.FINANCE_STAGING_SANDBOX === '1' && request.nextUrl.pathname.startsWith('/api/')) {")
 const end = source.indexOf('\n  const path = request.nextUrl.pathname;', start)
 assert.ok(start >= 0 && end > start, 'la guarda real debe existir; no sustituirla por una simulación del resultado')

@@ -118,8 +118,8 @@ t('seguimiento: real mensual frente a presupuesto/12, solo meses cerrados, sin c
   const gas = s.filas.find(f => f.tipo === 'GASTO')!; assert.equal(gas.realAcum, 100); assert.equal(gas.presupuestoAcum, 200);
 });
 t('middleware: Impuestos y Presupuesto registrados y escrituras del sandbox acotadas', () => {
-  const src = readFileSync(new URL('../middleware.js', import.meta.url), 'utf8');
-  const st = src.indexOf('function financeAreas(pathname) {'); const en = src.indexOf('\nexport async function middleware', st);
+  const src = readFileSync(new URL('../proxy.js', import.meta.url), 'utf8');
+  const st = src.indexOf('function financeAreas(pathname) {'); const en = src.indexOf('\nexport async function proxy', st);
   const areas = new Function(`${src.slice(st, en)};return financeAreas`)() as (p: string) => string[];
   assert.deepEqual(areas('/api/admin/finanzas/impuestos'), ['admin.finanzas.impuestos']);
   assert.deepEqual(areas('/api/admin/finanzas/impuestos/presentados'), ['admin.finanzas.impuestos']);

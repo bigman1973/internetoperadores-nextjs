@@ -27,7 +27,7 @@ function run(): void {
 
   const handler = readFileSync('app/api/altas/contrato/route.ts', 'utf8')
   const sender = readFileSync('app/api/altas/[id]/enviar-contrato/route.ts', 'utf8')
-  const middleware = readFileSync('middleware.js', 'utf8')
+  const middleware = readFileSync('proxy.js', 'utf8')
   assert.match(handler, /hasAltaContractCapability\(accessRecord\?\.token, suppliedToken\)/)
   assert.match(handler, /checkAdminAreaRead\('admin\.altas_pendientes', \['VENTAS'\]\)/)
   assert.match(handler, /Cache-Control.*private, no-store/)

@@ -97,8 +97,12 @@ async function main() {
   t('sin client_credentials en M365 del Área 1', !/client_credentials/.test(libs))
   // Solo lo que aporta esta rama (desde su base con staging) y lo no confirmado: el middleware del Área 4 integrado en staging no cuenta.
   const baseStaging = (() => { try { return execSync('git merge-base HEAD origin/staging', { encoding: 'utf8' }).trim() } catch { return 'HEAD' } })()
-  const diffEmail = execSync(`git diff ${baseStaging} -- lib/email.ts middleware.js`, { encoding: 'utf8' })
-  t('lib/email.ts y middleware.js sin tocar', diffEmail.trim() === '')
+  const diffEmail = execSync(`git -c color.ui=false diff ${baseStaging} -- lib/email.ts`, { encoding: 'utf8' })
+  // Next 16: se permite únicamente renombrar el entrypoint/export y retirar runtime,
+  // que Proxy ya fija a Node. El cuerpo de todas las guardas sigue comparándose exacto.
+  const baselineProxy = (() => { try { return execSync(`git show ${baseStaging}:proxy.js`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }) } catch { return execSync(`git show ${baseStaging}:middleware.js`, { encoding: 'utf8' }) } })()
+  const normalizeProxy = (source: string) => source.replace('export async function middleware(request)', 'export async function proxy(request)').replace("  runtime: 'nodejs',\n", '')
+  t('lib/email.ts y cuerpo del proxy sin tocar', diffEmail.trim() === '' && normalizeProxy(baselineProxy) === normalizeProxy(readFileSync('proxy.js', 'utf8')))
 
   // Canal por defecto: Mi Outlook (decisión de Víctor 25/11)
   t('canal por defecto: Mi Outlook si la integración está activa (aunque no esté conectado)', canalCorreoInicial({ enabled: true, connected: false }) === 'outlook' && canalCorreoInicial({ enabled: true, connected: true, mail: true }) === 'outlook')

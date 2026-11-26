@@ -30,7 +30,7 @@ const database = {
     return data
   } } }),
 }
-const source = readFileSync('middleware.js', 'utf8') + '\nmodule.exports.area4Boundary = area4RegisteredAdminApiBoundary;'
+const source = readFileSync('proxy.js', 'utf8') + '\nmodule.exports.area4Boundary = area4RegisteredAdminApiBoundary;'
 const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
 const mod: any = { exports: {} }
 vm.runInNewContext(code, {

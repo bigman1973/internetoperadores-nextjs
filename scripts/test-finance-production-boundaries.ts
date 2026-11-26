@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const root = resolve(__dirname, '..')
-const middleware = readFileSync(resolve(root, 'middleware.js'), 'utf8')
+const middleware = readFileSync(resolve(root, 'proxy.js'), 'utf8')
 const autoRoute = readFileSync(resolve(root, 'app/api/admin/finanzas/conciliacion/auto/route.ts'), 'utf8')
 
 function includes(source: string, value: string, message = value) {

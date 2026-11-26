@@ -12,7 +12,7 @@ async function main() {
     assert.equal(adminRenderSurface(path, true), 'default')
   }
   assert.equal(adminRenderSurface('/admin/finanzas/conciliar', false), 'default')
-  const middleware = readFileSync(resolve('middleware.js'), 'utf8')
+  const middleware = readFileSync(resolve('proxy.js'), 'utf8')
   const setter = middleware.indexOf('trustedHeaders.set(ADMIN_RENDER_SURFACE_HEADER, adminRenderSurface(')
   assert(setter > middleware.indexOf('if (actingBoundary.response) return actingBoundary.response'))
   assert(setter < middleware.indexOf('const mustCheckEasyOnlyProfile'))

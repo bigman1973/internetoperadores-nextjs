@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import { NextRequest, NextResponse } from 'next/server';
 
-const src = fs.readFileSync('middleware.js', 'utf8');
+const src = fs.readFileSync('proxy.js', 'utf8');
 const code = ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const module = { exports: {} as any };
 let authenticated = true;
@@ -21,7 +21,7 @@ vm.runInNewContext(code, { module, exports: module.exports, process: { env: {} }
   throw new Error('Módulo inesperado');
 }});
 async function status(path: string, method = 'GET') {
-  return (await module.exports.middleware(new NextRequest(`https://panel.test${path}`, { method }))).status;
+  return (await module.exports.proxy(new NextRequest(`https://panel.test${path}`, { method }))).status;
 }
 async function main() {
   for (const path of ['/api/admin/finanzas/rentabilidad', '/api/admin/finanzas/rentabilidad/servicios', '/api/admin/finanzas/rentabilidad/proveedores', '/api/admin/finanzas/rentabilidad/lineas']) {
