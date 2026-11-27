@@ -307,6 +307,9 @@ async function run() {
   const docs = load("lib/certificaciones/documents.ts", {
     "@/lib/finanzas/microsoft-graph": {},
     "./core": core,
+    "./documents-selected": {
+      createCertificationDocumentWriter: () => { throw Error("NO_WRITE_IN_VALIDATOR"); },
+    },
   });
   assert.equal(
     docs.validateDocument(Buffer.from("%PDF-1.7\nsynthetic"), "test.pdf").mime,
@@ -333,37 +336,31 @@ async function run() {
     }),
   );
   assert.throws(() => docs.validateDocument(macro, "test.docx"));
+  let storedBytes: Buffer | null = null;
+  let writes = 0;
   const immutableDocs = load("lib/certificaciones/documents.ts", {
     "@/lib/finanzas/microsoft-graph": {
       getAccessToken: async () => "SYNTHETIC_TOKEN",
-      findSharePointSite: async () => ({ siteId: "SITE_TEST" }),
-      getSiteDrive: async () => "DRIVE_TEST",
     },
     "./core": core,
+    // El wrapper ya no escribe en la raíz histórica. El transporte Selected real,
+    // sus pins/ancestros/conflictos y PUT inmutable tienen 25 casos offline aparte.
+    "./documents-selected": {
+      createCertificationDocumentWriter: () => ({ upload: async (n: string, bytes: Buffer) => {
+        assert.equal(n, "ISO27001");
+        writes++;
+        storedBytes = Buffer.from(bytes);
+        return { drive: "DRIVE_TEST", item: "ITEM_TEST", hash: realRequire("node:crypto").createHash("sha256").update(bytes).digest("hex") };
+      } }),
+    },
   });
   const originalFetch = globalThis.fetch;
-  let storedBytes: Uint8Array | null = null;
   try {
     globalThis.fetch = (async (url: any, options: any = {}) => {
       const target = String(url);
-      if (options.method === "PUT") {
-        assert(
-          target.endsWith(".bin:/content"),
-          "El original debe almacenarse como binario, no Word modificable",
-        );
-        assert.equal(
-          options.headers["Content-Type"],
-          "application/octet-stream",
-        );
-        storedBytes = options.body;
-        return new Response(JSON.stringify({ id: "ITEM_TEST" }), {
-          status: 200,
-        });
-      }
-      if (target.includes("/items/ITEM_TEST/content"))
-        return new Response(storedBytes as any);
-      if (target.endsWith(".bin")) return new Response(null, { status: 404 });
-      return new Response(JSON.stringify({ folder: {} }), { status: 200 });
+      assert.equal(options.method ?? "GET", "GET", "El lector histórico no escribe");
+      assert.equal(target, "https://graph.microsoft.com/v1.0/drives/DRIVE_TEST/items/ITEM_TEST/content");
+      return new Response(storedBytes as any);
     }) as typeof fetch;
     const sealed = await immutableDocs.uploadCertificationDocument(
       "ISO27001",
@@ -376,6 +373,9 @@ async function run() {
       sealed.hash,
     );
     assert.deepEqual(downloaded, word);
+    assert.equal(writes, 1);
+    await assert.rejects(() => immutableDocs.downloadCertificationDocument(sealed.drive, sealed.item, "0".repeat(64)), /original ha cambiado/);
+    assert.equal(writes, 1, "La lectura no crea copias ni sustituye referencias");
   } finally {
     globalThis.fetch = originalFetch;
   }

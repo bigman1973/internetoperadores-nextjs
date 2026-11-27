@@ -1,11 +1,8 @@
 import { createHash } from "node:crypto";
 import { unzipSync } from "fflate";
-import {
-  getAccessToken,
-  findSharePointSite,
-  getSiteDrive,
-} from "@/lib/finanzas/microsoft-graph";
+import { getAccessToken } from "@/lib/finanzas/microsoft-graph";
 import { Norma, ValidationError } from "./core";
+import { createCertificationDocumentWriter } from "./documents-selected";
 export const MAX_DOCUMENT = 4 * 1024 * 1024;
 const GRAPH = "https://graph.microsoft.com/v1.0";
 export function validateDocument(bytes: Buffer, filename: string) {
@@ -44,55 +41,8 @@ export function validateDocument(bytes: Buffer, filename: string) {
   }
   throw new ValidationError("Solo se admiten archivos PDF o Word DOCX válidos");
 }
-async function credentials() {
-  const token = await getAccessToken();
-  const drive =
-    process.env.SHAREPOINT_DRIVE_ID ||
-    (await getSiteDrive((await findSharePointSite()).siteId));
-  return { token, drive };
-}
 function base(drive: string) {
   return `${GRAPH}/drives/${encodeURIComponent(drive)}`;
-}
-async function folder(
-  drive: string,
-  token: string,
-  path: string,
-  parent: string | null,
-  name: string,
-) {
-  const url = `${base(drive)}/root:/${path.split("/").map(encodeURIComponent).join("/")}`;
-  const current = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: "no-store",
-    signal: AbortSignal.timeout(20000),
-  });
-  if (current.ok) {
-    if (!(await current.json()).folder)
-      throw new Error("Ruta documental no válida");
-    return;
-  }
-  if (current.status !== 404)
-    throw new Error("No se pudo verificar la carpeta corporativa privada");
-  const parentUrl = parent
-    ? `${base(drive)}/root:/${parent.split("/").map(encodeURIComponent).join("/")}:/children`
-    : `${base(drive)}/root/children`;
-  const r = await fetch(parentUrl, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      name,
-      folder: {},
-      "@microsoft.graph.conflictBehavior": "fail",
-    }),
-    cache: "no-store",
-    signal: AbortSignal.timeout(20000),
-  });
-  if (!r.ok && r.status !== 409)
-    throw new Error("No se pudo crear la carpeta corporativa privada");
 }
 async function download(drive: string, item: string, token: string) {
   if (
@@ -133,70 +83,19 @@ async function download(drive: string, item: string, token: string) {
   }
   return Buffer.concat(chunks, size);
 }
+/** Future writes only: no historical root lookup, provisioning or generic token.
+ * A receipt is returned only after Selected metadata/ancestry/bytes verification. */
 export async function uploadCertificationDocument(
   n: Norma,
   bytes: Buffer,
   filename: string,
 ) {
-  const { mime, extension } = validateDocument(bytes, filename),
-    hash = createHash("sha256").update(bytes).digest("hex");
-  const { drive, token } = await credentials();
-  await folder(drive, token, "Certificaciones", null, "Certificaciones");
-  await folder(drive, token, `Certificaciones/${n}`, "Certificaciones", n);
-  const url = `${base(drive)}/root:/Certificaciones/${n}/${hash}.bin`;
-  const existing = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: "no-store",
-    signal: AbortSignal.timeout(20000),
-  });
-  if (existing.ok) {
-    const data = await existing.json(),
-      stored = await download(drive, data.id, token);
-    if (createHash("sha256").update(stored).digest("hex") !== hash)
-      throw new Error(
-        "El archivo ya existe pero no coincide; no se sobrescribe",
-      );
-    return { drive, item: String(data.id), hash, mime };
-  }
-  if (existing.status !== 404)
-    throw new Error("No se pudo comprobar el documento");
-  const r = await fetch(url + ":/content", {
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/octet-stream",
-      "If-None-Match": "*",
-    },
-    body: new Uint8Array(bytes),
-    cache: "no-store",
-    signal: AbortSignal.timeout(30000),
-  });
-  if (r.status === 409 || r.status === 412) {
-    const concurrent = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store",
-      signal: AbortSignal.timeout(20000),
-    });
-    if (!concurrent.ok)
-      throw new Error("Conflicto de archivo. Vuelve a intentarlo.");
-    const data = await concurrent.json(),
-      stored = await download(drive, data.id, token);
-    if (createHash("sha256").update(stored).digest("hex") !== hash)
-      throw new Error("Documento distinto; no se ha sobrescrito");
-    return { drive, item: String(data.id), hash, mime };
-  }
-  if (!r.ok)
-    throw new Error(
-      "No se pudo guardar el documento privado; comprueba los permisos corporativos",
-    );
-  const data = await r.json();
-  if (typeof data.id !== "string" || !data.id)
-    throw new Error("OneDrive no confirmó el archivo");
-  const verified = await download(drive, data.id, token);
-  if (createHash("sha256").update(verified).digest("hex") !== hash)
-    throw new Error("No se ha podido conservar el original; la referencia no se ha modificado");
-  return { drive, item: data.id, hash, mime };
+  const { mime } = validateDocument(bytes, filename);
+  const stored = await createCertificationDocumentWriter().upload(n, bytes);
+  return { ...stored, mime };
 }
+/** Historical pointers and read credentials remain unchanged: exact drive/item,
+ * no migration, relocation, replacement or destination-runtime requirement. */
 export async function downloadCertificationDocument(
   drive: string,
   item: string,
