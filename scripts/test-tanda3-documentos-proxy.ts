@@ -13,7 +13,8 @@ import * as alta from '../lib/altas/contrato-access'
 import * as easy from '../lib/finanzas/easy-access-core'
 import * as m365 from '../lib/m365-legacy-policy'
 import * as actingPolicy from '../lib/impersonation-policy'
-const env: Record<string, string | undefined> = { AREA4_OWNER_USER_ID: '3', VERCEL_ENV: 'production', DATABASE_URL: 'postgresql://postgres@yamanote.proxy.rlwy.net:34880/railway', FINANCE_MODEL_PRODUCTION_ENABLED: '1', FINANCE_EASY_PRODUCTION_ENABLED: '1', FINANCE_AUTOMATIC_LINKS_DISABLED: '1', FINANCE_DOCUMENTOS_PRODUCTION_ENABLED: '1', FINANCE_DOCUMENTOS_PRODUCTION_DRIVE_ID: 'drive-fixture', FINANCE_DOCUMENTOS_PRODUCTION_FOLDER_ITEM_ID: 'folder-fixture', FINANCE_EXTERNAL_ACTIONS_DISABLED: '1' }
+import { DOCUMENTOS_APPROVED_PRODUCTION_PINS as pins } from '../lib/finanzas/documentos-panel-runtime'
+const env: Record<string, string | undefined> = { AREA4_OWNER_USER_ID: '3', VERCEL_ENV: 'production', DATABASE_URL: 'postgresql://postgres@yamanote.proxy.rlwy.net:34880/railway', FINANCE_MODEL_PRODUCTION_ENABLED: '1', FINANCE_EASY_PRODUCTION_ENABLED: '1', FINANCE_AUTOMATIC_LINKS_DISABLED: '1', FINANCE_DOCUMENTOS_PRODUCTION_ENABLED: '1', FINANCE_DOCUMENTOS_PRODUCTION_DRIVE_ID: pins.driveId, FINANCE_DOCUMENTOS_PRODUCTION_FOLDER_ITEM_ID: pins.folderItemId, FINANCE_DOCUMENTOS_PRODUCTION_PENDING_FOLDER_ITEM_ID: pins.pendingFolderItemId, FINANCE_DOCUMENTOS_PRODUCTION_ARCHIVED_FOLDER_ITEM_ID: pins.archivedFolderItemId, FINANCE_EXTERNAL_ACTIONS_DISABLED: '1' }
 const originalOwner = process.env.AREA4_OWNER_USER_ID
 process.env.AREA4_OWNER_USER_ID = '3'
 let token: any = { id: '3', userType: 'admin', role: 'SUPER_ADMIN' }, principal: any = { id: 3, activo: true, rol: 'SUPER_ADMIN', roles: [], permisosArea4Vivos: false, permisos: [] }
@@ -67,7 +68,7 @@ async function main() {
   await check('acting header cerrado',ROOT,'GET',403,{ 'x-io-acting-session':'' })
   await check('next-action cerrado',ROOT,'GET',403,{ 'next-action':'fixture' })
   env.FINANCE_DOCUMENTOS_PRODUCTION_ENABLED='0'; await check('flag apagado V cerrado',ROOT,'GET',404); env.FINANCE_DOCUMENTOS_PRODUCTION_ENABLED='1'
-  env.FINANCE_DOCUMENTOS_PRODUCTION_FOLDER_ITEM_ID='root'; await check('root prohibido',ROOT,'GET',404); env.FINANCE_DOCUMENTOS_PRODUCTION_FOLDER_ITEM_ID='folder-fixture'
+  env.FINANCE_DOCUMENTOS_PRODUCTION_FOLDER_ITEM_ID='root'; await check('root prohibido',ROOT,'GET',404); env.FINANCE_DOCUMENTOS_PRODUCTION_FOLDER_ITEM_ID=pins.folderItemId
   token=null; await check('sin sesión',ROOT,'GET',401); token={ id:'3', userType:'admin', role:'SUPER_ADMIN' }
   principal=null; await check('JWT no sustituye cuenta viva',ROOT,'GET',401); principal={ id:3, activo:true, rol:'SUPER_ADMIN', roles:[], permisos:[] }
   principal={ id:7, activo:true, rol:'VISOR', roles:[], permisos:[], permisosArea4Vivos:false }; token={ id:'7',userType:'admin',role:'SUPER_ADMIN' }

@@ -10,6 +10,7 @@ import prisma from './prisma'
 import type { NivelResumen } from './area1-crm-resumen-vista'
 import { leerSubidaCliente, type SubidaCliente } from './area1-subida-cliente'
 import { leerRentabilidadFicha, normalizarCodigoFicha, type RentabilidadFicha, type ProyeccionFichaRentabilidad } from './area1-ficha-rentabilidad'
+import { leerIdentidadIspEmpresa, identidadIspNoVerificable, type IdentidadIspEmpresa } from './area1-isp-identidad'
 
 export const SIN_DATO = 'sin dato'
 const ZONA = 'Europe/Madrid'
@@ -70,8 +71,8 @@ export function cuando(d: Date, hoy: Date, conHora = false): string {
   const base = mesDe(d).slice(0, 4) === mesDe(hoy).slice(0, 4) ? fechaCorta(d) : fechaLarga(d)
   return conHora ? `${base} ${new Intl.DateTimeFormat('es-ES', { timeZone: ZONA, hour: '2-digit', minute: '2-digit' }).format(d)}` : base
 }
-export type ContratoFicha = { codigo: string; producto: string; sede: string; cuota: number | null; estado: 'Activo' | 'Baja'; finPermanencia: string; finPermanenciaFecha: string | null; margenPct: number | null }
-/** Cuota mensual = suma del importe sin IVA de los contratos activos (ISP no informa la periodicidad: se toma mensual). */
+export type ContratoFicha = { codigo: string; producto: string; sede: string; cuota: number | null; estado: 'Activo' | 'Baja'; finPermanencia: string; finPermanenciaFecha: string | null; margenPct: number | null; cuentaIsp?: string; estadoOrigen?: string | null; periodicidad?: string | null; presente?: boolean }
+/** Cuota mensual = suma existente del importe sin IVA activo. La periodicidad se advierte, no cambia la fórmula. */
 export function cuotaMensual(contratos: Array<Pick<ContratoFicha, 'cuota' | 'estado'>>): { total: number | null; activos: number; sinImporte: number } {
   const activos = contratos.filter((c) => c.estado === 'Activo')
   const conImporte = activos.filter((c) => c.cuota != null)
@@ -109,6 +110,12 @@ const TIPO_TXT: Record<string, string> = { LLAMADA: 'Llamada', CORREO: 'Correo',
 export function tipoTexto(tipo: string, direccion: string | null): string {
   if (tipo === 'CORREO') return direccion === 'ENTRANTE' ? 'Correo recibido' : 'Correo enviado'
   return TIPO_TXT[tipo] || 'Actividad'
+}
+/** Una tarea no acredita contacto; sí una nota local registrada en EMPRESA, incluso sin persona. */
+export function cuentaComoContactoFicha(a: { tipo: string; origen?: string | null; empresaId?: string | null; metadatos?: unknown }): boolean {
+  if (['CORREO', 'REUNION', 'LLAMADA', 'WHATSAPP', 'SMS'].includes(a.tipo)) return true
+  const m = a.metadatos && typeof a.metadatos === 'object' && !Array.isArray(a.metadatos) ? a.metadatos as Record<string, unknown> : {}
+  return a.tipo === 'NOTA' && a.origen === 'LOCAL' && Boolean(a.empresaId) && m.ambito === 'EMPRESA'
 }
 export const ETIQUETA_RESULTADO_AISLADO: Record<string, string> = {
   CALENDARIO_NO_CREADO_AISLADO: 'Pruebas: no creada en Outlook',
@@ -164,6 +171,31 @@ export function interpretarPuntos(texto: string): string[] | null {
   } catch { return null }
 }
 
+/** Resumen nativo, determinista y sin proveedores. Sólo describe datos que constan en la ficha. */
+export function resumirFichaLocal(ctx: ContextoResumenIa): string[] {
+  const c = limpiarContextoIa(ctx)
+  const productos = c.productos.filter(p => !PROHIBIDO_IA.test(p))
+  const puntos: string[] = [c.contratosActivos
+    ? `${c.contratosActivos} ${c.contratosActivos === 1 ? 'contrato activo' : 'contratos activos'}${c.cuotaMensual == null ? '; cuota mensual sin dato' : `; cuota mensual ${eur(c.cuotaMensual, 2)}`}${productos.length ? ` (${productos.join(', ')})` : ''}.`
+    : 'No constan contratos activos vinculados a la ficha.']
+  if (c.facturado12m != null) puntos.push(`Facturado en los últimos 12 meses: ${eur(c.facturado12m, 2)} de base sin IVA.`)
+  if (c.pendienteCobro != null) puntos.push(`Pendiente de cobro: ${eur(c.pendienteCobro, 2)}${c.recibosDevueltos ? `; ${c.recibosDevueltos} recibos devueltos pendientes` : ''}.`)
+  const a = c.ultimasActividades[0]
+  puntos.push(a ? `Última actividad registrada: ${a.tipo} del ${a.fecha}${a.titulo && a.titulo !== a.tipo ? ` · ${a.titulo}` : ''}.` : 'No consta actividad en el resumen local.')
+  if (c.tareasPendientes.length) {
+    const t = c.tareasPendientes[0]
+    puntos.push(`Próxima tarea registrada${PROHIBIDO_IA.test(t.titulo) ? '' : `: ${t.titulo}`} (vence ${t.vence}).`)
+  }
+  if (c.negociosAbiertos.length) puntos.push(`Constan ${c.negociosAbiertos.length} negocios abiertos en la ficha.`)
+  return puntos
+}
+export type ResumenFicha = { puntos: string[]; origen: 'local' | 'guardado'; generado: string | null }
+/** Un resumen guardado no autoriza IA, Graph ni envíos. Rechaza contenido no comercial o mal formado. */
+export function puntosResumenGuardado(value: unknown): string[] | null {
+  if (!Array.isArray(value) || !value.length || value.some(x => typeof x !== 'string' || !x.trim() || PROHIBIDO_IA.test(x))) return null
+  return value.slice(0, 4).map(x => x.trim().replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '[correo]').replace(/\+?\d[\d\s]{7,}\d/g, '[teléfono]').slice(0, 300))
+}
+
 // ---------- Tipos de la vista ----------
 export type KpiFicha = { etiqueta: string; valor: string; clase?: string; sub: string; go: string }
 export type EventoFicha = { id: string; cat: CatEvento; tipo: string; quien: string; titulo: string; texto: string; cuando: string; fechaIso: string; fuente: FuenteEvento; contactoId: string | null; etiqueta: string | null; acciones: Array<'responder' | 'ia'> }
@@ -173,6 +205,7 @@ export type FichaCliente = {
   hoyIso: string
   nivel: NivelResumen
   verMargen: boolean
+  identidadIsp: IdentidadIspEmpresa
   empresa: { id: string; nombre: string; iniciales: string; nif: string | null; tipo: string; tagTipo: 'E' | 'P' | 'R'; codigoIsp: string | null; vinculoIsp: 'vinculado' | 'propuesto' | null; comercial: string | null; clienteDesde: string | null; estado: { txt: string; tono: 'ok' | 'mod' | 'bad' | '' } }
   kpis: KpiFicha[]
   eventos: EventoFicha[]
@@ -187,6 +220,7 @@ export type FichaCliente = {
   rentabilidad: RentabilidadFicha | null
   subida: SubidaCliente | null
   contextoIa: ContextoResumenIa
+  resumen: ResumenFicha
   correoPrincipal: { contactoId: string | null }
 }
 
@@ -216,13 +250,12 @@ export async function cargarFichaCliente(empresaId: string, nivel: NivelResumen,
   })
   if (!empresa) return null
   const contactoIds = empresa.contactos.map((c) => c.contactoId)
-  const clienteWebIds = empresa.clientes.map((c) => c.clienteId)
-  const isp = await prisma.ispClienteArea1.findMany({
-    where: { OR: [{ crmEmpresaId: empresa.id }, ...(clienteWebIds.length ? [{ clienteWebId: { in: clienteWebIds } }] : [])] },
-    include: { contratos: true },
-    orderBy: { codigo: 'asc' },
-  })
-  const codigos = [...new Set([...isp.map((c) => c.codigo), ...empresa.clientes.map((c) => c.cliente.codigo).filter(Boolean) as string[]])]
+  let lecturaIsp: Awaited<ReturnType<typeof leerIdentidadIspEmpresa>>
+  try { lecturaIsp = await leerIdentidadIspEmpresa(prisma, empresa.id, { nombre: empresa.nombre, nif: empresa.nif }) }
+  catch { lecturaIsp = { identidad: identidadIspNoVerificable({ nombre: empresa.nombre, nif: empresa.nif }), isp: [], clientes: [] } }
+  const { identidad: identidadIsp, isp, clientes: clientesIsp } = lecturaIsp
+  const nombreFiscal = identidadIsp.nombre
+  const codigos = [...new Set([...isp.map((c) => c.codigo), ...clientesIsp.map((c) => c.codigo).filter(Boolean) as string[]])]
   const codigosNorm = [...new Set(codigos.map(normCodigo))]
   const contratosRaw = isp.flatMap((c) => c.contratos)
   const codigosContrato = contratosRaw.map((c) => c.codigoContratoIsp)
@@ -282,6 +315,7 @@ export async function cargarFichaCliente(empresaId: string, nivel: NivelResumen,
     return {
       codigo: c.codigoContratoIsp, producto: c.tarifa || SIN_DATO, sede: c.descripcion || SIN_DATO, cuota: num(c.importeSinIva),
       estado: activo ? 'Activo' : 'Baja', finPermanencia: c.permanenciaHasta ? mesAnio(c.permanenciaHasta) : (c.permanenciaTexto || '—'), finPermanenciaFecha: fin,
+      cuentaIsp: isp.find(s => s.contratos.some(k => k.id === c.id))?.codigo, estadoOrigen: c.estado, periodicidad: c.periodicidad, presente: c.presenteEnUltimoFichero,
       margenPct: verMargen && m != null && Number.isFinite(m) ? Math.round(m * 10) / 10 : null,
     }
   }).sort((a, b) => (a.estado === b.estado ? a.codigo.localeCompare(b.codigo) : a.estado === 'Activo' ? -1 : 1))
@@ -300,11 +334,11 @@ export async function cargarFichaCliente(empresaId: string, nivel: NivelResumen,
   const pendiente = facturasF.length ? facturasF.reduce((s, f) => s + f.pendiente, 0) : null
   const pendientePorFactura = new Map(facturas.map((f) => [f.id, Number(f.totalPendiente)]))
   const devPend = devoluciones.filter((d) => d.facturaId != null && (pendientePorFactura.get(d.facturaId) || 0) > 0)
-  const formaPago = contratosRaw.find((c) => c.formaPago)?.formaPago || empresa.clientes.find((c) => c.cliente.formaPago)?.cliente.formaPago || null
+  const formaPago = contratosRaw.find((c) => c.formaPago)?.formaPago || clientesIsp.find((c) => c.formaPago)?.formaPago || null
 
   // Personas
   const ultimoPorContacto = new Map<string, { fecha: Date; tipo: string }>()
-  for (const a of actividades) if (a.contactoId && !ultimoPorContacto.has(a.contactoId)) ultimoPorContacto.set(a.contactoId, { fecha: a.fechaActividad, tipo: a.tipo })
+  for (const a of actividades) if (a.contactoId && cuentaComoContactoFicha(a) && !ultimoPorContacto.has(a.contactoId)) ultimoPorContacto.set(a.contactoId, { fecha: a.fechaActividad, tipo: a.tipo })
   const personas: PersonaFicha[] = empresa.contactos.map((r) => {
     const nombre = r.contacto.nombre || r.contacto.email || 'Contacto sin nombre'
     const cargo = prop(r.contacto.propiedades, 'jobtitle')
@@ -356,40 +390,48 @@ export async function cargarFichaCliente(empresaId: string, nivel: NivelResumen,
 
   // Cabecera
   const tipo = tipoEmpresa(empresa.tipo)
-  const ispPrincipal = isp[0] || null
-  const vinculoIsp = ispPrincipal ? (ispPrincipal.crmEmpresaId === empresa.id ? 'vinculado' : 'propuesto') : (empresa.clientes.length ? 'vinculado' : null)
-  const codigoIsp = isp.length ? isp.map((c) => c.codigo).join(', ') : (empresa.clientes.map((c) => c.cliente.codigo).filter(Boolean).join(', ') || null)
-  const desdeIsp = isp.map((c) => c.fechaInicio).filter(Boolean).sort((a, b) => a!.getTime() - b!.getTime())[0] || null
-  const comercial = ispPrincipal?.comercial != null ? `cód. ISP ${ispPrincipal.comercial}` : null
-  const activoIsp = isp.length ? isp.some((c) => c.contratos.some((k) => k.activo && !k.fechaBaja)) : null
+  const vinculoIsp = identidadIsp.cuentas.length ? 'vinculado' as const : null
+  const codigoIsp = identidadIsp.cuentas.map(c => c.codigo).filter(Boolean).join(', ') || null
+  const fechasInicio = identidadIsp.cuentas.map(c => c.fechaInicio).filter((f): f is string => Boolean(f)).sort()
+  const desdeIsp = fechasInicio[0] ? new Date(fechasInicio[0]) : null
+  const comercial = isp.filter(c => c.comercial != null).map(c => `${c.codigo}: cód. ISP ${c.comercial}`).join(' · ') || null
+  const activoIsp = isp.length ? isp.some((c) => c.contratos.some((k) => k.activo && !k.fechaBaja)) : clientesIsp.length ? clientesIsp.some(c => c.activo) : null
   const estado = activoIsp == null ? { txt: 'Sin datos de ISP', tono: '' as const } : activoIsp ? { txt: 'Cliente activo', tono: 'ok' as const } : { txt: 'Sin contratos activos', tono: 'mod' as const }
 
   // Último contacto
-  const ultimoContacto = actividades.find((a) => ['CORREO', 'REUNION', 'LLAMADA', 'WHATSAPP', 'SMS'].includes(a.tipo))
+  const ultimoContacto = actividades.find(cuentaComoContactoFicha)
   const sedes = new Set(contratosRaw.map((c) => (c.descripcion || '').trim()).filter(Boolean))
   const devImporte = devPend.reduce((s, d) => s + Number(d.importe), 0)
-  const fuenteMargen = rent?.snapshot ? `foto ${rent.snapshot.kind} v${rent.snapshot.version}${rent.snapshot.kind === 'PROYECCION' ? ' · no acredita cierre certificado' : ''}` : 'sin foto preparada'
+  const costeEstimado = num(margenUltimo?.costeEstimado)
 
   const kpis: KpiFicha[] = [
     { etiqueta: 'Cuota mensual', valor: cuota.total == null ? SIN_DATO : eur(cuota.total), sub: contratos.length ? `${cuota.activos} ${cuota.activos === 1 ? 'contrato activo' : 'contratos activos'}${cuota.sinImporte ? ` · ${cuota.sinImporte} sin importe` : ''}` : 'sin contratos de ISP Gestión', go: 'contratos' },
     { etiqueta: 'Facturado 12 meses', valor: facturado12 == null ? SIN_DATO : eur(facturado12), sub: facturado12 == null ? 'sin facturas en el panel' : 'base sin IVA · facturas desde enero de 2026', go: 'facturacion' },
     verMargen
-      ? { etiqueta: margenUltimo ? `Margen ${nombreMes(margenUltimo.mes)} ${margenUltimo.mes.slice(0, 4)}` : 'Margen último mes', valor: margenUltimo?.pct == null ? SIN_DATO : pct(margenUltimo.pct), clase: margenUltimo?.pct == null ? undefined : margenUltimo.pct < 0 ? 'bad' : margenUltimo.pct < 20 ? 'low' : 'ok', sub: (margenUltimo?.margen == null ? 'sin dato de Rentabilidad' : `${eur(margenUltimo.margen)}/mes de margen`) + (margenUltimo?.hayEstimados && margenUltimo.costeEstimado != null && margenUltimo.costeEstimado > 0 ? ` · incluye ${eur(margenUltimo.costeEstimado, 2)} estimados` : '') + ` · mes cerrado por calendario · ${fuenteMargen}`, go: 'rentabilidad' }
+      ? { etiqueta: margenUltimo ? `Margen ${nombreMes(margenUltimo.mes)} ${margenUltimo.mes.slice(0, 4)}` : 'Margen último mes', valor: margenUltimo?.pct == null ? SIN_DATO : pct(margenUltimo.pct), clase: margenUltimo?.pct == null ? undefined : margenUltimo.pct < 0 ? 'bad' : margenUltimo.pct < 20 ? 'low' : 'ok', sub: margenUltimo?.hayEstimados && costeEstimado != null ? `incluye ${eur(costeEstimado, Number.isInteger(costeEstimado) ? 0 : 2)} de coste estimado` : margenUltimo?.margen == null ? 'sin dato de Rentabilidad' : '', go: 'rentabilidad' }
       : { etiqueta: 'Margen último mes', valor: 'sin acceso', sub: 'lo ven gerencia y superadmin', go: 'rentabilidad' },
     { etiqueta: 'Subida 2027', valor: subida ? `+${pct(subida.pctMedio)}` : 'sin propuesta', sub: subida ? `+${eur(subida.subidaMes)}/mes${subida.fechaLimiteAviso ? ` · aviso antes del ${subida.fechaLimiteAviso}` : ''}` : 'no hay escenario aprobado', go: 'rentabilidad' },
     { etiqueta: 'Pendiente de cobro', valor: pendiente == null ? SIN_DATO : eur(pendiente), sub: devPend.length ? `${devPend.length} ${devPend.length === 1 ? 'recibo devuelto' : 'recibos devueltos'}` : pendiente == null ? 'sin facturas en el panel' : 'ningún recibo devuelto', go: 'facturacion' },
-    { etiqueta: 'Último contacto', valor: ultimoContacto ? haceDias(ultimoContacto.fechaActividad, hoy) : SIN_DATO, sub: ultimoContacto ? `${tipoTexto(ultimoContacto.tipo, ultimoContacto.direccion).toLowerCase()} · ${ultimoContacto.contacto?.nombre || SIN_DATO}` : 'sin actividad registrada', go: 'actividad' },
+    { etiqueta: 'Último contacto', valor: ultimoContacto ? haceDias(ultimoContacto.fechaActividad, hoy) : SIN_DATO, sub: ultimoContacto ? `${tipoTexto(ultimoContacto.tipo, ultimoContacto.direccion).toLowerCase()} · ${ultimoContacto.contacto?.nombre || (ultimoContacto.empresaId === empresa.id ? empresa.nombre : SIN_DATO)}` : 'sin actividad registrada', go: 'actividad' },
   ]
 
   const avisos = calcularAvisos({ margenPct: margenUltimo?.pct ?? null, mesMargen: margenUltimo?.mes || null, verMargen, pendiente, devueltos: devPend.length, devueltoImporte: devImporte, permanencias: contratos.filter((c) => c.estado === 'Activo' && c.finPermanenciaFecha).map((c) => c.finPermanenciaFecha!), hoy, subida })
+  for (const texto of identidadIsp.discrepancias) avisos.push({ nivel: 'warn', titulo: texto.startsWith('discrepancia') ? 'discrepancia con ISP' : 'Origen ISP', texto })
+  if (isp.some(c => c.presenteEnUltimoFichero === false) || contratosRaw.some(c => c.presenteEnUltimoFichero === false)) avisos.push({ nivel: 'info', titulo: 'Origen ISP histórico', texto: 'Hay datos ausentes del último fichero. Se conserva el snapshot: la ausencia no acredita una baja.' })
+  if (contratosRaw.some(c => !/^mensual$/i.test(c.periodicidad || ''))) avisos.push({ nivel: 'info', titulo: 'Periodicidad de ISP', texto: 'La cuota mantiene la suma mensual existente; hay periodicidad distinta de mensual o sin dato. Consulta cada contrato de ISP.' })
+  if (new Set([...contratosRaw.map(c => c.formaPago), ...clientesIsp.map(c => c.formaPago)].filter(Boolean)).size > 1) avisos.push({ nivel: 'warn', titulo: 'Formas de pago diferentes', texto: 'Las cuentas ISP tienen formas de pago distintas; el agregado conserva su selección existente, no acredita cobro bancario.' })
+  if (facturas.length === 400) avisos.push({ nivel: 'info', titulo: 'Cobertura de facturas limitada', texto: 'Se ha alcanzado el límite de 400 facturas de la lectura; el agregado puede ser parcial.' })
+  if (identidadIsp.cuentas.length > 1) avisos.push({ nivel: 'info', titulo: 'Agregados de varias cuentas ISP', texto: 'Cuota, facturas, saldos y rentabilidad conservan el cruce existente de los códigos ligados. Son agregados de varias cuentas, no cifras atribuibles a una identidad fiscal única.' })
+  const codigosPorCuenta = identidadIsp.cuentas.map(c => c.codigo).filter((c): c is string => Boolean(c)).map(normCodigo)
+  if (new Set(codigosPorCuenta).size < codigosPorCuenta.length) avisos.push({ nivel: 'warn', titulo: 'Código ISP compartido', texto: 'Varias cuentas comparten código: la facturación por código no permite atribuir el agregado a una cuenta individual.' })
 
   const direccion = [empresa.direccion, empresa.codigoPostal, empresa.localidad, empresa.provincia].filter(Boolean).join(', ')
   const origen = [isp.length ? 'Cliente ISP' : null, empresa.origen === 'HUBSPOT' || empresa.hubspotId ? 'importado de HubSpot' : empresa.origen === 'LOCAL' ? 'creado en el panel' : empresa.origen?.toLowerCase()].filter(Boolean).join(' · ')
   const datos: Array<[string, string]> = [
-    ['Razón social', empresa.nombre], ['NIF', empresa.nif || SIN_DATO], ['Sector', empresa.sector || SIN_DATO],
+    [identidadIsp.protegida ? 'Razón social de ISP · solo lectura' : 'Razón social · dato local', nombreFiscal], [identidadIsp.protegida ? 'NIF de ISP · solo lectura' : 'NIF · dato local', identidadIsp.nif || SIN_DATO], ['Sector', empresa.sector || SIN_DATO],
     ['Sedes', sedes.size ? `${sedes.size} (${[...sedes].slice(0, 3).join(', ')}${sedes.size > 3 ? '…' : ''})` : SIN_DATO],
     ['Teléfono', empresa.telefono || SIN_DATO], ['Web', empresa.web || empresa.dominio || SIN_DATO], ['Dirección', direccion || SIN_DATO],
-    ['Origen', origen || SIN_DATO], ['Código ISP', codigoIsp ? `${codigoIsp}${vinculoIsp === 'vinculado' ? ' (vinculado)' : vinculoIsp === 'propuesto' ? ' (propuesto, sin confirmar)' : ''}` : SIN_DATO],
+    ['Origen', origen || SIN_DATO], ['Código ISP · solo lectura', codigoIsp ? `${codigoIsp}${vinculoIsp === 'vinculado' ? ' (vinculado)' : ''}` : SIN_DATO],
   ]
   const mk = consent.filter((c) => c.canal === 'EMAIL' || !c.canal)
   const news = mk.some((c) => c.estado === 'CONSENTIMIENTO') ? ['Suscrito', ''] : mk.some((c) => c.estado === 'BAJA') ? ['Baja', 'b'] : mk.length ? ['No suscrito', 'o'] : [SIN_DATO, 'o']
@@ -401,7 +443,7 @@ export async function cargarFichaCliente(empresaId: string, nivel: NivelResumen,
   ]
 
   const contextoIa: ContextoResumenIa = limpiarContextoIa({
-    cliente: empresa.nombre, tipo: tipo.txt, clienteDesde: desdeIsp ? String(desdeIsp.getFullYear()) : null,
+    cliente: nombreFiscal, tipo: tipo.txt, clienteDesde: desdeIsp ? String(desdeIsp.getFullYear()) : null,
     contratosActivos: cuota.activos, cuotaMensual: cuota.total, productos: [...new Set(contratos.filter((c) => c.estado === 'Activo').map((c) => c.producto).filter((p) => p !== SIN_DATO))].slice(0, 8),
     facturado12m: facturado12, pendienteCobro: pendiente, recibosDevueltos: devPend.length,
     subida: subida ? `+${pct(subida.pctMedio)} (+${eur(subida.subidaMes)}/mes), aviso antes del ${subida.fechaLimiteAviso || SIN_DATO}` : null,
@@ -411,12 +453,25 @@ export async function cargarFichaCliente(empresaId: string, nivel: NivelResumen,
     negociosAbiertos: negociosF.filter((n) => n.resultado === 'ABIERTO').map((n) => ({ nombre: n.nombre, etapa: n.etapa })),
   })
 
+  // Lectura opcional de la caché del día desde el cargador ya autorizado: no llama la ruta IA.
+  // Si no existe tabla/fila o el contenido no es válido, los datos nativos siguen disponibles.
+  let resumen: ResumenFicha = { puntos: resumirFichaLocal(contextoIa), origen: 'local', generado: null }
+  try {
+    const cache = await prisma.area1CrmFichaIa.findUnique({
+      where: { empresaId_dia: { empresaId: empresa.id, dia: new Date(`${diaDe(hoy)}T00:00:00Z`) } },
+      select: { puntos: true, createdAt: true },
+    })
+    const puntos = puntosResumenGuardado(cache?.puntos)
+    if (puntos?.length && cache) resumen = { puntos, origen: 'guardado', generado: cache.createdAt.toISOString() }
+  } catch { /* Caché no disponible: resumen local, sin generación ni escritura. */ }
+
   return {
     hoyIso: diaDe(hoy), nivel, verMargen,
-    empresa: { id: empresa.id, nombre: empresa.nombre, iniciales: iniciales(empresa.nombreComercial || empresa.nombre), nif: empresa.nif, tipo: tipo.txt, tagTipo: tipo.tag, codigoIsp, vinculoIsp, comercial, clienteDesde: desdeIsp ? String(desdeIsp.getFullYear()) : null, estado },
+    identidadIsp,
+    empresa: { id: empresa.id, nombre: nombreFiscal, iniciales: iniciales(nombreFiscal), nif: identidadIsp.nif, tipo: tipo.txt, tagTipo: tipo.tag, codigoIsp, vinculoIsp, comercial, clienteDesde: desdeIsp ? String(desdeIsp.getFullYear()) : null, estado },
     kpis, eventos: eventos.slice(0, 150), tareas: tareas.map((t) => ({ ...vencimientoTarea(t.venceAt, hoy), titulo: t.titulo })), avisos, personas, negocios: todosNegocios, datos, comunicaciones, contratos,
     facturacion: { meses, serie, hayFacturas: facturasF.length > 0, cobrado, pendiente, formaPago, facturas: facturasF.slice(0, 60), anio },
-    rentabilidad: rent, subida, contextoIa,
+    rentabilidad: rent, subida, contextoIa, resumen,
     correoPrincipal: { contactoId: personas.find((p) => p.email)?.id || null },
   }
 }

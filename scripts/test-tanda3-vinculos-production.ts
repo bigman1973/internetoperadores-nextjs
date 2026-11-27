@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { readFileSync } from 'node:fs'
 import test, { after, beforeEach } from 'node:test'
 import vm from 'node:vm'
@@ -41,6 +42,8 @@ let forbiddenIoAttempts = 0
 const forbiddenIo = () => { forbiddenIoAttempts++; throw new Error('EXTERNAL_IO_FORBIDDEN') }
 const entries: any[] = [], txOptions: any[] = [], caps: any[] = []
 const match = (row: any, where: any = {}) => Object.entries(where).every(([key, value]: any) => {
+  if (key === 'OR') return value.some((branch: any) => match(row, branch))
+  if (key === 'AND') return value.every((branch: any) => match(row, branch))
   if (value && typeof value === 'object' && 'in' in value) return value.in.includes(row[key])
   if (value && typeof value === 'object' && 'not' in value) return row[key] !== value.not
   return row[key] === value
@@ -48,7 +51,7 @@ const match = (row: any, where: any = {}) => Object.entries(where).every(([key, 
 function seed() {
   const rows: any[] = [], clients: any[] = [], companies: any[] = []
   for (let i = 1; i <= 3; i++) {
-    clients.push({ id: `r${i}`, codigo: `C${i}`, nombre: `Synthetic ${i} SL`, docNormalizado: 'B00000001', crmEmpresaId: null, crmContactoId: null, clienteWebId: 100 + i, contracts: 2 })
+    clients.push({ id: `r${i}`, ispClienteId: String(20 + i), codigo: `C${i}`, nombre: `Synthetic ${i} SL`, docNormalizado: 'B00000001', crmEmpresaId: null, crmContactoId: null, clienteWebId: 100 + i, contracts: 2 })
     companies.push({ id: `e${i}`, nombre: i === 3 ? 'Different SL' : `SYNTHETIC ${i}, S.L.`, activo: true })
     rows.push({ id: `v${i}`, ispClienteRowId: `r${i}`, destinoId: `e${i}`, tipo: 'CRM_EMPRESA', confianza: 'ALTA', motivo: 'NIF', estado: 'PENDIENTE' })
   }
@@ -81,6 +84,9 @@ const database: any = {
   },
   ispClienteArea1: {
     count: async () => { businessReads++; return state.clients.length },
+    findMany: async ({ where }: any = {}) => state.clients.filter((row: any) => match(row, where)).map((row: any) => ({ ...row })),
+    findUnique: async ({ where }: any) => { const row = state.clients.find((row: any) => match(row, where)); return row ? { ...row } : null },
+    updateMany: async ({ where, data }: any) => { mutations++; const rows = state.clients.filter((row: any) => match(row, where)); rows.forEach((row: any) => Object.assign(row, data)); return { count: rows.length } },
     update: async ({ where, data }: any) => { mutations++; Object.assign(client(where.id), data); return {} },
     findFirst: async () => null,
   },
@@ -95,6 +101,10 @@ const database: any = {
     count: async ({ where }: any) => { businessReads++; return state.links.filter((r: any) => where.clienteId.in.includes(r.clienteId)).length },
     findUnique: async ({ where }: any) => state.links.find((r: any) => r.clienteId === where.clienteId) || null,
     create: async ({ data }: any) => { mutations++; state.links.push(data); return data },
+  },
+  $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    assert.equal(strings.join('?'), 'SELECT pg_advisory_xact_lock(hashtextextended(?, 0))::text AS locked')
+    assert.deepEqual(values, ['isp-origen:ownership:v1']); return [{ locked: '' }]
   },
   $transaction: async (fn: any, options?: any) => {
     txOptions.push(options); const backup = structuredClone(state), count = entries.length; inTx = true
@@ -130,10 +140,21 @@ const shared: Record<string, any> = {
   '@/lib/area4/surface-access': { readArea4SurfaceAccessUser: async () => null },
   '@/lib/finanzas/easy-access-profile': { isEasyOnlyFinanceUser: async () => false }, '@/lib/finanzas/easy-access-core': easyCore,
   'node:crypto': { randomUUID, createHash }, '@/lib/crm-isp-import-core': importCore,
+  './crm-isp-import-core': importCore, 'node:async_hooks': { AsyncLocalStorage },
   '@/lib/brevo-config': { getBrevoApiKey: forbiddenIo },
   '@/lib/brevo-fetch': { brevoFetch: forbiddenIo },
 }
 function resolve(name: string) { if (!(name in shared)) throw new Error(`UNEXPECTED_DEPENDENCY ${name}`); return shared[name] }
+shared['./isp-origen-policy'] = shared['@/lib/isp-origen-policy'] = load('lib/isp-origen-policy.ts')
+const sourceCore = shared['@/lib/isp-origen-server'] = load('lib/isp-origen-server.ts')
+const transaction = database.$transaction
+database.$transaction = (fn: any, options?: any) => transaction((tx: any) => sourceCore.runWithIspPrismaTransaction(tx, () => fn(tx)), options)
+for (const [model, actions] of [['ispClienteArea1', ['update', 'updateMany']], ['ispVinculoArea1', ['update', 'updateMany']], ['crmEmpresaCliente', ['create']]] as const) {
+  for (const action of actions) {
+    const original = database[model][action]
+    database[model][action] = (args: any) => sourceCore.guardPrismaIspOrigenMutation({ model: model[0].toUpperCase() + model.slice(1), action, args, runInTransaction: true }, () => original(args), { db: database })
+  }
+}
 shared['./policy'] = shared['@/lib/area4/policy']
 shared['@/lib/area4/live-admin'] = load('lib/area4/live-admin.ts')
 shared['@/lib/area1-import-recibo'] = load('lib/area1-import-recibo.ts')

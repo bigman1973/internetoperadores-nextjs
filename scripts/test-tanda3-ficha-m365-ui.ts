@@ -171,7 +171,8 @@ async function main() {
     assert.ok(!html.includes('data-open="mail"') && !html.includes('data-open="ai"'))
     for (const label of ['Escribir correo', 'Redactar con IA', 'Proponer correo de seguimiento', 'Responder', 'Preparar aviso con IA']) assert.ok(!html.includes(label), label)
     assert.ok(!/<button[^>]*>Correo<\/button>/.test(html))
-    assert.ok(html.includes(MESSAGE) && html.includes('role="status"'))
+    assert.ok(html.includes('sin dato: no hay resumen local disponible en esta ficha.') && html.includes('role="status"'))
+    assert.ok(!html.includes(MESSAGE), 'El cierre de envío no bloquea ni etiqueta el resumen local')
     assert.ok(html.includes('Conversación histórica') && html.includes('Actividad conservada'))
     for (const label of ['Nueva reunión', 'Nota', 'Llamada', 'Tarea', 'Preparar la próxima reunión']) assert.ok(html.includes(label), label)
     assert.deepEqual(links(html), [])
@@ -214,7 +215,7 @@ async function main() {
       for (const [name, props] of [['default', fichaProps(conexion)], ['Drawer', drawerProps('ai', conexion)]] as const) {
         const h = harness(name, props); h.hooks.flush(); await settle(); h.render()
         assert.equal(h.calls.length, 0)
-        assert.ok(h.all.some(n => text(n) === MESSAGE))
+        assert.ok(h.all.some(n => text(n) === (name === 'Drawer' ? MESSAGE : 'sin dato: no hay resumen local disponible en esta ficha.')))
         h.hooks.unmount()
       }
     })
@@ -390,6 +391,17 @@ async function main() {
     assert.ok(html.includes('El mes actual está abierto: no se muestra su coste provisional'))
     assert.ok(html.includes('2026-09: sin dato (sin foto preparada)'))
     assert.equal((html.match(/<rect /g) || []).length, 2)
+  })
+  await test('summary local/guardado permanece visible con M365/envios cerrado y abierto, cero GET IA', async () => {
+    for (const origen of ['local', 'guardado']) for (const conexion of [closed, open, { ...open, envios: false }, { ...open, m365: false }]) {
+      const props = { ...fichaProps(conexion), ficha: { ...fixture, resumen: { puntos: ['Dato nativo conservado'], origen, generado: null } } }
+      const html = ssr('default', props)
+      assert.ok(html.includes('Dato nativo conservado') && html.includes(`resumen ${origen}`)); assert.ok(!html.includes(MESSAGE))
+      const h = harness('default', props); h.hooks.flush(); await settle(); h.render(); assert.equal(h.calls.length, 0)
+      h.update({ envios: false, m365: false }); h.hooks.flush(); await settle(); h.render(); assert.equal(h.calls.length, 0)
+      assert.ok(h.all.some(n => n.props.id === 'aiSum' && text(n).includes('Dato nativo conservado')))
+      h.hooks.unmount()
+    }
   })
   await test('SSR y VM: cero llamadas reales; únicamente fetch mock local con fuentes de ficha y policy', () => assert.equal(forbiddenCalls, 0))
   console.log(`\n${passed}/${passed} OK · SSR real + callbacks/efectos en memoria; sin HTTP, BD, .env ni proveedor`)

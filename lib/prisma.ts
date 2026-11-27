@@ -8,6 +8,7 @@ import {
 import { impersonationActorListed, impersonationEnabled, impersonationRequestAllowed } from '@/lib/impersonation-policy'
 import { conciliarRuntimeConfigured } from '@/lib/finanzas/conciliar-runtime'
 import { REVIEWED_CONCILIAR_RECOVERY_LOCK_SQL } from '@/lib/finanzas/conciliar-recovery-lock-sql'
+import { guardPrismaIspOrigenMutation, runWithIspPrismaTransaction } from './isp-origen-server'
 
 // La copia de Finanzas nunca debe reconectar a producción por un override ausente.
 if (process.env.FINANCE_STAGING_SANDBOX === '1') {
@@ -172,7 +173,9 @@ function installImpersonationTransactionWrapper(client: PrismaClient): void {
     const callback = input as (tx: Prisma.TransactionClient) => unknown
     return (baseTransaction as any)(
       (tx: Prisma.TransactionClient) => runWithImpersonationTransactionClient(tx, () =>
-        runWithImpersonationMutationAuditScope(tx, async () => await callback(tx)),
+        runWithIspPrismaTransaction(tx, () =>
+          runWithImpersonationMutationAuditScope(tx, async () => await callback(tx)),
+        ),
       ),
       ...rest,
     )
@@ -724,6 +727,13 @@ export async function guardPrismaImpersonationMutation<T>(
 
 type PrismaMiddlewareInstallTarget = Pick<PrismaClient, '$use'>
 
+/** Exact generated schema relationship edges, not guessed nested field names. */
+const ispPrismaRelations = Object.freeze(Object.fromEntries(
+  Prisma.dmmf.datamodel.models.map(model => [model.name, Object.freeze(Object.fromEntries(
+    model.fields.filter(field => field.kind === 'object').map(field => [field.name, field.type]),
+  ))]),
+))
+
 /**
  * Install only on the supplied PrismaClient instance. The client-attached state
  * means that a second Next chunk cannot inherit a true global flag while using
@@ -737,16 +747,29 @@ export function installImpersonationPrismaGuard(
   installImpersonationTransactionWrapper(client)
   if (state.middlewareInstalled) return
   client.$use(async (params, next) => {
-    if (auditScope.getStore()) return next(params)
     const isRelevant = MODEL_MUTATIONS.has(params.action) || RAW_ACTIONS.has(params.action)
     if (!isRelevant) return next(params)
-    return guardPrismaImpersonationMutation(
-      { action: params.action, args: params.args, model: params.model },
-      () => next(params),
-      {
-        requestContext: await trustedImpersonationContextResolutionFromRequest(),
-        transaction: currentImpersonationTransactionClient(),
-      },
+    const rawTemplate = RAW_ACTIONS.has(params.action) ? prisma5RawSqlTemplate(params.args) : null
+    // Always evaluate ISP independently, including internal audit statements.
+    // Reads from the live underlying delegate do not recurse: model reads never
+    // enter either mutation guard. No frozen row cache and no generic skip flag.
+    return guardPrismaIspOrigenMutation(params, async () => {
+      if (auditScope.getStore()) return next(params)
+      return guardPrismaImpersonationMutation(
+        { action: params.action, args: params.args, model: params.model },
+        () => next(params),
+        {
+          requestContext: await trustedImpersonationContextResolutionFromRequest(),
+          transaction: currentImpersonationTransactionClient(),
+        },
+      )
+    }, {
+      db: currentImpersonationTransactionClient() ?? client,
+      relations: ispPrismaRelations,
+      rawTemplate,
+      rawReadOnly: rawTemplate !== null && ['read_only', 'row_lock', 'advisory_lock', 'transaction_read_only'].includes(classifySqlStatement(rawTemplate)),
+      rawTokens: rawTemplate === null ? null : tokenizeReviewedSql(rawTemplate),
+    },
     )
   })
   state.middlewareInstalled = true
@@ -755,9 +778,9 @@ export function installImpersonationPrismaGuard(
 /**
  * The guard runs before every generated model mutation and every raw statement.
  * Delegated writes require an interactive transaction. Raw SQL that cannot be
- * classified as a small reviewed read grammar is denied rather than treated as
- * ordinary traffic; normal requests with no acting header retain their existing
- * Prisma behaviour.
+ * classified as a small reviewed read grammar remains denied while acting.
+ * Independently, ordinary traffic must pass the ISP ownership boundary, without
+ * inheriting an exception from missing acting headers or internal auditScope.
  */
 installImpersonationPrismaGuard(prisma)
 

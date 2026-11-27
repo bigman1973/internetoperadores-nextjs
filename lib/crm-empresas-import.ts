@@ -2,6 +2,7 @@ import { Prisma, SegmentoCrm } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { hubspotRequest } from '@/lib/hubspot-listas'
 import { normalizarNif } from '@/lib/crm-empresas'
+import { acquireIspOrigenFenceTx, readIspEmpresaOwnership } from '@/lib/isp-origen-server'
 
 const CORE_PROPERTIES = ['name', 'domain', 'phone', 'address', 'city', 'state', 'zip', 'country', 'industry', 'description', 'website']
 const CANDIDATE_TAX_PROPERTIES = ['nif', 'cif', 'vat_number', 'tax_id', 'hs_tax_id', 'numero_identificacion_fiscal']
@@ -42,7 +43,7 @@ export async function importCompaniesBatch(actor: string, after?: string) {
   await prisma.crmSincronizacionHubspot.updateMany({ where: { bloqueo: 'EMPRESAS', iniciadoAt: { lt: new Date(Date.now() - 12 * 60_000) } }, data: { bloqueo: null, estado: 'ERROR', finalizadoAt: new Date() } })
   const run = await prisma.crmSincronizacionHubspot.create({ data: { modo: 'EMPRESAS', estado: 'EJECUTANDO', bloqueo: 'EMPRESAS', ejecutadoPor: actor, detalle: { cursorInicial: after || null } } })
   let cursor: string | undefined = after
-  const totals = { companies: 0, associations: 0, missingContacts: 0, taxIdentifiers: 0, pages: 0 }
+  const totals = { companies: 0, associations: 0, missingContacts: 0, taxIdentifiers: 0, pages: 0, protectedIdentityDiscrepancies: 0 }
   try {
     for (let pageIndex = 0; pageIndex < MAX_PAGES_PER_BATCH; pageIndex++) {
       const query = new URLSearchParams({ limit: '100', archived: 'false', properties: cols.join(',') })
@@ -116,10 +117,26 @@ export async function importCompaniesBatch(actor: string, after?: string) {
       for (const item of prepared) {
         const previous = existingByHubspot.get(item.id)
         if (!previous) continue
-        // El snapshot se conserva siempre; los campos comerciales solo si aún no hubo edición local.
-        const snapshot = { propiedadesHubspot: item.source as Prisma.InputJsonValue, sincronizadoAt: now }
-        const updated = previous.version === 0 ? await prisma.crmEmpresa.updateMany({ where: { id: previous.id, version: 0 }, data: { ...item.fields, ...snapshot } }) : { count: 0 }
-        if (!updated.count) await prisma.crmEmpresa.update({ where: { id: previous.id }, data: snapshot })
+        // Ownership se resuelve en la misma tx que escribe, nunca por version/origen/NIF.
+        await prisma.$transaction(async (tx) => {
+          await acquireIspOrigenFenceTx(tx)
+          const current = await tx.crmEmpresa.findUnique({ where: { id: previous.id }, select: { id: true, version: true, nombre: true, nif: true, nifNormalizado: true } })
+          if (!current) throw new Error('EMPRESA_IMPORT_TARGET_MISSING')
+          const ownership = await readIspEmpresaOwnership(tx, current.id)
+          const snapshot = { propiedadesHubspot: item.source as Prisma.InputJsonValue, sincronizadoAt: now }
+          const fields: Record<string, any> = { ...item.fields }
+          if (ownership.linked) {
+            if ((item.source.name && item.fields.nombre !== current.nombre)
+              || (item.fields.nif && item.fields.nif !== current.nif)) totals.protectedIdentityDiscrepancies++
+            delete fields.nombre; delete fields.nif; delete fields.nifNormalizado
+          } else {
+            // Catálogo/fiscal ausente no equivale a baja de NIF; tampoco un nombre no solicitado.
+            if (!item.source.name?.trim()) delete fields.nombre
+            if (!item.fields.nif) { delete fields.nif; delete fields.nifNormalizado }
+          }
+          if (current.version === 0) await tx.crmEmpresa.update({ where: { id: current.id }, data: { ...fields, ...snapshot } })
+          else await tx.crmEmpresa.update({ where: { id: current.id }, data: snapshot })
+        }, { isolationLevel: 'Serializable' })
       }
       const associations: Array<{ empresaId: string; contactoId: string; origen: string; papel: string | null }> = []
       const primaries: Array<{ empresaId: string; contactoId: string }> = []

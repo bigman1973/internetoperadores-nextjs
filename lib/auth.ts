@@ -4,8 +4,7 @@ import AzureADProvider from 'next-auth/providers/azure-ad'
 import bcrypt from 'bcryptjs'
 import { randomUUID } from 'node:crypto'
 import prisma from './prisma'
-import { verifyClienteCredentials, getClienteByEmail } from './ispgestion/service'
-import { reconciliarContactosCrmConClientes } from './crm-contactos'
+import { verifyClienteCredentials } from './ispgestion/service'
 import {
   buildEffectiveImpersonationToken,
   encodeNextAuthSession,
@@ -106,40 +105,15 @@ export const authOptions: NextAuthOptions = {
               const ispgestionId = await verifyClienteCredentials(credentials.email, credentials.password);
 
               if (ispgestionId) {
-                const clienteData = await getClienteByEmail(credentials.email);
-                
-                if (clienteData) {
-                  const newPasswordHash = await bcrypt.hash(credentials.password, 10);
-                  
-                  const existingCliente = await prisma.clienteWeb.findFirst({
-                    where: { ispGestionId: ispgestionId }
+                // Login sólo administra credenciales locales, no origen ni CRM.
+                const existingCliente = await prisma.clienteWeb.findFirst({
+                  where: { ispGestionId: ispgestionId, activo: true }
+                });
+                if (existingCliente) {
+                  cliente = await prisma.clienteWeb.update({
+                    where: { id: existingCliente.id },
+                    data: { passwordHash: await bcrypt.hash(credentials.password, 10) }
                   });
-                  
-                  if (existingCliente) {
-                    cliente = await prisma.clienteWeb.update({
-                      where: { id: existingCliente.id },
-                      data: {
-                        passwordHash: newPasswordHash,
-                        nombre: clienteData.nombre,
-                        email: credentials.email,
-                      }
-                    });
-                  } else {
-                    const personaFisica = clienteData.personafisica === 1 || clienteData.personafisica === '1' || clienteData.personafisica === true;
-                    cliente = await prisma.clienteWeb.create({
-                      data: {
-                        email: credentials.email,
-                        passwordHash: newPasswordHash,
-                        nombre: clienteData.nombre,
-                        ispGestionId: ispgestionId,
-                        personaFisica,
-                        segmentoCrm: personaFisica ? 'PARTICULAR' : 'EMPRESA',
-                        segmentoCrmActualizadoAt: new Date(),
-                        segmentoCrmActualizadoPor: 'Alta desde ISPGestión',
-                        newsletterSuscrito: false,
-                      }
-                    });
-                  }
                   isValidPassword = true;
                 }
               }
@@ -149,7 +123,6 @@ export const authOptions: NextAuthOptions = {
               return null
             }
 
-            await reconciliarContactosCrmConClientes([cliente.email])
 
             return {
               id: cliente.id.toString(),

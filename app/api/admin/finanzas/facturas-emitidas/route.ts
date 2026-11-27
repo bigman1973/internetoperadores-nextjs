@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
-import { checkAdminAreaRead } from '@/lib/api-admin-area-read';
+import { isIspMirror } from '@/lib/isp-origen-policy';
+import { checkAdminAreaRead, checkAdminAreaWrite } from '@/lib/api-admin-area-read';
 import { assertFinanceRuntimeReady } from '@/lib/finanzas/finance-runtime-safety';
 import { readBankInvoicingPopulation, type B7ReadDatabase } from '@/lib/finanzas/bank-invoicing-db';
 import { summarizeBankInvoicing, type BankInvoicingSummary, type InvoiceSettlement } from '@/lib/finanzas/bank-invoicing-core';
@@ -200,120 +201,98 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST - Crear factura emitida (manual o importación)
+const manualFields = ['cliente', 'cif', 'numFactura', 'serie', 'fecha', 'fechaVencimiento', 'base', 'tipoIva', 'importeIva',
+  'tipoIrpf', 'importeIrpf', 'total', 'concepto', 'lineas', 'estado', 'imputacion', 'formaCobro', 'importeCobrado', 'fechaCobro',
+  'remesaRef', 'proyectoSingularId'] as const;
+const bankFields = new Set(['estado', 'imputacion', 'formaCobro', 'importeCobrado', 'fechaCobro', 'remesaRef', 'proyectoSingularId']);
+const invoiceConflict = () => Object.assign(new Error('Los datos de origen ISP no son editables.'), { code: 'ISP_ORIGEN_NO_EDITABLE', status: 409 });
+function closedInvoice(body: unknown, withId = false): Record<string, any> {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw invoiceConflict();
+  const record = body as Record<string, any>;
+  for (const [key, value] of Object.entries(record)) {
+    if (![...manualFields, 'origenSistema', 'idExterno', ...(withId ? ['id'] : [])].includes(key)) throw invoiceConflict();
+    if (key === 'origenSistema' && value !== 'Manual') throw invoiceConflict();
+    if (key === 'idExterno' && value !== null && value !== '') throw invoiceConflict();
+    // lineas es JSON fiscal explícito; nunca un delegate nested Prisma.
+    if (key !== 'lineas' && value !== null && !['string', 'number'].includes(typeof value)) throw invoiceConflict();
+    if (key === 'lineas' && value !== null && typeof value !== 'string' && !Array.isArray(value)) throw invoiceConflict();
+  }
+  return record;
+}
+function invoiceData(record: Record<string, any>): any {
+  const result: any = {};
+  for (const field of manualFields) if (record[field] !== undefined) result[field] = record[field];
+  for (const field of ['fecha', 'fechaVencimiento', 'fechaCobro']) {
+    if (field in result && result[field] !== null) {
+      if (typeof result[field] !== 'string') throw invoiceConflict();
+      const parsed = new Date(result[field]);
+      if (!Number.isFinite(parsed.getTime())) throw invoiceConflict();
+      result[field] = parsed;
+    }
+  }
+  for (const field of ['base', 'tipoIva', 'importeIva', 'tipoIrpf', 'importeIrpf', 'total', 'importeCobrado']) {
+    if (field in result && (result[field] === null || !/^-?\d+(?:\.\d+)?$/.test(String(result[field])))) throw invoiceConflict();
+  }
+  if (Array.isArray(result.lineas)) result.lineas = JSON.stringify(result.lineas);
+  return result;
+}
+function invoiceFailure(error: any) {
+  if (error?.code === 'ISP_ORIGEN_NO_EDITABLE') return NextResponse.json({ error: 'Los datos de origen ISP no son editables.', code: error.code }, { status: 409 });
+  return NextResponse.json({ error: 'No se pudo guardar la factura.', code: 'FACTURA_WRITE_FAILED' }, { status: 500 });
+}
+// POST siempre manual. Un lote se valida íntegro antes de escribir y revierte íntegro.
 export async function POST(req: NextRequest) {
   try {
+    const denied = await checkAdminAreaWrite('admin.finanzas.facturas_emitidas');
+    if (denied) return denied;
     const body = await req.json();
-    const { facturas } = body; // Puede ser una o varias
-
-    if (Array.isArray(facturas)) {
-      // Importación masiva
-      let insertadas = 0;
-      let duplicadas = 0;
-      const errores: string[] = [];
-
-      for (const f of facturas) {
-        try {
-          await prisma.facturaEmitida.create({
-            data: {
-              cliente: f.cliente,
-              cif: f.cif || null,
-              numFactura: f.numFactura,
-              serie: f.serie || extraerSerie(f.numFactura),
-              fecha: new Date(f.fecha),
-              fechaVencimiento: f.fechaVencimiento ? new Date(f.fechaVencimiento) : null,
-              base: f.base,
-              tipoIva: f.tipoIva || 21,
-              importeIva: f.importeIva,
-              tipoIrpf: f.tipoIrpf || 0,
-              importeIrpf: f.importeIrpf || 0,
-              total: f.total,
-              concepto: f.concepto || null,
-              lineas: f.lineas ? JSON.stringify(f.lineas) : null,
-              estado: f.estado || 'EMITIDA',
-              imputacion: f.imputacion || null,
-              formaCobro: f.formaCobro || null,
-              importeCobrado: f.importeCobrado || 0,
-              fechaCobro: f.fechaCobro ? new Date(f.fechaCobro) : null,
-              remesaRef: f.remesaRef || null,
-              origenSistema: f.origenSistema || 'Manual',
-              idExterno: f.idExterno || null,
-            },
-          });
-          insertadas++;
-        } catch (e: any) {
-          if (e.code === 'P2002') {
-            duplicadas++;
-          } else {
-            errores.push(`${f.numFactura}: ${e.message}`);
-          }
-        }
-      }
-
-      return NextResponse.json({
-        success: true,
-        insertadas,
-        duplicadas,
-        errores: errores.length > 0 ? errores.slice(0, 10) : undefined,
-      });
-    } else {
-      // Crear una sola factura
-      const factura = await prisma.facturaEmitida.create({
-        data: {
-          cliente: body.cliente,
-          cif: body.cif || null,
-          numFactura: body.numFactura,
-          serie: body.serie || extraerSerie(body.numFactura),
-          fecha: new Date(body.fecha),
-          fechaVencimiento: body.fechaVencimiento ? new Date(body.fechaVencimiento) : null,
-          base: body.base,
-          tipoIva: body.tipoIva || 21,
-          importeIva: body.importeIva,
-          tipoIrpf: body.tipoIrpf || 0,
-          importeIrpf: body.importeIrpf || 0,
-          total: body.total,
-          concepto: body.concepto || null,
-          estado: body.estado || 'EMITIDA',
-          imputacion: body.imputacion || null,
-          formaCobro: body.formaCobro || null,
-          origenSistema: body.origenSistema || 'Manual',
-        },
-      });
-
-      return NextResponse.json({ success: true, factura });
-    }
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+    const bulk = Array.isArray(body?.facturas);
+    if (bulk && Object.keys(body).some(key => key !== 'facturas')) throw invoiceConflict();
+    const records = (bulk ? body.facturas : [body]).map((value: unknown) => closedInvoice(value));
+    const prepared = records.map((record: Record<string, any>) => {
+      const fields = invoiceData(record);
+      if (!fields.cliente || !fields.numFactura || !fields.fecha || fields.base === undefined || fields.importeIva === undefined || fields.total === undefined) throw invoiceConflict();
+      return { ...fields, origenSistema: 'Manual', idExterno: null, serie: fields.serie || extraerSerie(fields.numFactura),
+        tipoIva: fields.tipoIva ?? 21, tipoIrpf: fields.tipoIrpf ?? 0, importeIrpf: fields.importeIrpf ?? 0,
+        estado: fields.estado ?? 'EMITIDA', importeCobrado: fields.importeCobrado ?? 0 };
+    });
+    const created = await prisma.$transaction(async (tx) => {
+      const result = [];
+      for (const data of prepared) result.push(await tx.facturaEmitida.create({ data }));
+      return result;
+    });
+    return NextResponse.json(bulk ? { success: true, insertadas: created.length, duplicadas: 0 } : { success: true, factura: created[0] });
+  } catch (error: any) { return invoiceFailure(error); }
 }
-
-// PUT - Actualizar factura emitida
 export async function PUT(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { id, ...data } = body;
-
-    if (!id) {
-      return NextResponse.json({ error: 'ID requerido' }, { status: 400 });
-    }
-
-    // Convertir fechas si vienen como string
-    if (data.fecha) data.fecha = new Date(data.fecha);
-    if (data.fechaVencimiento) data.fechaVencimiento = new Date(data.fechaVencimiento);
-    if (data.fechaCobro) data.fechaCobro = new Date(data.fechaCobro);
-
-    const factura = await prisma.facturaEmitida.update({
-      where: { id },
-      data,
-    });
-
+    const denied = await checkAdminAreaWrite('admin.finanzas.facturas_emitidas');
+    if (denied) return denied;
+    const body = closedInvoice(await req.json(), true);
+    if (typeof body.id !== 'string' || !body.id) return NextResponse.json({ error: 'ID requerido' }, { status: 400 });
+    const data = invoiceData(body);
+    const factura = await prisma.$transaction(async (tx) => {
+      const current = await tx.facturaEmitida.findUnique({ where: { id: body.id } });
+      if (!current) throw invoiceConflict();
+      if (isIspMirror(current)) {
+        // Conserva la edición bancaria/clasificación local con la ACL financiera normal.
+        // Cualquier cambio fiscal efectivo rechaza todo el payload.
+        for (const [key, value] of Object.entries(data)) {
+          if (bankFields.has(key)) continue;
+          const old = (current as any)[key];
+          const equal = value instanceof Date && old instanceof Date ? value.getTime() === old.getTime()
+            : value === old || (old !== null && value !== null && ['base', 'tipoIva', 'importeIva', 'tipoIrpf', 'importeIrpf', 'total'].includes(key) && String(old) === String(value));
+          if (!equal) throw invoiceConflict();
+          delete data[key];
+        }
+        if (body.origenSistema !== undefined && body.origenSistema !== current.origenSistema) throw invoiceConflict();
+        if (body.idExterno !== undefined && body.idExterno !== current.idExterno) throw invoiceConflict();
+      }
+      return tx.facturaEmitida.update({ where: { id: body.id }, data });
+    }, { isolationLevel: 'Serializable' });
     return NextResponse.json({ success: true, factura });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+  } catch (error: any) { return invoiceFailure(error); }
 }
-
-// Extraer serie del número de factura (ej: CLL26/1234 → CLL)
 function extraerSerie(numFactura: string): string | null {
   const match = numFactura.match(/^([A-Z]+)/);
   return match ? match[1] : null;

@@ -12,6 +12,7 @@
  */
 import { createHash } from 'node:crypto'
 import type { Prisma } from '@prisma/client'
+import { runWithIspSourceWriteTx } from '@/lib/isp-origen-server'
 import type { SyncOutcome, SyncProvider, SyncSourceItem } from '../../types'
 import { describeIspDatabaseFailure, type SyncFailureDetail } from '../../isp-sync-errors'
 import { requireIspScope, type IspSyncScope } from '../../isp-sync-scope'
@@ -630,9 +631,9 @@ export function createIspIssuedInvoiceProvider(options: IspIssuedInvoiceProvider
           // A normal create cannot race an already-known source ID: ispGestionId is unique.
           // The FI is created in the same transaction and starts strictly EMITIDA/0/null.
           operation = 'Factura.create'
-          const factura = await tx.factura.create({ data: facturaCreateData(source) })
+          const factura = await runWithIspSourceWriteTx('finance-p2', rawTx, async (writerTx) => writerTx.factura.create({ data: facturaCreateData(source) as Prisma.FacturaUncheckedCreateInput }))
           operation = 'FacturaEmitida.create'
-          const fi = await tx.facturaEmitida.create({ data: facturaEmitidaCreateData(source, factura.id) })
+          const fi = await runWithIspSourceWriteTx('finance-p2', rawTx, async (writerTx) => writerTx.facturaEmitida.create({ data: facturaEmitidaCreateData(source, factura.id) as Prisma.FacturaEmitidaUncheckedCreateInput }))
           // B7 event comes before the FI FK update trigger would ever apply to an update;
           // here the initial FK is allowed and the event still supplies immutable evidence.
           operation = 'B7.create'
@@ -653,10 +654,10 @@ export function createIspIssuedInvoiceProvider(options: IspIssuedInvoiceProvider
         const updateVerifiedMetadata = async (): Promise<void> => {
           if (!metadataChanged) return
           operation = 'Factura.update'
-          await tx.factura.update({
+          await runWithIspSourceWriteTx('finance-p2', rawTx, async (writerTx) => writerTx.factura.update({
             where: { id: existingFactura.id },
             data: facturaVerifiedMetadataData(source),
-          })
+          }))
         }
 
         if (existingFI) {
@@ -717,7 +718,7 @@ export function createIspIssuedInvoiceProvider(options: IspIssuedInvoiceProvider
         // only already-verified non-financial metadata before creating its audit.
         await updateVerifiedMetadata()
         operation = 'FacturaEmitida.create'
-        const fi = await tx.facturaEmitida.create({ data: facturaEmitidaCreateData(source, existingFactura.id) })
+        const fi = await runWithIspSourceWriteTx('finance-p2', rawTx, async (writerTx) => writerTx.facturaEmitida.create({ data: facturaEmitidaCreateData(source, existingFactura.id) as Prisma.FacturaEmitidaUncheckedCreateInput }))
         operation = 'B7.create'
         await addB7IdentityAudit(tx, source, fi.id, existingFactura.id, actorId!)
         operation = 'DocumentoConciliable.create'

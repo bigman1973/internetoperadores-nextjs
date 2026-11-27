@@ -18,9 +18,10 @@ const productionComparison = load('lib/finanzas/documentos-production-comparacio
 const storageModule = load('lib/finanzas/documentos-panel-storage.ts', { './microsoft-graph': { getAccessToken: () => { throw Error('GENERIC_TOKEN_FORBIDDEN') } }, './descarga-privada-graph': {}, './documentos-panel-core': core, './documentos-panel-runtime': runtime, './documentos-production-selected': selected })
 const tenant = '11111111-1111-4111-8111-111111111111', writeApp = '22222222-2222-4222-8222-222222222222', readApp = '33333333-3333-4333-8333-333333333333'
 const LEGACY = '2. Contabilidad y finanzas/2. Facturas recibidas/1. Facturas recibidas- Internet Operadores/2026'
-const pins = { driveId: 'production-drive', folderItemId: 'production-panel' }
+const pins = runtime.DOCUMENTOS_APPROVED_PRODUCTION_PINS
 const sourceRoot = { driveId: pins.driveId, folderItemId: 'legacy-folder', relativeLabel: LEGACY }
 const env = { FINANCE_DOCUMENTOS_PRODUCTION_DRIVE_ID: pins.driveId, FINANCE_DOCUMENTOS_PRODUCTION_FOLDER_ITEM_ID: pins.folderItemId,
+  FINANCE_DOCUMENTOS_PRODUCTION_PENDING_FOLDER_ITEM_ID: pins.pendingFolderItemId, FINANCE_DOCUMENTOS_PRODUCTION_ARCHIVED_FOLDER_ITEM_ID: pins.archivedFolderItemId,
   FINANCE_DOCUMENTOS_GRAPH_TENANT_ID: tenant, FINANCE_DOCUMENTOS_GRAPH_CLIENT_ID: writeApp, FINANCE_DOCUMENTOS_GRAPH_CLIENT_SECRET: 'OFFLINE_SYNTHETIC_WRITE_SECRET',
   FINANCE_DOCUMENTOS_COMPARACION_GRAPH_TENANT_ID: tenant, FINANCE_DOCUMENTOS_COMPARACION_GRAPH_CLIENT_ID: readApp, FINANCE_DOCUMENTOS_COMPARACION_GRAPH_CLIENT_SECRET: 'OFFLINE_SYNTHETIC_READ_SECRET',
   FINANCE_DOCUMENTOS_COMPARACION_SELECTED_ROOTS: JSON.stringify([sourceRoot]) }
@@ -34,9 +35,9 @@ function provider(options: { missingGrant?: boolean; secondPageError?: boolean; 
   const items = new Map<string, any>()
   const folder = (id: string,name: string,parent: string) => ({ id,name,folder:{},parentReference:{id:parent,driveId:pins.driveId} })
   const file = (id: string,name: string,parent: string) => ({id,name,file:{},size:bytes.length,eTag:'etag-1',lastModifiedDateTime:'2026-12-01T00:00:00Z',parentReference:{id:parent,driveId:pins.driveId}})
-  items.set(pins.folderItemId,folder(pins.folderItemId,options.rootName ?? 'DocumentosPanelProduccion','unit-root'))
-  items.set('pending-folder',folder('pending-folder','Pendientes',pins.folderItemId))
-  items.set('archive-folder',folder('archive-folder','Archivadas',pins.folderItemId))
+  items.set(pins.folderItemId,folder(pins.folderItemId,options.rootName ?? '10. Panel IO','unit-root'))
+  items.set(pins.pendingFolderItemId,folder(pins.pendingFolderItemId,'Pendientes',pins.folderItemId))
+  items.set(pins.archivedFolderItemId,folder(pins.archivedFolderItemId,'Archivadas',pins.folderItemId))
   items.set(sourceRoot.folderItemId,folder(sourceRoot.folderItemId,'2026','legacy-parent'))
   items.set('source-nested',folder('source-nested','Subcarpeta',sourceRoot.folderItemId))
   items.set('legacy-file',file('legacy-file','a.pdf',sourceRoot.folderItemId))
@@ -64,7 +65,7 @@ function provider(options: { missingGrant?: boolean; secondPageError?: boolean; 
     // token cannot read another root, ancestors, or a disjoint scope.
     if (options.missingGrant || !ancestor(item,root)) return Response.json({error:'grant denied'},{status:403})
     if (claims.appid === readApp && method !== 'GET') return Response.json({error:'read grant'},{status:403})
-    if (method === 'PUT') { assert.equal(id,'pending-folder'); assert.equal(headers.get('if-none-match'),'*'); const value = file('uploaded-item',child,id); items.set(value.id,value); return Response.json(value,{status:201}) }
+    if (method === 'PUT') { assert.equal(id,pins.pendingFolderItemId); assert.equal(headers.get('if-none-match'),'*'); const value = file('uploaded-item',child,id); items.set(value.id,value); return Response.json(value,{status:201}) }
     if (method === 'PATCH') { const body = JSON.parse(init.body as string); assert.ok(ancestor(items.get(body.parentReference.id),root)); Object.assign(item,{name:body.name,parentReference:{id:body.parentReference.id,driveId:pins.driveId}}); return Response.json(item) }
     if (resource === 'content') return options.redirect ? new Response(null,{status:302,headers:{location:options.redirect}}) : new Response(bytes)
     if (resource === 'children') {
@@ -80,7 +81,7 @@ function provider(options: { missingGrant?: boolean; secondPageError?: boolean; 
   }
   return {fetch:fetchFake as typeof fetch,calls,items}
 }
-const root = { ...pins,relativeLabel:'DocumentosPanelProduccion' }
+const root = { ...pins,relativeLabel:'10. Panel IO' }
 const guard = async () => {}
 const rejectsCode = (code: string) => (error: any) => error.code === code
 
@@ -88,9 +89,9 @@ test('dedicated auth default CLOSED, exact tenant UUID endpoint and no generic f
   for (const change of [{FINANCE_DOCUMENTOS_GRAPH_TENANT_ID:''},{FINANCE_DOCUMENTOS_GRAPH_TENANT_ID:'common'},{FINANCE_DOCUMENTOS_GRAPH_TENANT_ID:'organizations'},{FINANCE_DOCUMENTOS_GRAPH_TENANT_ID:'../evil'},{FINANCE_DOCUMENTOS_GRAPH_CLIENT_ID:'alias'},{FINANCE_DOCUMENTOS_GRAPH_CLIENT_SECRET:''}]) assert.throws(()=>selected.selectedCredential({...env,...change},'FINANCE_DOCUMENTOS_GRAPH'),rejectsCode('DOCUMENTOS_SELECTED_AUTH_MISSING'))
   assert.throws(()=>selected.selectedCredential({MICROSOFT_GRAPH_TENANT_ID:tenant,MICROSOFT_GRAPH_CLIENT_ID:writeApp,MICROSOFT_GRAPH_CLIENT_SECRET:'GENERIC'},'FINANCE_DOCUMENTOS_GRAPH'),rejectsCode('DOCUMENTOS_SELECTED_AUTH_MISSING'))
   const fake = provider(), transport = selected.createDocumentosProductionTransport(pins,guard,env,{fetch:fake.fetch})
-  await transport.listRoot(root)
+  for (const itemId of [pins.folderItemId, pins.pendingFolderItemId, pins.archivedFolderItemId]) await transport.request(`/drives/${pins.driveId}/items/${itemId}?$select=id,name,folder,parentReference`)
   assert.equal(fake.calls.filter(c=>c.url.hostname==='login.microsoftonline.com').length,1)
-  assert.equal(fake.calls.filter(c=>c.url.hostname==='graph.microsoft.com').length,4)
+  assert.equal(fake.calls.filter(c=>c.url.hostname==='graph.microsoft.com').length,3)
 })
 test('Selected roles exact only: missing/All/broad/delegated/foreign/expired rejected before Graph',async()=>{
   for (const change of [{roles:[]},{roles:['Files.Read.All']},{roles:['Files.SelectedOperations.Selected','Files.ReadWrite.All']},{roles:['Sites.Read.All']},{roles:['Sites.Selected']},{roles:['ListItems.SelectedOperations.Selected']},{roles:['Files.SelectedOperations.Selected','Mail.Read']},{scp:'Files.Read'},{tid:readApp},{appid:readApp},{aud:'https://evil.test'},{iss:'https://evil.test'},{exp:1}]) {
@@ -125,7 +126,10 @@ test('native transport exercises upload/original/archive saga provider with exac
 test('real missing grants/wrong root name/child drive prevent mutations, not global fake pending',async()=>{
   for(const changes of [{missingGrant:true},{rootName:'WrongName'},{wrongChildDrive:true}]){
     const fake=provider(changes), transport=selected.createDocumentosProductionTransport(pins,guard,env,{fetch:fake.fetch,tokenProvider:async()=>jwt()})
-    await assert.rejects(()=>transport.listRoot(root)); assert.equal(fake.calls.filter(c=>c.method!=='GET').length,0)
+    const storage=storageModule.createDocumentosPanelStorage(async()=>7,transport,pins)
+    if (changes.wrongChildDrive) fake.items.get(pins.pendingFolderItemId).parentReference.driveId='wrong-drive'
+    const file=core.validateFile(bytes,'native.pdf','application/pdf','FACTURA_RECIBIDA','00000000-0000-4000-8000-000000000001')
+    await assert.rejects(()=>storage.upload(file,`${file.hash}.pdf`)); assert.equal(fake.calls.filter(c=>c.method!=='GET').length,0)
   }
 })
 test('legacy pinned ID traversal exhausts >one page and nested descendants, source is read-only',async()=>{

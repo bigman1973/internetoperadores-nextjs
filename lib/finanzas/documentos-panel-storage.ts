@@ -1,7 +1,7 @@
 import { findSharePointSite, getAccessToken, getSiteDrive } from './microsoft-graph'
 import { descargarGraphPrivadoAcotado } from './descarga-privada-graph'
 import { DOCUMENTOS_PANEL_ROOT, MAX_FILE_BYTES, fail, hashBytes, validateFile, type FileInput, type Location } from './documentos-panel-core'
-import { DOCUMENTOS_PRODUCTION_ROOT, type DocumentosProductionPins } from './documentos-panel-runtime'
+import { DOCUMENTOS_PRODUCTION_ROOT, assertDocumentosApprovedProductionPins, type DocumentosProductionPins } from './documentos-panel-runtime'
 import { createDocumentosProductionTransport } from './documentos-production-selected'
 
 export type StorageGuard = (write: boolean, confirm: boolean) => Promise<number>
@@ -14,6 +14,8 @@ export function assertDocumentosPanelProviderEnvironment(env: NodeJS.ProcessEnv 
 }
 /** Transport is inert on import. No discovery, URLs from the client, shared links or webUrl receipts. */
 export function createDocumentosPanelStorage(guard: StorageGuard, fakeTransport?: StorageTransport, production?: DocumentosProductionPins) {
+  if (production) assertDocumentosApprovedProductionPins(production)
+  if (production) production = Object.freeze({ ...production })
   // Each call owns an immutable policy context. A concurrent read cannot
   // downgrade the write/C guard while upload/archive awaits its provider.
   return {
@@ -47,7 +49,7 @@ function storageForOperation(guard: StorageGuard, fakeTransport: StorageTranspor
       id(production.driveId); id(production.folderItemId)
       if (production.folderItemId.toLowerCase() === 'root') fail(502, 'GRAPH_NAMESPACE', 'La raíz de unidad no es un destino documental.')
       const panel = await read(`/drives/${id(production.driveId)}/items/${id(production.folderItemId)}?$select=id,name,folder,parentReference`)
-      if (panel.id !== production.folderItemId || panel.name !== DOCUMENTOS_PRODUCTION_ROOT || !panel.folder || panel.parentReference?.driveId !== production.driveId) fail(502, 'GRAPH_NAMESPACE', 'Carpeta Production fijada no verificable.')
+      if (panel.id !== production.folderItemId || panel.name !== DOCUMENTOS_PRODUCTION_ROOT || !panel.folder || panel.file || panel.parentReference?.driveId !== production.driveId) fail(502, 'GRAPH_NAMESPACE', 'Carpeta Production fijada no verificable.')
       return production.driveId
     }
     if (!transport.siteDrive) fail(502, 'GRAPH_PIN_REQUIRED', 'Falta resolver Stage.')
@@ -67,11 +69,20 @@ function storageForOperation(guard: StorageGuard, fakeTransport: StorageTranspor
     id(item.id); return item.id as string
   }
   const parents = async (driveId: string, create: boolean) => {
-    const stageRoot = production ? null : await folder(driveId, null, 'STAGING_FINANZAS_NO_CONTABILIZAR', create)
-    const panel = production ? production.folderItemId : await folder(driveId, stageRoot, 'DocumentosPanel', create)
-    // Production assumes a separately approved/prepared folder; no auto-provision.
-    const pending = await folder(driveId, panel, 'Pendientes', production ? false : create)
-    const archived = await folder(driveId, panel, 'Archivadas', production ? false : create)
+    if (production) {
+      const pins = production
+      // No name resolution, listing, discovery, fallback or auto-provision in Production.
+      const pinnedFolder = async (itemId: string, expectedName: string) => {
+        const item = await read(`/drives/${id(driveId)}/items/${id(itemId)}?$select=id,name,folder,parentReference`)
+        if (item.id !== itemId || item.name !== expectedName || !item.folder || item.file || item.parentReference?.id !== pins.folderItemId || item.parentReference?.driveId !== driveId) fail(502, 'GRAPH_NAMESPACE', 'Subcarpeta Production fijada no verificable.')
+        return itemId
+      }
+      return { pending: await pinnedFolder(pins.pendingFolderItemId, 'Pendientes'), archived: await pinnedFolder(pins.archivedFolderItemId, 'Archivadas') }
+    }
+    const stageRoot = await folder(driveId, null, 'STAGING_FINANZAS_NO_CONTABILIZAR', create)
+    const panel = await folder(driveId, stageRoot, 'DocumentosPanel', create)
+    const pending = await folder(driveId, panel, 'Pendientes', create)
+    const archived = await folder(driveId, panel, 'Archivadas', create)
     return { pending, archived }
   }
   const itemRead = (drive: string, item: string) => read(`/drives/${id(drive)}/items/${id(item)}?$select=id,name,parentReference,eTag,size,file`)

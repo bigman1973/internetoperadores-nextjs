@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { readFileSync } from 'node:fs'
 import test, { after, beforeEach } from 'node:test'
 import vm from 'node:vm'
@@ -40,6 +41,12 @@ let databaseFailure = false, lateFailure = false, easyOnly = false
 let inTx = false, ownerAuthCalls = 0, middlewareDispatches = 0, checks = 0, originalBodies = 0
 let nativeResolutionReads = 0
 const entries: any[] = [], commands: any[] = [], txOptions: any[] = []
+const match = (row: any, where: any = {}): boolean => Object.entries(where).every(([key, value]: any) => {
+  if (key === 'OR') return value.some((branch: any) => match(row, branch))
+  if (value && typeof value === 'object' && 'in' in value) return value.in.includes(row[key])
+  if (value && typeof value === 'object' && 'not' in value) return row[key] !== value.not
+  return row[key] === value
+})
 const database: any = {
   usuarioAdmin: { findUnique: async ({ where }: any) => {
     if (databaseFailure) throw new Error('SYNTHETIC_DATABASE_FAILURE')
@@ -50,6 +57,7 @@ const database: any = {
     entries.push(structuredClone(data)); return data
   } },
   ispVinculoArea1: {
+    findMany: async ({ where }: any = {}) => state.rows.filter((row: any) => match(row, where)).map((row: any) => ({ ...row })),
     findUnique: async ({ where }: any) => { nativeResolutionReads++; const row = state.rows.find((r: any) => r.id === where.id); return row ? { ...row, cliente: { ...state.client } } : null },
     update: async ({ where, data }: any) => {
       if (lateFailure) throw new Error('RAW_PRIVATE_PERSON@fixture.test')
@@ -57,8 +65,17 @@ const database: any = {
     },
     updateMany: async () => ({ count: 0 }),
   },
-  ispClienteArea1: { update: async ({ data }: any) => { Object.assign(state.client, data); return {} } },
+  ispClienteArea1: {
+    findMany: async ({ where }: any = {}) => match(state.client, where) ? [{ ...state.client }] : [],
+    findUnique: async ({ where }: any) => match(state.client, where) ? { ...state.client } : null,
+    updateMany: async ({ where, data }: any) => { if (!match(state.client, where)) return { count: 0 }; Object.assign(state.client, data); return { count: 1 } },
+    update: async ({ data }: any) => { Object.assign(state.client, data); return {} },
+  },
   crmRegistroHubspot: { create: async () => { state.created++; return { id: 'synthetic-contact' } } },
+  $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    assert.equal(strings.join('?'), 'SELECT pg_advisory_xact_lock(hashtextextended(?, 0))::text AS locked')
+    assert.deepEqual(values, ['isp-origen:ownership:v1']); return [{ locked: '' }]
+  },
   $transaction: async (fn: any, options?: any) => {
     txOptions.push(options); const backup = structuredClone(state), auditCount = entries.length; inTx = true
     try { return await fn(database) } catch (e) { state = backup; entries.length = auditCount; throw e } finally { inTx = false }
@@ -96,12 +113,23 @@ const shared: Record<string, any> = {
   '@/lib/area4/surface-access': { readArea4SurfaceAccessUser: async () => null },
   '@/lib/area1-puertas-produccion': { importacionesCrmCerradas: () => process.env.VERCEL_ENV === 'production' },
   'node:crypto': { randomUUID }, '@/lib/crm-isp-import-core': importCore,
+  './crm-isp-import-core': importCore, 'node:async_hooks': { AsyncLocalStorage },
   '@/lib/brevo-config': { getBrevoApiKey: () => { throw new Error('PROVIDER_FORBIDDEN') } },
   '@/lib/brevo-fetch': { brevoFetch: () => { throw new Error('NETWORK_FORBIDDEN') } },
 }
 function resolve(name: string) {
   if (!(name in shared)) throw new Error(`Unexpected native fixture dependency: ${name}`)
   return shared[name]
+}
+shared['./isp-origen-policy'] = shared['@/lib/isp-origen-policy'] = load('lib/isp-origen-policy.ts', '', resolve)
+const sourceCore = shared['@/lib/isp-origen-server'] = load('lib/isp-origen-server.ts', '', resolve)
+const transaction = database.$transaction
+database.$transaction = (fn: any, options?: any) => transaction((tx: any) => sourceCore.runWithIspPrismaTransaction(tx, () => fn(tx)), options)
+for (const [model, actions] of [['ispClienteArea1', ['update', 'updateMany']], ['ispVinculoArea1', ['update', 'updateMany']]] as const) {
+  for (const action of actions) {
+    const original = database[model][action]
+    database[model][action] = (args: any) => sourceCore.guardPrismaIspOrigenMutation({ model: model[0].toUpperCase() + model.slice(1), action, args, runInTransaction: true }, () => original(args), { db: database })
+  }
 }
 shared['@/lib/area4/live-admin'] = load('lib/area4/live-admin.ts', '', resolve)
 shared['@/lib/area1-import-recibo'] = load('lib/area1-import-recibo.ts', '', resolve)

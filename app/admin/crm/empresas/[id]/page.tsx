@@ -15,6 +15,7 @@ import { fichaNuevaHabilitada, fichaNuevaDisponibleParaRol } from '@/lib/area1-p
 import { getDefaultEmailSender } from '@/lib/email'
 import { getOutlookConnectionStatus } from '@/lib/outlook-user-connection'
 import { verificarPermisoServer } from '@/lib/permisos'
+import { leerIdentidadIspEmpresa, identidadIspNoVerificable } from '@/lib/area1-isp-identidad'
 import '@/components/io-ui/io-ui.css'
 import { ioFontClasses } from '@/components/io-ui/fonts'
 import './area1-ficha.css'
@@ -54,8 +55,10 @@ export default async function CrmCompanyDetailPage({ params, searchParams }: { p
     } }),
   ])
   if (!company) notFound()
+  const identidadCrm = { nombre: company.nombre, nif: company.nif }
+  const identidadIsp = await leerIdentidadIspEmpresa(prisma, company.id, identidadCrm).then(l => l.identidad).catch(() => identidadIspNoVerificable(identidadCrm))
   const fields: CompanyFormFields = {
-    nombre: company.nombre, nombreComercial: company.nombreComercial || '', nif: company.nif || '', tipo: company.tipo,
+    nombre: identidadIsp.nombre, nombreComercial: company.nombreComercial || '', nif: identidadIsp.nif || '', tipo: company.tipo, identidadIsp,
     segmentoCrm: company.segmentoCrm, dominio: company.dominio || '', web: company.web || '', telefono: company.telefono || '',
     email: company.email || '', sector: company.sector || '', direccion: company.direccion || '', codigoPostal: company.codigoPostal || '',
     localidad: company.localidad || '', provincia: company.provincia || '', pais: company.pais || '', descripcion: company.descripcion || '',

@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { runInNewContext } from 'node:vm'
 import { createHash } from 'node:crypto'
+import { AsyncLocalStorage } from 'node:async_hooks'
 const req = createRequire(import.meta.url)
 const { transformSync } = createRequire(req.resolve('tsx/package.json'))('esbuild')
 let forbidden = 0, passed = 0
@@ -19,6 +20,9 @@ function load(file: string, deps: Record<string, any> = {}, env: Record<string, 
 const core = load('lib/crm-empresa-actividad-core.ts')
 const legacy = load('lib/m365-legacy-policy.ts')
 const area1 = load('lib/area1-m365.ts')
+const ispPolicy = load('lib/isp-origen-policy.ts')
+const identity = load('lib/area1-isp-identidad.ts', { './isp-origen-policy': ispPolicy })
+const ispServer = load('lib/isp-origen-server.ts', { './isp-origen-policy': ispPolicy, 'node:async_hooks': { AsyncLocalStorage } })
 const NOW = new Date('2026-11-26T10:00:00Z')
 const body = (extra: any = {}) => ({ action: 'registrar_actividad', type: 'NOTA', description: 'Contenido local', clientRequestId: 'memory-request-123', ...extra })
 async function test(name: string, fn: () => any) { await fn(); passed++; console.log(`OK ${name}`) }
@@ -89,9 +93,10 @@ async function main() {
   await test('recarga historial: consulta empresa sin personas; mantiene legado y excluye otra empresa', async () => {
     let activityQuery: any, taskQuery: any
     const company = { id: 'empresa-fixture', nombre: 'Empresa sola', tipo: 'SOCIEDAD', segmentoCrm: 'EMPRESA', nif: null, contactos: [], clientes: [] }
-    const db = { crmEmpresa: { findUnique: async () => company }, ispClienteArea1: { findMany: async () => [] }, crmActividad: { findMany: async (q: any) => { activityQuery = q; return [{ id: 'local', empresaId: company.id, contactoId: null, tipo: 'REUNION', titulo: 'Reunión sola', descripcion: 'Local', fechaActividad: NOW, origen: 'LOCAL', creadoPorNombre: 'Autor', metadatos: {}, direccion: null }] } }, crmTarea: { findMany: async (q: any) => { taskQuery = q; return [{ titulo: 'Tarea sola', venceAt: NOW }] } }, area1CrmNegocio: { findMany: async () => [] }, area1CrmPipeline: { findMany: async () => [] } }
-    const loaded = load('lib/area1-ficha-cliente.ts', { './prisma': { __esModule: true, default: db }, './area1-ficha-rentabilidad': { leerRentabilidadFicha: async () => ({ rentabilidad: null }), normalizarCodigoFicha: (s: string) => s }, './area1-subida-cliente': { leerSubidaCliente: async () => null } })
+    const db = { crmEmpresa: { findUnique: async () => company }, crmEmpresaCliente: { findMany: async ({ where }: any) => { assert.equal(where.empresaId, company.id); return [] } }, ispVinculoArea1: { findMany: async ({ where }: any) => { assert.equal(where.destinoId, company.id); return [] } }, ispClienteArea1: { findMany: async () => [] }, crmActividad: { findMany: async (q: any) => { activityQuery = q; return [{ id: 'local', empresaId: company.id, contactoId: null, tipo: 'REUNION', titulo: 'Reunión sola', descripcion: 'Local', fechaActividad: NOW, origen: 'LOCAL', creadoPorNombre: 'Autor', metadatos: {}, direccion: null }] } }, crmTarea: { findMany: async (q: any) => { taskQuery = q; return [{ titulo: 'Tarea sola', venceAt: NOW }] } }, area1CrmNegocio: { findMany: async () => [] }, area1CrmPipeline: { findMany: async () => [] } }
+    const loaded = load('lib/area1-ficha-cliente.ts', { './prisma': { __esModule: true, default: db }, './area1-isp-identidad': identity, './area1-ficha-rentabilidad': { leerRentabilidadFicha: async () => ({ rentabilidad: null }), normalizarCodigoFicha: (s: string) => s }, './area1-subida-cliente': { leerSubidaCliente: async () => null } })
     const f = await loaded.cargarFichaCliente(company.id, 'COMERCIAL', NOW)
+    assert.equal(f.identidadIsp.estadoLectura, 'LOCAL'); assert.equal(f.identidadIsp.protegida, false)
     assert.equal(f.eventos[0].titulo, 'Reunión sola'); assert.equal(f.eventos[0].quien, company.nombre); assert.equal(f.eventos[0].contactoId, null); assert.equal(f.tareas[0].titulo, 'Tarea sola')
     assert.equal(activityQuery.where.OR[0].empresaId, company.id); assert.equal(taskQuery.where.OR[0].empresaId, company.id)
     company.contactos = [{ contactoId: 'persona', papel: null, contacto: { nombre: 'Persona', email: null, propiedades: {} } }] as any
@@ -127,6 +132,9 @@ async function main() {
     const route = load('app/api/admin/crm/empresas/[id]/route.ts', {
       'next/server': { NextResponse: { json: Response.json } }, '@prisma/client': {}, '@/lib/prisma': {},
       '@/lib/crm-empresas-auth': {}, '@/lib/crm-empresas': {}, '@/lib/crm-empresa-actividad': { registrarActividadEmpresa: async (...args: any[]) => { calls.push(args); return 'local-memory' } },
+      'next-auth': { getServerSession: async () => { throw Error('POST_NO_SESSION_READ') } }, '@/lib/auth': { authOptions: {} },
+      '@/lib/area1-m365': area1, '@/lib/area1-isp-identidad': identity, '@/lib/isp-origen-server': ispServer,
+      '@/lib/permisos': { verificarPermisoServer: async () => { throw Error('POST_NO_PATCH_PERMISSION_READ') } },
     })
     const request = new Request('https://memory.example.invalid', { method: 'POST' })
     const context = { params: Promise.resolve({ id: 'empresa-fixture' }) }

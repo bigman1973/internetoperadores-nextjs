@@ -12,11 +12,11 @@ export async function POST() {
       message: 'Sincronización de contratos completada',
       ...result 
     });
-  } catch (error: any) {
-    console.error('Error en API de sincronización de contratos:', error);
-    return NextResponse.json({ 
-      success: false, 
-      error: error instanceof Error ? error.message : 'Error desconocido'
-    }, { status: 500 });
+  } catch (error: unknown) {
+    const code = error && typeof error === 'object' && 'code' in error ? error.code : null
+    if (code === 'ISP_ORIGEN_NO_EDITABLE' || code === 'ISP_SNAPSHOT_INVALID' || code === 'ISP_SNAPSHOT_INCOMPLETE') return NextResponse.json({ success: false, error: 'La operación ISP no se ha completado. Revisa los permisos y los datos de origen.', code }, { status: 409 })
+    if (code === 'ISP_SYNC_UNAUTHORIZED' || code === 'ISP_SYNC_READ_ONLY' || code === 'ISP_READ_ONLY') return NextResponse.json({ success: false, error: 'La operación ISP no se ha completado. Revisa los permisos y los datos de origen.', code }, { status: 403 })
+    console.error('No se pudo completar la sincronización ISP.');
+    return NextResponse.json({ success: false, error: 'No se pudo completar la sincronización ISP.' }, { status: 500 });
   }
 }

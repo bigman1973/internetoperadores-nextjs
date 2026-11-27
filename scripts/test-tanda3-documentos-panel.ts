@@ -264,7 +264,7 @@ test('misma saga fake en raíz Production: hash idempotente, validación humana,
   const h = harness(core.DOCUMENTOS_PRODUCTION_ROOT); const d = await validated(h); const action = archiveBody(d); h.failArchiveCommit()
   await assert.rejects(() => h.service.action(d.id, action)); assert.equal(core.snapshotOf(h.state.revisiones[0]).estado, 'VALIDADA_PENDIENTE_ARCHIVO')
   assert.equal((await h.service.action(d.id, action)).estado, 'ARCHIVADA'); assert.equal(h.state.histories.length, 1); assert.equal(h.state.facturas.length, 1)
-  assert.match(h.state.facturas[0].archivoOneDrive, /^DocumentosPanelProduccion\/Archivadas\//)
+  assert.match(h.state.facturas[0].archivoOneDrive, /^10\. Panel IO\/Archivadas\//)
   const same = core.createDocumentosPanelService({ db: h.db, provider: {} as any, guard: async () => 7, lock: async () => {}, canonical: async () => [] })
   await assert.rejects(() => same.get(d.id), (e:any) => e.code === 'DOCUMENTOS_NAMESPACE_MISMATCH')
 })

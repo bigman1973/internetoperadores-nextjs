@@ -29,9 +29,7 @@ function load(file: string, modules: Record<string, unknown>) {
   const box: { exports: Record<string, any> } = { exports: {} }
   const sandbox = { module: box, exports: box.exports, process, console, URL, Request, Response,
     require: (name: string) => {
-      if (name in modules) return modules[name]
-      if (name.endsWith('.css')) return {}
-      if (name === 'react/jsx-runtime') return require(name)
+      if (Object.hasOwn(modules, name)) return modules[name]
       throw new Error(`UNEXPECTED_IMPORT:${name}`)
     },
     fetch: () => { throw new Error('NETWORK_FORBIDDEN') },
@@ -39,6 +37,8 @@ function load(file: string, modules: Record<string, unknown>) {
   vm.runInNewContext(code, sandbox, { filename: file, timeout: 3000 })
   return box.exports
 }
+const ispPolicy = load('lib/isp-origen-policy.ts', {})
+const identity = load('lib/area1-isp-identidad.ts', { './isp-origen-policy': ispPolicy })
 async function scenario(role: string, opts: { roles?: string[]; active?: boolean; flag?: string; acting?: boolean; edit?: string; env?: string } = {}) {
   const previous = { env: process.env.VERCEL_ENV, flag: process.env.AREA1_FICHA_NUEVA_PRODUCCION }
   process.env.VERCEL_ENV = opts.env || 'production'
@@ -52,6 +52,9 @@ async function scenario(role: string, opts: { roles?: string[]; active?: boolean
   const prisma = {
     usuarioAdmin: { findUnique: async () => { calls.principal++; return principal } },
     crmEmpresa: { findFirst: async () => { calls.old++; return oldCompany } },
+    crmEmpresaCliente: { findMany: async ({ where }: any) => { assert.equal(where.empresaId, oldCompany.id); return [] } },
+    ispClienteArea1: { findMany: async ({ where }: any) => { assert.equal(where.OR[0].crmEmpresaId, oldCompany.id); return [] } },
+    ispVinculoArea1: { findMany: async ({ where }: any) => { assert.equal(where.destinoId, oldCompany.id); return [] } },
     area1CrmFichaIa: {
       findUnique: async () => { calls.cache++; return { puntos: ['Dato de fixture'], createdAt: new Date('2026-09-30') } },
       upsert: async () => { calls.writes++; throw new Error('WRITE_FORBIDDEN') },
@@ -60,6 +63,8 @@ async function scenario(role: string, opts: { roles?: string[]; active?: boolean
   const defaults: Record<string, unknown> = {
     '@/lib/prisma': prisma,
     '@/lib/area1-puertas-produccion': puertas,
+    '@/lib/area1-isp-identidad': identity,
+    'react/jsx-runtime': require('react/jsx-runtime'), '@/components/io-ui/io-ui.css': {}, './area1-ficha.css': {},
     '@/lib/area1-ficha-cliente': { cargarFichaCliente: async () => { calls.ficha++; return { id: 'company-fixture', contextoIa: {} } }, generarPuntosIa: async () => { calls.ia++; throw new Error('IA_FORBIDDEN') }, MODELO_FICHA_IA: () => 'fixture' },
     '@/lib/area1-m365': { avisoAislamiento: () => null, bloqueoActuacion: (s: typeof session) => s.impersonation ? 'No disponible durante actuación' : null },
   }
@@ -73,6 +78,7 @@ async function scenario(role: string, opts: { roles?: string[]; active?: boolean
     const page = load(PAGE, { ...defaults, ...components, 'next/navigation': { notFound: () => { throw new Error('NOT_FOUND') } }, '@/lib/permisos': { registrarArea: async () => null, verificarPermisoServer: async () => ({ escritura: true }) }, '@/lib/admin-area-auth': { requireAdminAreaRead: async () => session }, '@/lib/crm-empresas-auth': { canAccessCrmRelated: async () => true }, '@/components/admin/CrmCompanyWorkspace': Old, '@/components/admin/FichaCliente': Ficha, '@/lib/area1-crm-resumen-vista': { nivelDe: (r: string) => r === 'SUPER_ADMIN' ? 'SUPERADMIN' : r === 'GERENTE' ? 'GERENTE' : 'COMERCIAL' }, '@/lib/email': { getDefaultEmailSender: () => 'fixture.invalid' }, '@/lib/outlook-user-connection': { getOutlookConnectionStatus: async () => { calls.connection++; return { m365: false, envios: false, connected: false } } }, '@/components/io-ui/fonts': { ioFontClasses: 'fixture-font' } })
     const rendered = await page.default({ params: Promise.resolve({ id: 'company-fixture' }), searchParams: Promise.resolve({ editar: opts.edit }) })
     const pageNew = rendered.type === 'div' && rendered.props.children?.type === Ficha
+    if (!pageNew) { assert.equal(rendered.props.children[0].props.company.identidadIsp.estadoLectura, 'LOCAL'); assert.equal(rendered.props.children[0].props.company.identidadIsp.protegida, false) }
     return { status: result.status, apiCalls, pageNew, calls }
   } finally {
     for (const [key, value] of [['VERCEL_ENV', previous.env], ['AREA1_FICHA_NUEVA_PRODUCCION', previous.flag]] as const) {

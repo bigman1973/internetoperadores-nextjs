@@ -5,14 +5,30 @@ export { DOCUMENTOS_PRODUCTION_ROOT } from './documentos-panel-core'
 export const DOCUMENTOS_PRODUCTION_ACCOUNT = 'administracion@internetoperadores.com'
 type Env = Record<string, string | undefined>
 export type DocumentosRuntime = Readonly<{ environment: 'staging' | 'production'; stageOnly: boolean; readOnly: boolean; root: string }>
-export type DocumentosProductionPins = Readonly<{ driveId: string; folderItemId: string }>
-const PIN = /^[A-Za-z0-9!_.~,-]{4,220}$/
-/** No aliases to Stage site/drive pins: a copied configuration never selects Production. */
+export type DocumentosProductionPins = Readonly<{ driveId: string; folderItemId: string; pendingFolderItemId: string; archivedFolderItemId: string }>
+/** Approval allowlist only: these identifiers NEVER populate env or open Production. */
+export const DOCUMENTOS_APPROVED_PRODUCTION_PINS: DocumentosProductionPins = Object.freeze({
+  driveId: 'b!dKwRKEVNVkqVTYRAofWUsDd986ugfPhAt5zF_95R9jAHPFiBlpgQQYMomvM3D6Mc',
+  folderItemId: '01OLVTNNTKKO7GOUF2HFEZBV354BP3HD6G',
+  pendingFolderItemId: '01OLVTNNVIFF7PXWJMNVGLSTLPYQGEZPUV',
+  archivedFolderItemId: '01OLVTNNWGRLAN46CBXRAIFY73LMMSCYD2',
+})
+export function isDocumentosApprovedProductionPins(pins: DocumentosProductionPins | null | undefined): boolean {
+  return !!pins && Object.entries(DOCUMENTOS_APPROVED_PRODUCTION_PINS).every(([key, value]) => pins[key as keyof DocumentosProductionPins] === value)
+}
+export function assertDocumentosApprovedProductionPins(pins: DocumentosProductionPins): void {
+  if (!isDocumentosApprovedProductionPins(pins)) fail(503, 'DOCUMENTOS_SELECTED_PIN_MISMATCH', 'Sólo se admite el drive y las tres carpetas aprobadas de 10. Panel IO.')
+}
+/** No aliases/defaults/Stage pins: all four optional config entries must match approval. */
 export function documentosPanelProductionPins(env: Env = process.env): DocumentosProductionPins | null {
-  const driveId = env.FINANCE_DOCUMENTOS_PRODUCTION_DRIVE_ID
-  const folderItemId = env.FINANCE_DOCUMENTOS_PRODUCTION_FOLDER_ITEM_ID
-  if (!driveId || !folderItemId || !PIN.test(driveId) || !PIN.test(folderItemId) || folderItemId.toLowerCase() === 'root') return null
-  return { driveId, folderItemId }
+  const pins = {
+    driveId: env.FINANCE_DOCUMENTOS_PRODUCTION_DRIVE_ID,
+    folderItemId: env.FINANCE_DOCUMENTOS_PRODUCTION_FOLDER_ITEM_ID,
+    pendingFolderItemId: env.FINANCE_DOCUMENTOS_PRODUCTION_PENDING_FOLDER_ITEM_ID,
+    archivedFolderItemId: env.FINANCE_DOCUMENTOS_PRODUCTION_ARCHIVED_FOLDER_ITEM_ID,
+  }
+  if (!Object.values(pins).every(value => typeof value === 'string') || !isDocumentosApprovedProductionPins(pins as DocumentosProductionPins)) return null
+  return Object.freeze(pins) as DocumentosProductionPins
 }
 /** Single document opt-in. Finance-wide flags cannot grant Documentos. No I/O. */
 export function documentosPanelRuntime(env: Env = process.env): DocumentosRuntime | null {

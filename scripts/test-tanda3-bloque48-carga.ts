@@ -180,6 +180,7 @@ test('actual native selector accepts exactly 48 pending candidates, 46 webs and 
   const sandbox: any = { exports: {}, require: (id: string) => {
     if (id === 'node:crypto') return { createHash }
     if (id === '@/lib/crm-isp-import') return { ErrorVinculo: class extends Error {}, resolverVinculoEnTx: () => { throw new Error('NO_CONFIRMATION_AUTHORIZED') } }
+    if (id === '@/lib/isp-origen-server') return { acquireIspOrigenFenceTx: () => { throw new Error('NO_CONFIRMATION_AUTHORIZED') } }
     if (id === '@/lib/area1-import-recibo') return {}
     throw new Error('NO_IO_MODULE_ALLOWED')
   } }

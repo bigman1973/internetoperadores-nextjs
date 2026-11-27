@@ -1,6 +1,6 @@
 import 'server-only'
 import { fail, MAX_FILE_BYTES } from './documentos-panel-core'
-import { DOCUMENTOS_PRODUCTION_ROOT, documentosPanelProductionPins, type DocumentosProductionPins } from './documentos-panel-runtime'
+import { DOCUMENTOS_PRODUCTION_ROOT, assertDocumentosApprovedProductionPins, documentosPanelProductionPins, type DocumentosProductionPins } from './documentos-panel-runtime'
 
 /** No I/O on import or factory construction. Never imports the shared Graph client. */
 type Env = Record<string, string | undefined>
@@ -64,7 +64,7 @@ export async function boundedSelectedBytes(response: Response, maxBytes: number)
   if (!size) fail(502, 'DOCUMENTOS_SELECTED_BODY_MISSING', 'Respuesta Selected vacía.')
   return Buffer.concat(chunks, size)
 }
-export function parseSelectedSourceRoots(env: Env, knownLegacyRoot: string, destination: DocumentosProductionPins): readonly SelectedRoot[] {
+export function parseSelectedSourceRoots(env: Env, knownLegacyRoot: string, destination: Pick<DocumentosProductionPins, 'driveId' | 'folderItemId'>): readonly SelectedRoot[] {
   let raw: unknown
   try { const json = env.FINANCE_DOCUMENTOS_COMPARACION_SELECTED_ROOTS; if (!json || Buffer.byteLength(json) > 16384) throw Error(); raw = JSON.parse(json) } catch { fail(503, 'DOCUMENTOS_SELECTED_SOURCE_PINS_MISSING', 'Faltan raíces de lectura Selected declaradas en servidor.') }
   if (!safeLabel(knownLegacyRoot) || !Array.isArray(raw) || !raw.length || raw.length > 12) fail(503, 'DOCUMENTOS_SELECTED_SOURCE_PINS_INVALID', 'Configuración Selected de fuentes no válida.')
@@ -84,7 +84,12 @@ export function parseSelectedSourceRoots(env: Env, knownLegacyRoot: string, dest
 /** Capability namespace: only pinned root GET, validated descendants and direct child
  * path lookups are possible. Unknown item IDs are rejected before ANY Graph request.
  * Source instances are GET-only; no site/root/drive discovery or permission management. */
-export function createSelectedTransport(credential: SelectedCredential, roots: readonly SelectedRoot[], readOnly: boolean, deps: SelectedDependencies, forbiddenRoots: readonly DocumentosProductionPins[] = []) {
+export function createSelectedTransport(credential: SelectedCredential, roots: readonly SelectedRoot[], readOnly: boolean, deps: SelectedDependencies, forbiddenRoots: readonly Pick<DocumentosProductionPins, 'driveId' | 'folderItemId'>[] = [], destinationPins?: DocumentosProductionPins) {
+  if (destinationPins) {
+    assertDocumentosApprovedProductionPins(destinationPins)
+    if (roots.length !== 1 || roots[0].driveId !== destinationPins.driveId || roots[0].folderItemId !== destinationPins.folderItemId || roots[0].relativeLabel !== DOCUMENTOS_PRODUCTION_ROOT) fail(503, 'DOCUMENTOS_SELECTED_PIN_MISMATCH', 'Destino Selected distinto de la carpeta 10 aprobada.')
+    destinationPins = Object.freeze({ ...destinationPins })
+  }
   const http = deps.fetch ?? fetch
   const nodes = new Map<string, any>()
   const rootMap = new Map<string, SelectedRoot>()
@@ -124,6 +129,11 @@ export function createSelectedTransport(credential: SelectedCredential, roots: r
     if (root) {
       if (!item.folder || item.file || item.name !== root.relativeLabel.split('/').pop()) fail(502, 'DOCUMENTOS_SELECTED_SCOPE_MISMATCH', 'Carpeta raíz Selected fijada no verificable.')
     } else if (!parent || item.parentReference?.id !== parent || !nodes.get(key(drive, parent))?.folder) fail(502, 'DOCUMENTOS_SELECTED_SCOPE_MISMATCH', 'Descendiente no pertenece al padre autorizado.')
+    if (destinationPins && !root) {
+      const expectedName = item.id === destinationPins.pendingFolderItemId ? 'Pendientes' : item.id === destinationPins.archivedFolderItemId ? 'Archivadas' : undefined
+      if (expectedName ? (!item.folder || item.file || item.name !== expectedName || parent !== destinationPins.folderItemId)
+        : (!item.file || item.folder || ![destinationPins.pendingFolderItemId, destinationPins.archivedFolderItemId].includes(parent!))) fail(502, 'DOCUMENTOS_SELECTED_SCOPE_MISMATCH', 'Sólo carpetas pin exactas y archivos directos bajo ellas.')
+    }
     if (!!item.folder === !!item.file || item.file && (!Number.isSafeInteger(item.size) || item.size < 1)) fail(502, 'DOCUMENTOS_SELECTED_METADATA_INVALID', 'Facet/tamaño Selected no válido.')
     const previous = nodes.get(itemKey)
     if (previous && previous.parentReference?.id !== item.parentReference?.id && readOnly) fail(502, 'DOCUMENTOS_SELECTED_CHANGED', 'El inventario cambió de padre durante la lectura.')
@@ -142,7 +152,11 @@ export function createSelectedTransport(credential: SelectedCredential, roots: r
     if (child && (!safeLabel(child) || child.includes('/'))) fail(502, 'DOCUMENTOS_SELECTED_PATH_REJECTED', 'Nombre fuera del namespace Selected.')
     const method = (init.method ?? 'GET').toUpperCase(), resource = match[6], content = !!match[5] || resource === 'content'
     const pinned = rootMap.has(key(drive, itemId)), known = nodes.get(key(drive, itemId))
-    if (!pinned && !known || prohibited.has(key(drive, itemId)) || ((child || resource === 'children') && !known?.folder)
+    const fixedChildName = destinationPins && drive === destinationPins.driveId
+      ? itemId === destinationPins.pendingFolderItemId ? 'Pendientes' : itemId === destinationPins.archivedFolderItemId ? 'Archivadas' : undefined : undefined
+    const fixedChild = !!fixedChildName && !!nodes.get(key(drive, destinationPins!.folderItemId))?.folder
+    if (destinationPins && ((pinned && (child || resource)) || (child && !fixedChildName) || (resource === 'children' && !fixedChildName))) fail(403, 'DOCUMENTOS_SELECTED_OUTSIDE_ROOT', 'Sin lista/discovery del root; lookup sólo de archivos en las dos carpetas pin.')
+    if (!pinned && !known && !fixedChild || prohibited.has(key(drive, itemId)) || ((child || resource === 'children') && !known?.folder)
       || (resource === 'content' && !known?.file)) fail(403, 'DOCUMENTOS_SELECTED_OUTSIDE_ROOT', 'ID no autorizado por la raíz Selected exacta.')
     const entries = [...url.searchParams.entries()]
     if (new Set(entries.map(([k]) => k)).size !== entries.length || entries.some(([k,v]) => !['$select', '$top', '$skiptoken', '@microsoft.graph.conflictBehavior'].includes(k) || v.length > 8192)
@@ -157,6 +171,7 @@ export function createSelectedTransport(credential: SelectedCredential, roots: r
     const headers = new Headers(init.headers)
     if (method !== 'GET') {
       if (readOnly || pinned || !['PUT','PATCH'].includes(method)) fail(403, 'DOCUMENTOS_SELECTED_READ_ONLY', 'El transporte no concede esta mutación.')
+      if (destinationPins && method === 'PUT' && itemId !== destinationPins.pendingFolderItemId) fail(403, 'DOCUMENTOS_SELECTED_MUTATION_REJECTED', 'Sólo se sube a Pendientes aprobado.')
       if (method === 'PUT' && (!child || !content || headers.get('if-none-match') !== '*' || url.searchParams.get('@microsoft.graph.conflictBehavior') !== 'fail'
         || Object.prototype.toString.call(init.body) !== '[object ArrayBuffer]' || !Number.isSafeInteger((init.body as ArrayBuffer).byteLength)
         || (init.body as ArrayBuffer).byteLength < 1 || (init.body as ArrayBuffer).byteLength > MAX_FILE_BYTES
@@ -166,6 +181,7 @@ export function createSelectedTransport(credential: SelectedCredential, roots: r
         if (!known?.file || child || resource || !headers.get('if-match') || Object.keys(body).sort().join(',') !== '@microsoft.graph.conflictBehavior,name,parentReference'
           || !safeLabel(body.name) || body.name.includes('/') || body['@microsoft.graph.conflictBehavior'] !== 'fail'
           || !body.parentReference || Object.keys(body.parentReference).join(',') !== 'id' || !nodes.get(key(drive, body.parentReference.id))?.folder) fail(403, 'DOCUMENTOS_SELECTED_MUTATION_REJECTED', 'Movimiento fuera del mismo namespace fijado.')
+        if (destinationPins && (known.parentReference?.id !== destinationPins.pendingFolderItemId || body.parentReference.id !== destinationPins.archivedFolderItemId)) fail(403, 'DOCUMENTOS_SELECTED_MUTATION_REJECTED', 'Sólo se archiva desde Pendientes hacia Archivadas aprobados.')
       }
     } else if (init.body != null) fail(403, 'DOCUMENTOS_SELECTED_PATH_REJECTED', 'Lectura sin body.')
     headers.set('Authorization', `Bearer ${await token()}`); await deps.guard()
@@ -179,7 +195,10 @@ export function createSelectedTransport(credential: SelectedCredential, roots: r
       for (const value of body.value) observe(value, drive, itemId)
     } else if (child) observe(body, drive, itemId, undefined, child)
     else if (pinned) observe(body, drive, undefined, itemId)
-    else observe(body, drive, body.parentReference?.id, itemId)
+    else if (fixedChildName) {
+      if (!body.folder || body.file) fail(502, 'DOCUMENTOS_SELECTED_SCOPE_MISMATCH', 'Pin hijo no es carpeta.')
+      observe(body, drive, destinationPins!.folderItemId, itemId, fixedChildName)
+    } else observe(body, drive, body.parentReference?.id, itemId)
     return Response.json(body, { status: response.status })
   }
   const json = async (path: string) => { const response = await request(path); if (!response.ok) fail(502, 'DOCUMENTOS_SELECTED_READ_FAILED', `Graph Selected no confirmó lectura (${response.status}).`); return response.json() }
@@ -257,6 +276,7 @@ export function createSelectedTransport(credential: SelectedCredential, roots: r
 }
 export function createDocumentosProductionTransport(pins: DocumentosProductionPins, guard: () => Promise<unknown>, env: Env = process.env, dependencies: Omit<SelectedDependencies, 'guard'> = {}) {
   const configured = documentosPanelProductionPins(env)
-  if (!configured || configured.driveId !== pins.driveId || configured.folderItemId !== pins.folderItemId) fail(503, 'DOCUMENTOS_SELECTED_PIN_MISMATCH', 'Pins Production no coinciden con configuración documental dedicada.')
-  return createSelectedTransport(selectedCredential(env, 'FINANCE_DOCUMENTOS_GRAPH'), [{ ...pins, relativeLabel: DOCUMENTOS_PRODUCTION_ROOT }], false, { ...dependencies, guard })
+  assertDocumentosApprovedProductionPins(pins)
+  if (!configured || Object.keys(configured).some(key => configured[key as keyof DocumentosProductionPins] !== pins[key as keyof DocumentosProductionPins])) fail(503, 'DOCUMENTOS_SELECTED_PIN_MISMATCH', 'Pins Production no coinciden con configuración documental dedicada.')
+  return createSelectedTransport(selectedCredential(env, 'FINANCE_DOCUMENTOS_GRAPH'), [{ ...pins, relativeLabel: DOCUMENTOS_PRODUCTION_ROOT }], false, { ...dependencies, guard }, [], pins)
 }

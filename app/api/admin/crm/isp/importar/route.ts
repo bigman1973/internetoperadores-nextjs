@@ -52,8 +52,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ modo, hash: datos.hash, ...r, recibo: { resultado: r.recibo.resultado } })
   } catch (error) {
     if (error instanceof ErrorImportacionNoAuditada) return NextResponse.json({ error: 'La importación ha fallado y no se ha guardado nada. Además, no se pudo registrar en la auditoría.', auditoria: 'NO_REGISTRADA' }, { status: 500 })
+    const code = error && typeof error === 'object' && 'code' in error ? error.code : null
+    if (code === 'ISP_ORIGEN_NO_EDITABLE' || code === 'ISP_SNAPSHOT_INVALID' || code === 'ISP_SNAPSHOT_INCOMPLETE') return NextResponse.json({ success: false, error: 'La operación ISP no se ha completado. Revisa los permisos y los datos de origen.', code }, { status: 409 })
+    if (code === 'ISP_SYNC_UNAUTHORIZED' || code === 'ISP_SYNC_READ_ONLY' || code === 'ISP_READ_ONLY') return NextResponse.json({ success: false, error: 'La operación ISP no se ha completado. Revisa los permisos y los datos de origen.', code }, { status: 403 })
     if (error instanceof ErrorFicheroIsp) return NextResponse.json({ error: error.message, codigo: error.codigo }, { status: 422 })
-    console.error('[CRM-ISP] Error en la importación:', error instanceof Error ? error.message : 'desconocido')
+    console.error('[CRM-ISP] No se pudo procesar la importación.')
     return NextResponse.json({ error: 'No se pudo procesar el fichero. No se ha guardado nada.' }, { status: 500 })
   }
 }

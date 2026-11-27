@@ -13,6 +13,10 @@ import { brevoFetch } from '@/lib/brevo-fetch'
 import { randomUUID as createId } from 'node:crypto'
 import type { Prisma, PrismaClient } from '@prisma/client'
 import prismaDefault from '@/lib/prisma'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
+import { importacionesCrmCerradas } from '@/lib/area1-puertas-produccion'
+import { acquireIspOrigenFenceTx, runWithIspSourceWriteTx } from '@/lib/isp-origen-server'
 import {
   asignarContrato, clasificar, emailsCompartidosEntreDocumentos, estadoMarketing, indexarClientesPorDoc,
   normalizarDocumento, normalizarEmail, normalizarNombre, proponerVinculos,
@@ -155,7 +159,7 @@ export async function planificarImportacion(db: Db, fichero: FicheroIsp, fuente:
     const prev = pc.get(c.ispClienteId)
     const marketing = estadoMarketing(c, fuente.bajas, prev ? { estadoMarketing: prev.estadoMarketing, bajaMarketingMotivo: prev.bajaMarketingMotivo } : null)
     let clase = clasificar(c, prev)
-    if (clase === 'SIN_CAMBIOS' && (prev?.estadoMarketing !== marketing.estado || prev?.presenteEnUltimoFichero === false)) clase = 'ACTUALIZADO'
+    if (clase === 'SIN_CAMBIOS' && (prev?.presenteEnUltimoFichero === false)) clase = 'ACTUALIZADO'
     const vinculo = proponerVinculos(c, idx, prev ? { clienteWebId: prev.clienteWebId, crmContactoId: prev.crmContactoId, crmEmpresaId: prev.crmEmpresaId } : null)
     const rowId = prev?.id || createId()
     rowIdPorIsp.set(c.ispClienteId, rowId)
@@ -209,70 +213,115 @@ export async function planificarImportacion(db: Db, fichero: FicheroIsp, fuente:
 }
 
 // ---------------------------------------------------------------- aplicar
-function datosCliente(c: ClienteIsp, marketing: { estado: string; motivo: string | null }, importacionId: string) {
+function datosCliente(c: ClienteIsp, importacionId: string) {
   return {
     codigo: c.codigo, nombre: c.nombre, nombreComercial: c.nombreComercial, cif: c.cif, nif: c.nif, docNormalizado: c.docNormalizado,
     personaFisica: c.personaFisica, segmentoCrm: c.segmentoCrm, categoria: c.categoria, email: c.email, emails: c.emails,
     telefono: c.telefono, movil: c.movil, domicilio: c.domicilio, numero: c.numero, piso: c.piso, puerta: c.puerta,
     codigoPostal: c.codigoPostal, municipio: c.municipio, provincia: c.provincia, pais: c.pais, comercial: c.comercial, agente: c.agente,
     fechaInicio: dia(c.fechaInicio), fechaFin: dia(c.fechaFin), facturaMail: c.facturaMail, recibePublicidadIsp: c.recibePublicidadIsp,
-    idioma: c.idioma, baneado: c.baneado, estadoMarketing: marketing.estado, bajaMarketingMotivo: marketing.motivo,
+    idioma: c.idioma, baneado: c.baneado,
     huella: c.huella, presenteEnUltimoFichero: true, ultimaImportacionId: importacionId,
   }
 }
 function datosContrato(x: PlanImportacion['contratos'][number], importacionId: string) {
   const k = x.k
   return {
-    codigoContratoIsp: k.codigoContratoIsp, serie: k.serie, ispClienteRowId: x.ispClienteRowId, asignacionCliente: x.asignacion,
-    candidatosCliente: x.candidatos, clienteNombreFichero: k.clienteNombreFichero, docNormalizado: k.docNormalizado, estado: k.estado,
+    codigoContratoIsp: k.codigoContratoIsp, serie: k.serie, clienteNombreFichero: k.clienteNombreFichero, docNormalizado: k.docNormalizado, estado: k.estado,
     activo: k.activo, tarifa: k.tarifa, descripcion: k.descripcion, lineaAsociada: k.lineaAsociada, importeSinIva: k.importeSinIva,
     descuento: k.descuento, velocidad: k.velocidad, fechaAlta: dia(k.fechaAlta), fechaBaja: dia(k.fechaBaja), permanenciaHasta: dia(k.permanenciaHasta),
     permanenciaTexto: k.permanenciaTexto, periodicidad: k.periodicidad, formaPago: k.formaPago, proveedor: k.proveedor,
-    identificadorOperador: k.identificadorOperador, observaciones: k.observaciones, contratoServicioId: x.contratoServicioId,
+    identificadorOperador: k.identificadorOperador, observaciones: k.observaciones,
     huella: k.huella, presenteEnUltimoFichero: true, ultimaImportacionId: importacionId,
+    ispClienteRowId: x.ispClienteRowId, asignacionCliente: x.asignacion, candidatosCliente: x.candidatos,
   }
 }
 
 export type ResultadoAplicarIsp = { importacionId: string; resumen: Record<string, any>; propuestasNuevas: number; propuestasObsoletas: number; propuestasReactivadas: number; propuestasActualizadas: number; vinculosDirectos: number }
 export async function aplicarImportacion(db: PrismaClient, plan: PlanImportacion, meta: { ficheroNombre: string; bytes: number; actorId: number; actorEmail: string }, dentroTx?: (tx: Prisma.TransactionClient, r: ResultadoAplicarIsp) => Promise<void>): Promise<ResultadoAplicarIsp> {
   return db.$transaction(async (tx) => {
+    const session = await getServerSession(authOptions)
+    const actor = await tx.usuarioAdmin.findUnique({ where: { id: meta.actorId }, select: { activo: true, rol: true } })
+    if (importacionesCrmCerradas() || process.env.FINANCE_DEPLOYMENT_READ_ONLY === '1' || process.env.IO_PRODUCTION_READ_ONLY === '1'
+      || !session || session.impersonation || session.user.userType !== 'admin' || Number(session.user.id) !== meta.actorId
+      || !actor?.activo || actor.rol !== 'SUPER_ADMIN') {
+      throw Object.assign(new Error('Carga ISP no autorizada.'), { code: 'ISP_SYNC_UNAUTHORIZED', status: 403 })
+    }
+    const monthKeys = plan.facturacion.map(({ f }) => `${f.codigoCliente}|${f.anio}|${f.mes}`)
+    if (new Set(monthKeys).size !== monthKeys.length || plan.facturacion.some(({ f }) => !Number.isInteger(f.mes) || f.mes < 1 || f.mes > 12)) {
+      throw Object.assign(new Error('Facturación mensual ISP inválida.'), { code: 'ISP_SNAPSHOT_INVALID', status: 409 })
+    }
     const importacionId = createId()
-    const ahora = new Date()
     await tx.ispImportacionArea1.create({ data: { id: importacionId, ficheroNombre: meta.ficheroNombre.slice(0, 200), ficheroHash: plan.hash, ficheroBytes: meta.bytes, actorId: meta.actorId, actorEmail: meta.actorEmail, resumen: plan.resumen as Prisma.InputJsonValue, brevoVerificado: plan.brevoVerificado } })
 
-    // Clientes
-    const nuevos = plan.clientes.filter((x) => x.clase === 'NUEVO')
-    for (const l of lotes(nuevos)) await tx.ispClienteArea1.createMany({ data: l.map((x) => ({ id: x.rowId, ispClienteId: x.c.ispClienteId, primeraImportacionId: importacionId, ...datosCliente(x.c, x.marketing, importacionId), bajaMarketingAt: x.marketing.estado === 'BAJA' ? ahora : null })) })
-    for (const x of plan.clientes.filter((y) => y.clase === 'ACTUALIZADO')) {
-      const prev = await tx.ispClienteArea1.findUnique({ where: { id: x.rowId }, select: { bajaMarketingAt: true } })
-      await tx.ispClienteArea1.update({ where: { id: x.rowId }, data: { ...datosCliente(x.c, x.marketing, importacionId), bajaMarketingAt: x.marketing.estado === 'BAJA' ? prev?.bajaMarketingAt || ahora : null } })
-    }
-    const sinCambios = plan.clientes.filter((x) => x.clase === 'SIN_CAMBIOS').map((x) => x.rowId)
-    for (const l of lotes(sinCambios)) await tx.ispClienteArea1.updateMany({ where: { id: { in: l } }, data: { ultimaImportacionId: importacionId } })
-    for (const l of lotes(plan.ausentes.clientes)) await tx.ispClienteArea1.updateMany({ where: { ispClienteId: { in: l } }, data: { presenteEnUltimoFichero: false } })
+    let asignacionesFuenteAplicadas = 0
+    let contratosAsignacionPendiente = 0
+    await runWithIspSourceWriteTx('crm-xlsx', tx, async (writerTx) => {
+      // Clientes
+      const nuevos = plan.clientes.filter((x) => x.clase === 'NUEVO')
+      for (const l of lotes(nuevos)) await writerTx.ispClienteArea1.createMany({ data: l.map((x) => ({ id: x.rowId, ispClienteId: x.c.ispClienteId, primeraImportacionId: importacionId, ...datosCliente(x.c, importacionId) })) })
+      for (const x of plan.clientes.filter((y) => y.clase === 'ACTUALIZADO')) {
+        const previous = await writerTx.ispClienteArea1.findUnique({ where: { id: x.rowId }, select: { ispClienteId: true } })
+        if (previous?.ispClienteId !== x.c.ispClienteId) throw Object.assign(new Error('ISP_SNAPSHOT_ID_MISMATCH'), { code: 'ISP_SNAPSHOT_INVALID', status: 409 })
+        await writerTx.ispClienteArea1.update({ where: { id: x.rowId }, data: datosCliente(x.c, importacionId) })
+      }
+      const sinCambios = plan.clientes.filter((x) => x.clase === 'SIN_CAMBIOS').map((x) => x.rowId)
+      for (const l of lotes(sinCambios)) await writerTx.ispClienteArea1.updateMany({ where: { id: { in: l } }, data: { ultimaImportacionId: importacionId } })
+      // Ausentes calculados son advertencia: no se aplica presencia sin snapshot completo verificado.
 
-    // Identidad por clave ISP y vínculos ya existentes en el CRM: solo rellenan huecos, nunca sobrescriben.
-    // Se cuentan solo los huecos realmente rellenados (null → id), devueltos por la BD.
-    let vinculosDirectos = 0
-    for (const x of plan.clientes) {
-      const v = x.vinculo
-      if (v.clienteWebId) vinculosDirectos += (await tx.ispClienteArea1.updateMany({ where: { id: x.rowId, clienteWebId: null }, data: { clienteWebId: v.clienteWebId } })).count
-      if (v.crmContactoId) vinculosDirectos += (await tx.ispClienteArea1.updateMany({ where: { id: x.rowId, crmContactoId: null }, data: { crmContactoId: v.crmContactoId } })).count
-      if (v.crmEmpresaId) vinculosDirectos += (await tx.ispClienteArea1.updateMany({ where: { id: x.rowId, crmEmpresaId: null }, data: { crmEmpresaId: v.crmEmpresaId } })).count
-    }
+      // Ni null→id ni una coincidencia automática constituyen decisión humana.
+      // El refresco conserva todos los enlaces; el algoritmo sólo propone.
 
-    // Contratos
-    for (const l of lotes(plan.contratos.filter((x) => x.clase === 'NUEVO'))) await tx.ispContratoArea1.createMany({ data: l.map((x) => ({ id: x.rowId, ispContratoId: x.k.ispContratoId, ...datosContrato(x, importacionId) })) })
-    for (const x of plan.contratos.filter((y) => y.clase === 'ACTUALIZADO')) await tx.ispContratoArea1.update({ where: { id: x.rowId }, data: datosContrato(x, importacionId) })
-    for (const l of lotes(plan.contratos.filter((x) => x.clase === 'SIN_CAMBIOS').map((x) => x.rowId))) await tx.ispContratoArea1.updateMany({ where: { id: { in: l } }, data: { ultimaImportacionId: importacionId } })
-    for (const l of lotes(plan.ausentes.contratos)) await tx.ispContratoArea1.updateMany({ where: { ispContratoId: { in: l } }, data: { presenteEnUltimoFichero: false } })
+      // FK entre snapshots ISP, nunca enlaces humanos CRM ni contratoServicioId.
+      // Recalcular tras persistir los clientes: incluye cuentas ausentes del XLSX
+      // parcial para que un NIF compartido no se convierta en asignación inventada.
+      const persisted = await writerTx.ispClienteArea1.findMany({ select: {
+        id: true, ispClienteId: true, codigo: true, nombre: true, nombreComercial: true, docNormalizado: true, cif: true, nif: true,
+      }, orderBy: { ispClienteId: 'asc' } })
+      const byIspId = new Map(persisted.map((c) => [c.ispClienteId, c.id]))
+      // El algoritmo sólo consume identidad fuente. Completar su DTO puro no
+      // concede datos/consentimientos ni persiste estos valores auxiliares.
+      const candidateDtos: ClienteIsp[] = persisted.map((c) => ({ ...c,
+        personaFisica: false, segmentoCrm: 'PARTICULAR', tipoEmpresa: null, categoria: null, email: null, emails: [],
+        telefono: null, movil: null, domicilio: null, numero: null, piso: null, puerta: null, codigoPostal: null,
+        municipio: null, provincia: null, pais: null, comercial: null, agente: null, fechaInicio: null, fechaFin: null,
+        facturaMail: false, recibePublicidadIsp: false, idioma: null, baneado: false, huella: '',
+      }))
+      const byDoc = indexarClientesPorDoc(candidateDtos)
+      for (const original of plan.contratos) {
+        const assignment = asignarContrato(original.k, byDoc)
+        const previous = await writerTx.ispContratoArea1.findUnique({ where: { ispContratoId: original.k.ispContratoId }, select: {
+          id: true, ispContratoId: true, ispClienteRowId: true, asignacionCliente: true, candidatosCliente: true,
+        } })
+        if (previous && previous.id !== original.rowId) throw Object.assign(new Error('ISP_SNAPSHOT_ID_MISMATCH'), { code: 'ISP_SNAPSHOT_INVALID', status: 409 })
+        const rowId = assignment.ispClienteId ? byIspId.get(assignment.ispClienteId) : null
+        if (assignment.ispClienteId && !rowId) throw Object.assign(new Error('ISP_SNAPSHOT_CLIENT_MISSING'), { code: 'ISP_SNAPSHOT_INVALID', status: 409 })
+        const x = { ...original, ispClienteRowId: rowId ?? null, asignacion: assignment.asignacion, candidatos: assignment.candidatos }
+        // La ambigüedad/ausencia parcial no desmonta una asignación existente:
+        // ni cambia sus claves documentales/huella a un resultado no acreditado.
+        if (!x.ispClienteRowId && previous?.ispClienteRowId) {
+          const { ispClienteRowId: _row, asignacionCliente: _assignment, candidatosCliente: _candidates,
+            docNormalizado: _doc, clienteNombreFichero: _name, huella: _hash, ...header } = datosContrato(x, importacionId)
+          await writerTx.ispContratoArea1.update({ where: { id: x.rowId }, data: header })
+          contratosAsignacionPendiente++
+          continue
+        }
+        if (x.ispClienteRowId && x.ispClienteRowId !== previous?.ispClienteRowId) asignacionesFuenteAplicadas++
+        if (!previous) await writerTx.ispContratoArea1.create({ data: { id: x.rowId, ispContratoId: x.k.ispContratoId, ...datosContrato(x, importacionId) } })
+        else if (x.clase !== 'SIN_CAMBIOS' || previous.ispClienteRowId !== x.ispClienteRowId || previous.asignacionCliente !== x.asignacion || JSON.stringify(previous.candidatosCliente) !== JSON.stringify(x.candidatos)) {
+          await writerTx.ispContratoArea1.update({ where: { id: x.rowId }, data: datosContrato(x, importacionId) })
+        } else await writerTx.ispContratoArea1.update({ where: { id: x.rowId }, data: { ultimaImportacionId: importacionId } })
+      }
+      // Tampoco se convierte ausencia contractual en baja/presencia persistida.
 
-    // Facturación mensual
-    for (const l of lotes(plan.facturacion.filter((x) => x.clase === 'NUEVO'))) await tx.ispFacturacionMensualArea1.createMany({ data: l.map(({ f }) => ({ id: createId(), codigoCliente: f.codigoCliente, anio: f.anio, mes: f.mes, importeBase: f.importeBase, ultimaImportacionId: importacionId })) })
-    for (const { f } of plan.facturacion.filter((x) => x.clase === 'ACTUALIZADO')) await tx.ispFacturacionMensualArea1.update({ where: { codigoCliente_anio_mes: { codigoCliente: f.codigoCliente, anio: f.anio, mes: f.mes } }, data: { importeBase: f.importeBase, ultimaImportacionId: importacionId } })
+      // Facturación mensual
+      for (const l of lotes(plan.facturacion.filter((x) => x.clase === 'NUEVO'))) await writerTx.ispFacturacionMensualArea1.createMany({ data: l.map(({ f }) => ({ id: createId(), codigoCliente: f.codigoCliente, anio: f.anio, mes: f.mes, importeBase: f.importeBase, ultimaImportacionId: importacionId })) })
+      for (const { f } of plan.facturacion.filter((x) => x.clase === 'ACTUALIZADO')) await writerTx.ispFacturacionMensualArea1.update({ where: { codigoCliente_anio_mes: { codigoCliente: f.codigoCliente, anio: f.anio, mes: f.mes } }, data: { importeBase: f.importeBase, ultimaImportacionId: importacionId } })
 
+    })
+    const vinculosDirectos = 0
     // Propuestas: se conservan las decisiones humanas; las pendientes que ya no aplican pasan a OBSOLETO.
-    const existentes = await tx.ispVinculoArea1.findMany({ select: { id: true, ispClienteRowId: true, tipo: true, destinoId: true, estado: true, motivo: true, confianza: true } })
+    const existentes = await tx.ispVinculoArea1.findMany({ where: { ispClienteRowId: { in: plan.clientes.map(x => x.rowId) } }, select: { id: true, ispClienteRowId: true, tipo: true, destinoId: true, estado: true, motivo: true, confianza: true } })
     let propuestasReactivadas = 0
     let propuestasActualizadas = 0
     const clave = (a: string, t: string, d: string) => `${a}|${t}|${d}`
@@ -297,7 +346,7 @@ export async function aplicarImportacion(db: PrismaClient, plan: PlanImportacion
     const obsoletas = existentes.filter((e) => e.estado === 'PENDIENTE' && !vigentes.has(clave(e.ispClienteRowId, e.tipo, e.destinoId))).map((e) => e.id)
     for (const l of lotes(obsoletas)) await tx.ispVinculoArea1.updateMany({ where: { id: { in: l } }, data: { estado: 'OBSOLETO', ultimaImportacionId: importacionId } })
 
-    const r: ResultadoAplicarIsp = { importacionId, resumen: plan.resumen, propuestasNuevas: crear.length, propuestasObsoletas: obsoletas.length, propuestasReactivadas, propuestasActualizadas, vinculosDirectos }
+    const r: ResultadoAplicarIsp = { importacionId, resumen: { ...plan.resumen, presenciaAplicada: false, advertenciaOrigen: 'ISP_SNAPSHOT_PRESENCE_UNVERIFIED', marketingAplicado: false, asignacionesAutomaticasAplicadas: false, asignacionesFuenteAplicadas, contratosAsignacionPendiente }, propuestasNuevas: crear.length, propuestasObsoletas: obsoletas.length, propuestasReactivadas, propuestasActualizadas, vinculosDirectos }
     // Recibo de auditoría del Área 4 en la misma transacción: si falla, se revierte la importación.
     if (dentroTx) await dentroTx(tx, r)
     return r
@@ -316,6 +365,7 @@ export type EfectoVinculo = { tipo: string; enlaceClienteWeb: boolean; obsoletas
  * confirmación una a una y para el bloque. Lanza ErrorVinculo si no se puede aplicar.
  */
 export async function resolverVinculoEnTx(tx: Prisma.TransactionClient, id: string, accion: 'CONFIRMAR' | 'DESCARTAR', actor: string): Promise<EfectoVinculo> {
+  await acquireIspOrigenFenceTx(tx)
   const efecto: EfectoVinculo = { tipo: '', enlaceClienteWeb: false, obsoletas: 0 }
   const v = await tx.ispVinculoArea1.findUnique({ where: { id }, include: { cliente: true } })
   if (!v) throw new ErrorVinculo('NO_EXISTE')
@@ -328,6 +378,12 @@ export async function resolverVinculoEnTx(tx: Prisma.TransactionClient, id: stri
   }
   const c = v.cliente
   const origen = `ISP_CONFIRMADO:${actor}`.slice(0, 120)
+  const link = async (field: 'clienteWebId' | 'crmContactoId' | 'crmEmpresaId', value: number | string) => {
+    const result = await tx.ispClienteArea1.updateMany({ where: { id: c.id, OR: [{ [field]: null }, { [field]: value }] }, data: { [field]: value } })
+    if (result.count !== 1) throw new ErrorVinculo('YA_RESUELTA')
+    const current = await tx.ispClienteArea1.findUnique({ where: { id: c.id }, select: { clienteWebId: true, crmContactoId: true, crmEmpresaId: true } })
+    if (!current || current[field] !== value) throw new ErrorVinculo('YA_RESUELTA')
+  }
   if (v.tipo === 'CLIENTE_WEB') {
     if (c.clienteWebId) throw new ErrorVinculo('CLIENTE_YA_VINCULADO')
     const destino = Number(v.destinoId)
@@ -335,7 +391,7 @@ export async function resolverVinculoEnTx(tx: Prisma.TransactionClient, id: stri
     if (!cw) throw new ErrorVinculo('DESTINO_NO_EXISTE')
     const otra = await tx.ispClienteArea1.findFirst({ where: { clienteWebId: destino, id: { not: c.id } }, select: { id: true } })
     if (otra) throw new ErrorVinculo('FICHA_DE_OTRA_CUENTA_ISP')
-    await tx.ispClienteArea1.update({ where: { id: c.id }, data: { clienteWebId: destino } })
+    await link('clienteWebId', destino)
   } else if (v.tipo === 'CRM_CONTACTO' || v.tipo === 'CREAR_CONTACTO') {
     if (c.crmContactoId) throw new ErrorVinculo('CONTACTO_YA_VINCULADO')
     let contactoId = v.destinoId
@@ -354,7 +410,7 @@ export async function resolverVinculoEnTx(tx: Prisma.TransactionClient, id: stri
       if (contacto.clienteWebId && contacto.clienteWebId !== c.clienteWebId) throw new ErrorVinculo('CONTACTO_DE_OTRO_CLIENTE')
       if (!contacto.clienteWebId && c.clienteWebId) await tx.crmRegistroHubspot.update({ where: { id: contactoId }, data: { clienteWebId: c.clienteWebId, vinculoClienteOrigen: 'ISP_CONFIRMADO', convertidoAt: ahora } })
     }
-    await tx.ispClienteArea1.update({ where: { id: c.id }, data: { crmContactoId: contactoId } })
+    await link('crmContactoId', contactoId)
   } else {
     if (c.crmEmpresaId) throw new ErrorVinculo('EMPRESA_YA_VINCULADA')
     let empresaId = v.destinoId
@@ -375,7 +431,7 @@ export async function resolverVinculoEnTx(tx: Prisma.TransactionClient, id: stri
           propiedadesLocales: { origen: 'ISP_GESTION', codigoIsp: c.codigo } as Prisma.InputJsonValue, datosActualizadoAt: ahora, datosActualizadoPor: origen,
         }, select: { id: true } })).id
         await tx.crmEmpresaContacto.create({ data: { empresaId, contactoId: titular, principal: true, papel: 'TITULAR', origen: 'ISP' } })
-        if (!c.crmContactoId) await tx.ispClienteArea1.update({ where: { id: c.id }, data: { crmContactoId: titular } })
+        if (!c.crmContactoId) await link('crmContactoId', titular)
       }
     } else {
       const e = await tx.crmEmpresa.findFirst({ where: { id: empresaId, activo: true }, select: { id: true } })
@@ -386,7 +442,7 @@ export async function resolverVinculoEnTx(tx: Prisma.TransactionClient, id: stri
       if (enlace && enlace.empresaId !== empresaId) throw new ErrorVinculo('CLIENTE_EN_OTRA_EMPRESA')
       if (!enlace) { await tx.crmEmpresaCliente.create({ data: { empresaId, clienteId: c.clienteWebId, origen: 'ISP_CONFIRMADO' } }); efecto.enlaceClienteWeb = true }
     }
-    await tx.ispClienteArea1.update({ where: { id: c.id }, data: { crmEmpresaId: empresaId } })
+    await link('crmEmpresaId', empresaId)
   }
   await tx.ispVinculoArea1.update({ where: { id }, data: { estado: 'CONFIRMADO', revisadoPor: actor, revisadoAt: ahora } })
   // Las demás propuestas de la misma categoría para este cliente dejan de aplicar.

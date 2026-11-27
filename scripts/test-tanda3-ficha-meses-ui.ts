@@ -15,7 +15,7 @@ function execute(path: string, imports: Record<string, unknown>) {
   const module = { exports: {} as any }
   const code = ts.transpileModule(readFileSync(path, 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true } }).outputText
   runInNewContext(code, { module, exports: module.exports, Date, Intl, console, process: { env: {} }, require(id: string) {
-    if (!(id in imports)) throw new Error(`IMPORT_PROHIBIDO:${id}`)
+    if (!Object.hasOwn(imports, id)) throw new Error(`IMPORT_PROHIBIDO:${id}`)
     return imports[id]
   } }, { filename: path, timeout: 5000 })
   return module.exports
@@ -23,7 +23,9 @@ function execute(path: string, imports: Record<string, unknown>) {
 const view = execute('app/admin/rentabilidad/view-model.ts', {})
 const native = execute('app/admin/rentabilidad/io-model.ts', { './view-model': view, '@/lib/subida-precios/calc': execute('lib/subida-precios/calc.ts', {}) })
 const adapter = execute('lib/area1-ficha-rentabilidad.ts', { '../app/admin/rentabilidad/io-model': native, '../app/admin/rentabilidad/view-model': view })
-const model = execute('lib/area1-ficha-cliente.ts', { './prisma': { __esModule: true, default: {} }, './area1-subida-cliente': { leerSubidaCliente: async () => null }, './area1-ficha-rentabilidad': adapter })
+const ispPolicy = execute('lib/isp-origen-policy.ts', {})
+const identity = execute('lib/area1-isp-identidad.ts', { './isp-origen-policy': ispPolicy })
+const model = execute('lib/area1-ficha-cliente.ts', { './prisma': { __esModule: true, default: {} }, './area1-isp-identidad': identity, './area1-subida-cliente': { leerSubidaCliente: async () => null }, './area1-ficha-rentabilidad': adapter })
 const policy = execute('lib/m365-legacy-policy.ts', {})
 const source = readFileSync('components/admin/FichaCliente.tsx', 'utf8')
 const compiled = transformSync(`${source}\nexport { Bars, graficoFacturadoFicha }\n`, { loader: 'tsx', jsx: 'automatic', format: 'cjs', platform: 'node', target: 'es2022' }).code

@@ -1,7 +1,9 @@
 import axios from 'axios';
 import { prisma } from '../prisma';
 import bcrypt from 'bcryptjs';
-import { reconciliarContactosCrmConClientes } from '../crm-contactos';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../auth';
+import { runWithIspSourceWriteTx } from '../isp-origen-server';
 
 const API_URL = process.env.ISPGESTION_API_URL || 'https://internetoperadores.ispgestion.com/api';
 const API_USER = process.env.ISPGESTION_API_USER || 'VOLA';
@@ -17,38 +19,49 @@ const ispgestionDirect = axios.create({
   timeout: 30000,
 });
 
-async function request(endpoint: string, method = 'GET', data: any = null, params: any = null) {
-  // Limpiar endpoint para evitar doble barra
-  const cleanEndpoint = endpoint.replace(/^\/+/, '');
-  
-  // ISP Gestión filtra por IP. Desde Railway se puede llamar directamente.
-  // Desde Vercel u otros entornos, usamos el proxy de Railway como intermediario.
+const ISP_READ_PARAMS: Record<string, readonly string[]> = { clientes: ['email', 'mostrar'], contratos_todos: ['mostrar', 'pagina'], tarifas: ['mostrar_todas', 'todas', 'campos_adicionales'], facturacion: ['mostrar'], remesas: ['mostrar'] };
+const ISP_READ_ENDPOINTS = new Set(Object.keys(ISP_READ_PARAMS));
+export function assertIspReadRequest(endpoint: unknown, method: unknown = 'GET', data: unknown = null, params: unknown = null): asserts endpoint is string {
+  if (typeof endpoint !== 'string' || !ISP_READ_ENDPOINTS.has(endpoint) || method !== 'GET' || data !== null
+    || (params !== null && (typeof params !== 'object' || Array.isArray(params)
+      || Object.entries(params).some(([key, value]) => !ISP_READ_PARAMS[endpoint].includes(key) || !/^[a-z_]{1,48}$/.test(key)
+        || ['user', 'password', 'hash', 'authorization', 'method', 'endpoint', 'data', 'pass'].includes(key)
+        || !['string', 'number', 'boolean'].includes(typeof value))))) {
+    throw Object.assign(new Error('La conexión ISP sólo admite lecturas revisadas.'), { code: 'ISP_REMOTE_READ_ONLY', status: 409 });
+  }
+}
+// Transporte privado; sólo el login fijo puede usar POST. Nunca se exporta.
+async function transport(endpoint: string, method: 'GET' | 'POST', data: unknown, params: unknown = null) {
   const isRailway = process.env.RAILWAY_ENVIRONMENT || process.env.IS_RAILWAY;
-  
   if (isRailway) {
-    console.log(`[ISPGestión] Petición directa ${method} a ${cleanEndpoint}`);
-    const response = await ispgestionDirect({ 
-      url: cleanEndpoint, 
-      method, 
-      data, 
-      params 
-    });
-    return response.data;
-  } else {
-    console.log(`[ISPGestión] Petición via proxy Railway ${method} a ${cleanEndpoint}`);
-    const response = await axios.post(RAILWAY_PROXY_URL, {
-      endpoint: cleanEndpoint,
-      method,
-      data,
-      params
-    }, { timeout: 30000 });
-    return response.data;
+    return (await ispgestionDirect({ url: endpoint, method, data, params })).data;
+  }
+  return (await axios.post(RAILWAY_PROXY_URL, { endpoint, method, data, params }, { timeout: 30000 })).data;
+}
+async function request(endpoint: string, method = 'GET', data: any = null, params: any = null) {
+  assertIspReadRequest(endpoint, method, data, params);
+  return transport(endpoint, 'GET', null, params);
+}
+
+/** Revalidación viva dentro de cada tx; el permiso HTTP genérico no concede carga. */
+export async function requireIspSyncActor(tx: any) {
+  if (process.env.FINANCE_DEPLOYMENT_READ_ONLY === '1' || process.env.IO_PRODUCTION_READ_ONLY === '1') {
+    throw Object.assign(new Error('Carga ISP cerrada en modo sólo lectura.'), { code: 'ISP_SYNC_READ_ONLY', status: 403 });
+  }
+  const session = await getServerSession(authOptions);
+  const id = Number(session?.user?.id);
+  if (!session || session.user.userType !== 'admin' || session.impersonation || !Number.isSafeInteger(id) || id < 1) {
+    throw Object.assign(new Error('Carga ISP no autorizada.'), { code: 'ISP_SYNC_UNAUTHORIZED', status: 403 });
+  }
+  const actor = await tx.usuarioAdmin.findUnique({ where: { id }, select: { activo: true, rol: true } });
+  if (!actor?.activo || actor.rol !== 'SUPER_ADMIN') {
+    throw Object.assign(new Error('Carga ISP no autorizada.'), { code: 'ISP_SYNC_UNAUTHORIZED', status: 403 });
   }
 }
 
 export async function verifyClienteCredentials(email: string, pass: string): Promise<string | null> {
   try {
-    const data = await request('clientes/login', 'POST', { email, pass });
+    const data = await transport('clientes/login', 'POST', { email, pass });
     return data && data.success ? (data.cliente_id || data.id)?.toString() : null;
   } catch (error) {
     console.error('Error verificando credenciales en ISPGestión:', error);
@@ -68,175 +81,60 @@ export async function getClienteByEmail(email: string) {
   }
 }
 
+/** Sólo origen: sin bajas por ausencia, vínculos/personas ni clasificación CRM. */
 export async function syncClients() {
-  try {
-    const externalClients = await getAllClientes();
-    const defaultPasswordHash = await bcrypt.hash('cliente123', 10);
-    
-    // Recoger los IDs de ISP Gestión de todos los clientes recibidos
-    const allIspIds = externalClients
-      .map((c: any) => c.id?.toString())
-      .filter((id: string | undefined) => id);
-    
-    // Marcar como inactivos los clientes que ya no están en ISP Gestión
-    const deactivated = await prisma.$executeRaw`
-      UPDATE clientes_web SET activo = false, updated_at = NOW()
-      WHERE isp_gestion_id IS NOT NULL 
-        AND isp_gestion_id != ''
-        AND isp_gestion_id NOT IN (SELECT unnest(${allIspIds}::text[]))
-        AND activo = true
-    `;
-    console.log(`[ISPGestión] Clientes marcados como inactivos: ${deactivated}`);
-    
-    let upserted = 0;
-    let errors = 0;
-    
-    for (const client of externalClients) {
-      try {
-        const ispId = client.id?.toString();
-        if (!ispId) continue;
-        
-        // El email puede tener varios separados por coma, coger el primero
-        const rawEmail = client.email || '';
-        const email = rawEmail.split(',')[0].trim() || `sin-email-${ispId}@placeholder.local`;
-        
-        const nombreCompleto = client.nombrecompleto || `${client.nombre || ''} ${client.apellidos || ''}`.trim() || 'Sin nombre';
-        const personaFisica = client.personafisica === 1 || client.personafisica === '1' || client.personafisica === true;
-        const segmentoCrm = personaFisica ? 'PARTICULAR' : 'EMPRESA';
-        const activo = !client.fecha_fin;
-        const fechaAlta = client.fecha_inicio || null;
-        const fechaBaja = client.fecha_fin || null;
-        
-        await prisma.$executeRaw`
-          INSERT INTO clientes_web (
-            email, password_hash, isp_gestion_id, nombre, newsletter_suscrito,
-            cliente_id_isp, codigo, nif, cif, persona_fisica,
-            segmento_crm, segmento_crm_actualizado_at, segmento_crm_actualizado_por,
-            nombre_comercial, apellidos, nombre_pila, telefono, movil, fax, web, movil_sms,
-            tipo_calle, domicilio, numero, edificio, bloque, escalera, piso, puerta,
-            municipio, localidad, codigo_postal, provincia, pais, coordenadas,
-            cuenta_cargo, cuenta_contable, forma_pago, tipo_iva,
-            factura_electronica, factura_mail, factura_papel, alerta_facturacion,
-            representante, cargo_representante, nif_representante,
-            activo, baneado, fecha_alta, fecha_baja,
-            idioma, categoria, recibe_publicidad, acepto_lopd,
-            comercial, agente, origen,
-            oficina_contable, organo_gestor, unidad_tramitadora,
-            created_at, updated_at
-          ) VALUES (
-            ${email}, ${defaultPasswordHash}, ${ispId}, ${nombreCompleto}, false,
-            ${client.clienteid || null}, ${client.codigo || null},
-            ${client.nif || null}, ${client.cif || null},
-            ${personaFisica}, ${segmentoCrm}::"SegmentoCrm", NOW(), 'Sincronización ISPGestión',
-            ${client.nombre_comercial || null}, ${client.apellidos || null}, ${client.nombre || null},
-            ${client.telefono1 || null}, ${client.movil || null},
-            ${client.fax || null}, ${client.web && client.web !== 'http://' ? client.web : null},
-            ${client.movil_sms || null},
-            ${client.tipo_calle || null}, ${client.domicilio || null},
-            ${client.numero || null}, ${client.edificio || null},
-            ${client.bloque || null}, ${client.escalera || null},
-            ${client.piso || null}, ${client.puerta || null},
-            ${client.municipio || null}, ${client.nombre_localidad || null},
-            ${client.postal || null}, ${client.provincia || null},
-            ${client.pais || 'ES'}, ${client.coordenadas || null},
-            ${client.ccargo || null}, ${client.ccontable || null},
-            ${client.efectos_forma_pago || null}, ${client.iva || null},
-            ${client.factura_electronica === 1}, ${client.factura_mail === 1},
-            ${client.factura_papel === 1}, ${client.alerta_facturacion?.toString() || null},
-            ${client.representante || null}, ${client.cargo || null},
-            ${client.nif_representante || null},
-            ${activo}, ${client.baneado === true},
-            ${fechaAlta ? new Date(fechaAlta) : null}, ${fechaBaja ? new Date(fechaBaja) : null},
-            ${client.idioma || null}, ${client.categoria || null},
-            ${client.recibepublicidad === 1}, ${client.acepto_lopd ? true : null},
-            ${client.comercial || null}, ${client.agente || null},
-            ${client.nombre_origen || null},
-            ${client.oficina_contable || null}, ${client.organo_gestor || null},
-            ${client.unidad_tramitadora || null},
-            NOW(), NOW()
-          )
-          ON CONFLICT (isp_gestion_id) DO UPDATE SET
-            nombre = EXCLUDED.nombre,
-            email = EXCLUDED.email,
-            cliente_id_isp = EXCLUDED.cliente_id_isp,
-            codigo = EXCLUDED.codigo,
-            nif = EXCLUDED.nif,
-            cif = EXCLUDED.cif,
-            persona_fisica = EXCLUDED.persona_fisica,
-            nombre_comercial = EXCLUDED.nombre_comercial,
-            apellidos = EXCLUDED.apellidos,
-            nombre_pila = EXCLUDED.nombre_pila,
-            telefono = EXCLUDED.telefono,
-            movil = EXCLUDED.movil,
-            fax = EXCLUDED.fax,
-            web = EXCLUDED.web,
-            movil_sms = EXCLUDED.movil_sms,
-            tipo_calle = EXCLUDED.tipo_calle,
-            domicilio = EXCLUDED.domicilio,
-            numero = EXCLUDED.numero,
-            edificio = EXCLUDED.edificio,
-            bloque = EXCLUDED.bloque,
-            escalera = EXCLUDED.escalera,
-            piso = EXCLUDED.piso,
-            puerta = EXCLUDED.puerta,
-            municipio = EXCLUDED.municipio,
-            localidad = EXCLUDED.localidad,
-            codigo_postal = EXCLUDED.codigo_postal,
-            provincia = EXCLUDED.provincia,
-            pais = EXCLUDED.pais,
-            coordenadas = EXCLUDED.coordenadas,
-            cuenta_cargo = EXCLUDED.cuenta_cargo,
-            cuenta_contable = EXCLUDED.cuenta_contable,
-            forma_pago = EXCLUDED.forma_pago,
-            tipo_iva = EXCLUDED.tipo_iva,
-            factura_electronica = EXCLUDED.factura_electronica,
-            factura_mail = EXCLUDED.factura_mail,
-            factura_papel = EXCLUDED.factura_papel,
-            alerta_facturacion = EXCLUDED.alerta_facturacion,
-            representante = EXCLUDED.representante,
-            cargo_representante = EXCLUDED.cargo_representante,
-            nif_representante = EXCLUDED.nif_representante,
-            activo = EXCLUDED.activo,
-            baneado = EXCLUDED.baneado,
-            fecha_alta = EXCLUDED.fecha_alta,
-            fecha_baja = EXCLUDED.fecha_baja,
-            idioma = EXCLUDED.idioma,
-            categoria = EXCLUDED.categoria,
-            recibe_publicidad = EXCLUDED.recibe_publicidad,
-            acepto_lopd = EXCLUDED.acepto_lopd,
-            comercial = EXCLUDED.comercial,
-            agente = EXCLUDED.agente,
-            origen = EXCLUDED.origen,
-            oficina_contable = EXCLUDED.oficina_contable,
-            organo_gestor = EXCLUDED.organo_gestor,
-            unidad_tramitadora = EXCLUDED.unidad_tramitadora,
-            updated_at = NOW()
-        `;
-        upserted++;
-      } catch (err: any) {
-        errors++;
-        if (errors <= 5) console.error(`Error upserting cliente ${client.id}:`, err.message);
-      }
-    }
-    
-    const totalActivos = externalClients.filter((c: any) => !c.fecha_fin).length;
-    const totalInactivos = externalClients.filter((c: any) => c.fecha_fin).length;
-    const contactosConvertidos = await reconciliarContactosCrmConClientes();
-    
-    return { 
-      success: true, 
-      count: externalClients.length, 
-      upserted, 
-      deactivated: Number(deactivated),
-      activos: totalActivos,
-      inactivos: totalInactivos,
-      contactosConvertidos,
-      errors 
-    };
-  } catch (error: any) {
-    console.error('Error en syncClients:', error);
-    throw error;
+  // La autorización ocurre antes de cualquier red y se revalida en la tx aplicada.
+  await prisma.$transaction(async (tx) => requireIspSyncActor(tx));
+  const externalClients = await getAllClientes();
+  const defaultPasswordHash = await bcrypt.hash('cliente123', 10);
+  return applyIspClientsSnapshot(prisma, externalClients, defaultPasswordHash);
+}
+
+export async function applyIspClientsSnapshot(db: typeof prisma, externalClients: any[], defaultPasswordHash: string) {
+  const keys = externalClients.map((c) => String(c.id ?? ''));
+  if (keys.some((key) => !/^[1-9]\d*$/.test(key)) || new Set(keys).size !== keys.length) {
+    throw Object.assign(new Error('Snapshot ISP con identidad inválida.'), { code: 'ISP_SNAPSHOT_INVALID', status: 409 });
   }
+  return db.$transaction(async (tx) => {
+    await requireIspSyncActor(tx);
+    await runWithIspSourceWriteTx('isp-clients', tx, async (writerTx) => {
+      for (const client of externalClients) {
+        const ispGestionId = String(client.id);
+        const personaFisica = client.personafisica === 1 || client.personafisica === '1' || client.personafisica === true;
+        const source = {
+          email: (client.email || '').split(',')[0].trim() || `sin-email-${ispGestionId}@placeholder.local`,
+          nombre: client.nombrecompleto || `${client.nombre || ''} ${client.apellidos || ''}`.trim() || 'Sin nombre',
+          clienteIdIsp: client.clienteid != null && client.clienteid !== '' ? String(client.clienteid) : null, codigo: client.codigo || null, nif: client.nif || null, cif: client.cif || null,
+          personaFisica, nombreComercial: client.nombre_comercial || null, apellidos: client.apellidos || null, nombrePila: client.nombre || null,
+          telefono: client.telefono1 || null, movil: client.movil || null, fax: client.fax || null,
+          web: client.web && client.web !== 'http://' ? client.web : null, movilSms: client.movil_sms || null,
+          tipoCalle: client.tipo_calle || null, domicilio: client.domicilio || null, numero: client.numero || null,
+          edificio: client.edificio || null, bloque: client.bloque || null, escalera: client.escalera || null,
+          piso: client.piso || null, puerta: client.puerta || null, municipio: client.municipio || null,
+          localidad: client.nombre_localidad || null, codigoPostal: client.postal || null, provincia: client.provincia || null,
+          pais: client.pais || 'ES', coordenadas: client.coordenadas || null, cuentaCargo: client.ccargo || null,
+          cuentaContable: client.ccontable || null, formaPago: client.efectos_forma_pago || null, tipoIva: client.iva != null && client.iva !== '' ? String(client.iva) : null,
+          facturaElectronica: client.factura_electronica === 1, facturaMail: client.factura_mail === 1,
+          facturaPapel: client.factura_papel === 1, alertaFacturacion: client.alerta_facturacion?.toString() || null,
+          representante: client.representante || null, cargoRepresentante: client.cargo || null, nifRepresentante: client.nif_representante || null,
+          activo: !client.fecha_fin, baneado: client.baneado === true,
+          fechaAlta: client.fecha_inicio ? new Date(client.fecha_inicio) : null, fechaBaja: client.fecha_fin ? new Date(client.fecha_fin) : null,
+          idioma: client.idioma || null, categoria: client.categoria ? Number(client.categoria) : null,
+          oficinaContable: client.oficina_contable || null, organoGestor: client.organo_gestor || null, unidadTramitadora: client.unidad_tramitadora || null,
+        };
+        // La actualización conserva campos mixtos bytevalue. El alta usa defaults
+        // conservadores locales; no inventa consentimiento ni clasificación comercial.
+        const existing = await writerTx.clienteWeb.findUnique({ where: { ispGestionId }, select: { id: true } });
+        if (existing) await writerTx.clienteWeb.update({ where: { id: existing.id }, data: (({ clienteIdIsp, ...rest }) => rest)(source) });
+        else await writerTx.clienteWeb.create({ data: { ispGestionId, ...source, passwordHash: defaultPasswordHash,
+          // No se acredita consentimiento con el snapshot.
+        } });
+      }
+    });
+    return { success: true, count: externalClients.length, upserted: externalClients.length, deactivated: 0,
+      activos: externalClients.filter((c) => !c.fecha_fin).length, inactivos: externalClients.filter((c) => c.fecha_fin).length,
+      contactosConvertidos: 0, errors: 0, snapshotComplete: false, warning: 'ISP_SNAPSHOT_PRESENCE_UNVERIFIED' };
+  });
 }
 
 export async function getAllClientes() {
@@ -259,99 +157,36 @@ export async function getAllClientes() {
 }
 
 export async function syncContratos() {
-  try {
-    let allContratos: any[] = [];
-    let page = 1;
-    const pageSize = 500;
-    
-    // Obtener todos los contratos con paginación
-    while (true) {
-      console.log(`[ISPGestión] Obteniendo contratos página ${page}...`);
-      const data = await request('contratos_todos', 'GET', null, { mostrar: pageSize, pagina: page });
-      
-      if (Array.isArray(data) && data.length > 0) {
-        allContratos = allContratos.concat(data);
-        console.log(`[ISPGestión] Página ${page}: ${data.length} contratos (total: ${allContratos.length})`);
-        if (data.length < pageSize) break;
-        page++;
-      } else {
-        break;
-      }
-    }
-    
-    console.log(`[ISPGestión] Total contratos obtenidos: ${allContratos.length}`);
-    
-    let upserted = 0;
-    let errors = 0;
-    
-    for (const contrato of allContratos) {
-      try {
-        const contratoId = parseInt(contrato.id);
-        if (!contratoId || !contrato.clienteid) continue;
-        
-        const precio = parseFloat(contrato.precio) || 0;
-        const importeRemesar = contrato.importe_remesar ? parseFloat(contrato.importe_remesar) : null;
-        const descuentoTotal = contrato.descuento_total ? parseFloat(contrato.descuento_total) : null;
-        const fechaInicio = contrato.fechainicio ? new Date(contrato.fechainicio) : null;
-        const fechaBaja = contrato.fecha_baja ? new Date(contrato.fecha_baja) : null;
-        const activo = !contrato.fecha_baja;
-        
-        await prisma.$executeRaw`
-          INSERT INTO contratos_servicio (
-            isp_gestion_contrato_id, cliente_id, titulo, tarifa, precio,
-            importe_remesar, descuento_total, fecha_inicio, fecha_baja,
-            causa_baja, concepto_facturacion, permanencia, fecha_permanencia,
-            categoria, tipo_alta, telefonos_contrato, observaciones, activo,
-            created_at, updated_at
-          ) VALUES (
-            ${contratoId}, ${contrato.clienteid}, ${contrato.titulo || ''}, ${contrato.tarifa || ''},
-            ${precio}, ${importeRemesar}, ${descuentoTotal},
-            ${fechaInicio}, ${fechaBaja},
-            ${contrato.causa_baja || null}, ${contrato.concepto_facturacion || null},
-            ${contrato.permanencia || 0}, ${contrato.fecha_permanencia ? new Date(contrato.fecha_permanencia) : null},
-            ${contrato.categoria || null}, ${contrato.tipo_alta || null},
-            ${contrato.telefonos_contrato || null}, ${contrato.observaciones || null},
-            ${activo}, NOW(), NOW()
-          )
-          ON CONFLICT (isp_gestion_contrato_id) DO UPDATE SET
-            cliente_id = EXCLUDED.cliente_id,
-            titulo = EXCLUDED.titulo,
-            tarifa = EXCLUDED.tarifa,
-            precio = EXCLUDED.precio,
-            importe_remesar = EXCLUDED.importe_remesar,
-            descuento_total = EXCLUDED.descuento_total,
-            fecha_inicio = EXCLUDED.fecha_inicio,
-            fecha_baja = EXCLUDED.fecha_baja,
-            causa_baja = EXCLUDED.causa_baja,
-            concepto_facturacion = EXCLUDED.concepto_facturacion,
-            permanencia = EXCLUDED.permanencia,
-            fecha_permanencia = EXCLUDED.fecha_permanencia,
-            categoria = EXCLUDED.categoria,
-            tipo_alta = EXCLUDED.tipo_alta,
-            telefonos_contrato = EXCLUDED.telefonos_contrato,
-            observaciones = EXCLUDED.observaciones,
-            activo = EXCLUDED.activo,
-            updated_at = NOW()
-        `;
-        upserted++;
-      } catch (err: any) {
-        errors++;
-        if (errors <= 5) console.error(`Error upserting contrato ${contrato.id}:`, err.message);
-      }
-    }
-    
-    return { 
-      success: true, 
-      total: allContratos.length, 
-      upserted, 
-      errors,
-      activos: allContratos.filter(c => !c.fecha_baja).length,
-      bajas: allContratos.filter(c => c.fecha_baja).length
-    };
-  } catch (error: any) {
-    console.error('Error en syncContratos:', error);
-    throw error;
+  await prisma.$transaction(async (tx) => requireIspSyncActor(tx));
+  const allContratos: any[] = [];
+  for (let pagina = 1; pagina <= 1000; pagina++) {
+    const data = await request('contratos_todos', 'GET', null, { mostrar: 500, pagina });
+    if (!Array.isArray(data)) throw new Error('ISP_CONTRACT_SNAPSHOT_INVALID');
+    allContratos.push(...data);
+    if (data.length < 500) break;
+    if (pagina === 1000) throw new Error('ISP_CONTRACT_SNAPSHOT_TRUNCATED');
   }
+  return prisma.$transaction(async (tx) => {
+    await requireIspSyncActor(tx);
+    await runWithIspSourceWriteTx('isp-contracts', tx, async (writerTx) => {
+      for (const c of allContratos) {
+        const ispGestionContratoId = Number(c.id);
+        if (!Number.isSafeInteger(ispGestionContratoId) || ispGestionContratoId < 1 || !c.clienteid) throw new Error('ISP_CONTRACT_ID_INVALID');
+        const source = { clienteId: String(c.clienteid), titulo: c.titulo || '', tarifa: c.tarifa || '', precio: c.precio || '0',
+          importeRemesar: c.importe_remesar || null, descuentoTotal: c.descuento_total || null,
+          fechaInicio: c.fechainicio ? new Date(c.fechainicio) : null, fechaBaja: c.fecha_baja ? new Date(c.fecha_baja) : null,
+          causaBaja: c.causa_baja || null, conceptoFacturacion: c.concepto_facturacion || null,
+          permanencia: Number(c.permanencia) || 0, fechaPermanencia: c.fecha_permanencia ? new Date(c.fecha_permanencia) : null,
+          categoria: c.categoria || null, tipoAlta: c.tipo_alta || null, telefonosContrato: c.telefonos_contrato || null,
+          observaciones: c.observaciones || null, activo: !c.fecha_baja };
+        const existing = await writerTx.contratoServicio.findUnique({ where: { ispGestionContratoId }, select: { id: true } });
+        if (existing) await writerTx.contratoServicio.update({ where: { id: existing.id }, data: source });
+        else await writerTx.contratoServicio.create({ data: { ispGestionContratoId, ...source } });
+      }
+    });
+    return { success: true, total: allContratos.length, upserted: allContratos.length, errors: 0,
+      activos: allContratos.filter(c => !c.fecha_baja).length, bajas: allContratos.filter(c => c.fecha_baja).length };
+  });
 }
 
 export async function syncTarifas() {
@@ -631,84 +466,10 @@ export async function getAllFacturas() {
 }
 
 export async function syncFacturas() {
-  try {
-    const allFacturas = await getAllFacturas();
-    
-    if (!allFacturas.length) {
-      return { success: true, total: 0, upserted: 0, errors: 0 };
-    }
-    
-    let upserted = 0;
-    let errors = 0;
-    
-    for (const f of allFacturas) {
-      try {
-        const ispId = parseInt(f.id);
-        if (!ispId) continue;
-        
-        const fecha = f.fecha ? new Date(f.fecha) : new Date();
-        const ejercicio = fecha.getFullYear();
-        
-        await prisma.$executeRaw`
-          INSERT INTO facturas (
-            isp_gestion_id, serie_factura, numero_documento, documento,
-            fecha, id_cliente, codigo_cliente, nombre_completo, nif_cif,
-            base, total_impuesto, total, situacion, total_pendiente,
-            ejercicio, created_at, updated_at
-          ) VALUES (
-            ${ispId}, ${f.serie_factura || ''}, ${f.numero_documento || ''},
-            ${f.documento || null},
-            ${fecha}, ${parseInt(f.id_cliente) || 0}, ${f.codigo_cliente || ''},
-            ${f.nombrecompleto || ''}, ${f.nif_cif || null},
-            ${parseFloat(f.base) || 0}, ${parseFloat(f.total_impuesto) || 0},
-            ${parseFloat(f.total) || 0}, ${f.situacion || 'PENDIENTE'},
-            ${parseFloat(f.total_pendiente) || 0},
-            ${ejercicio}, NOW(), NOW()
-          )
-          ON CONFLICT (isp_gestion_id) DO UPDATE SET
-            serie_factura = EXCLUDED.serie_factura,
-            numero_documento = EXCLUDED.numero_documento,
-            documento = EXCLUDED.documento,
-            fecha = EXCLUDED.fecha,
-            id_cliente = EXCLUDED.id_cliente,
-            codigo_cliente = EXCLUDED.codigo_cliente,
-            nombre_completo = EXCLUDED.nombre_completo,
-            nif_cif = EXCLUDED.nif_cif,
-            base = EXCLUDED.base,
-            total_impuesto = EXCLUDED.total_impuesto,
-            total = EXCLUDED.total,
-            situacion = EXCLUDED.situacion,
-            total_pendiente = EXCLUDED.total_pendiente,
-            ejercicio = EXCLUDED.ejercicio,
-            updated_at = NOW()
-        `;
-        upserted++;
-      } catch (err: any) {
-        errors++;
-        if (errors <= 5) console.error(`Error upserting factura ${f.id}:`, err.message);
-      }
-    }
-    
-    // Estadísticas
-    const cobradas = allFacturas.filter((f: any) => f.situacion === 'COBRADA').length;
-    const pendientes = allFacturas.filter((f: any) => f.situacion === 'PENDIENTE').length;
-    const totalFacturado = allFacturas.reduce((sum: number, f: any) => sum + (parseFloat(f.total) || 0), 0);
-    
-    return {
-      success: true,
-      total: allFacturas.length,
-      upserted,
-      cobradas,
-      pendientes,
-      totalFacturado: Math.round(totalFacturado * 100) / 100,
-      errors
-    };
-  } catch (error: any) {
-    console.error('Error en syncFacturas:', error);
-    throw error;
-  }
+  // Mismo writer ya existente, sin crear una ruta externa nueva.
+  const { syncFacturasBatch } = await import('./sync-facturas');
+  return syncFacturasBatch();
 }
-
 // ==========================================
 // SINCRONIZACIÓN DE REMESAS
 // ==========================================
@@ -731,71 +492,6 @@ export async function getAllRemesas() {
 }
 
 export async function syncRemesas() {
-  try {
-    const allRemesas = await getAllRemesas();
-    
-    if (!allRemesas.length) {
-      return { success: true, total: 0, upserted: 0, errors: 0 };
-    }
-    
-    let upserted = 0;
-    let errors = 0;
-    
-    for (const r of allRemesas) {
-      try {
-        const ispId = parseInt(r.id);
-        if (!ispId) continue;
-        
-        const fecha = r.fecha ? new Date(r.fecha) : new Date();
-        const ejercicio = fecha.getFullYear();
-        
-        await prisma.$executeRaw`
-          INSERT INTO remesas (
-            isp_gestion_id, nombre, fecha, nif_presentador, nombre_presentador,
-            iban_acreedor, remesado, contabilizado, total_importe, numero_registros,
-            archivo_generado, ejercicio, created_at, updated_at
-          ) VALUES (
-            ${ispId}, ${r.nombre || ''}, ${fecha},
-            ${r.nif_presentador || null}, ${r.nombre_presentador || null},
-            ${r.iban_acredor || r.iban_acreedor || null},
-            ${r.remesado === '1' || r.remesado === true},
-            ${r.contabilizado === '1' || r.contabilizado === true},
-            ${parseFloat(r.total_importe) || 0}, ${parseInt(r.numero_registros) || 0},
-            ${r.archivo_generado || null},
-            ${ejercicio}, NOW(), NOW()
-          )
-          ON CONFLICT (isp_gestion_id) DO UPDATE SET
-            nombre = EXCLUDED.nombre,
-            fecha = EXCLUDED.fecha,
-            nif_presentador = EXCLUDED.nif_presentador,
-            nombre_presentador = EXCLUDED.nombre_presentador,
-            iban_acreedor = EXCLUDED.iban_acreedor,
-            remesado = EXCLUDED.remesado,
-            contabilizado = EXCLUDED.contabilizado,
-            total_importe = EXCLUDED.total_importe,
-            numero_registros = EXCLUDED.numero_registros,
-            archivo_generado = EXCLUDED.archivo_generado,
-            ejercicio = EXCLUDED.ejercicio,
-            updated_at = NOW()
-        `;
-        upserted++;
-      } catch (err: any) {
-        errors++;
-        if (errors <= 5) console.error(`Error upserting remesa ${r.id}:`, err.message);
-      }
-    }
-    
-    const totalRemesado = allRemesas.reduce((sum: number, r: any) => sum + (parseFloat(r.total_importe) || 0), 0);
-    
-    return {
-      success: true,
-      total: allRemesas.length,
-      upserted,
-      totalRemesado: Math.round(totalRemesado * 100) / 100,
-      errors
-    };
-  } catch (error: any) {
-    console.error('Error en syncRemesas:', error);
-    throw error;
-  }
+  const { syncRemesasBatch } = await import('./sync-facturas');
+  return syncRemesasBatch();
 }

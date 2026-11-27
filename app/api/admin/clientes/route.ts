@@ -17,10 +17,14 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
+    if (!body || typeof body !== 'object' || Array.isArray(body)
+      || Object.keys(body).some((key) => !['nombre', 'email', 'password', 'personaFisica', 'segmentoCrm', 'newsletterSuscrito'].includes(key))) {
+      return NextResponse.json({ error: 'El alta manual no admite identidad ni procedencia ISP.', code: 'ISP_ORIGEN_NO_EDITABLE' }, { status: 409 })
+    }
+
     const nombre = typeof body.nombre === 'string' ? body.nombre.trim() : ''
     const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
     const password = typeof body.password === 'string' ? body.password : ''
-    const ispGestionId = typeof body.ispGestionId === 'string' ? body.ispGestionId.trim() : ''
 
     if (!nombre || !email || !password || typeof body.personaFisica !== 'boolean' || !esSegmentoCrm(body.segmentoCrm)) {
       return NextResponse.json(
@@ -41,7 +45,6 @@ export async function POST(request: Request) {
       where: {
         OR: [
           { email: { equals: email, mode: 'insensitive' } },
-          ...(ispGestionId ? [{ ispGestionId }] : []),
         ],
       },
       select: { id: true },
@@ -56,7 +59,7 @@ export async function POST(request: Request) {
         nombre,
         email,
         passwordHash: await bcrypt.hash(password, 10),
-        ispGestionId: ispGestionId || `manual-${randomUUID()}`,
+        ispGestionId: `manual-${randomUUID()}`,
         personaFisica: body.personaFisica,
         segmentoCrm: body.segmentoCrm,
         segmentoCrmActualizadoAt: new Date(),
@@ -76,7 +79,8 @@ export async function POST(request: Request) {
     await reconciliarContactosCrmConClientes([email])
 
     return NextResponse.json({ success: true, cliente }, { status: 201 })
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.code === 'ISP_ORIGEN_NO_EDITABLE') return NextResponse.json({ error: 'Los datos de origen ISP no son editables.', code: error.code }, { status: 409 })
     console.error('Error al crear cliente:', error)
     return NextResponse.json({ error: 'Error al crear cliente' }, { status: 500 })
   }

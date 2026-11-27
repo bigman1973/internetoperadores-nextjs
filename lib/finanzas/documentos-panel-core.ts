@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { claveCanonicaFactura, esFechaDocumentoIso, esImporteCentimosFinito, fechaDocumentoUtc, totalCuadraEnCentimos } from './invoice-quality'
 
 export const DOCUMENTOS_PANEL_ROOT = 'STAGING_FINANZAS_NO_CONTABILIZAR/DocumentosPanel'
-export const DOCUMENTOS_PRODUCTION_ROOT = 'DocumentosPanelProduccion'
+export const DOCUMENTOS_PRODUCTION_ROOT = '10. Panel IO'
 export const DOCUMENTOS_PANEL_SCOPE = 'DOCUMENTOS_PANEL_V1'
 export const DOCUMENTOS_PANEL_SCHEMA = 'documentos-panel/v1'
 export const MAX_FILE_BYTES = 4 * 1024 * 1024

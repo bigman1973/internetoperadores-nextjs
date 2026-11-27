@@ -3,9 +3,10 @@ import { readFileSync } from 'node:fs'
 import { documentosPanelRequestContext } from '../lib/area4/documentos-boundary'
 import { area4RegisteredSurface, area4RegistrySurfaceMatches } from '../lib/area4/section-registry'
 import { area4RequestCapabilities } from '../lib/area4/request-policy'
+import { DOCUMENTOS_APPROVED_PRODUCTION_PINS as pins } from '../lib/finanzas/documentos-panel-runtime'
 
 const stage = { DATABASE_URL: 'postgresql://io_staging_finanzas@127.0.0.1:9/io_staging_finanzas', FINANCE_STAGING_SANDBOX: '1', VERCEL_ENV: 'preview' }
-const prod = { DATABASE_URL: 'postgresql://postgres@ yamanote.proxy.rlwy.net:34880/railway'.replace('@ ', '@'), VERCEL_ENV: 'production', FINANCE_MODEL_PRODUCTION_ENABLED: '1', FINANCE_EASY_PRODUCTION_ENABLED: '1', FINANCE_AUTOMATIC_LINKS_DISABLED: '1', FINANCE_DOCUMENTOS_PRODUCTION_ENABLED: '1', FINANCE_DOCUMENTOS_PRODUCTION_DRIVE_ID: 'drive-ficticio', FINANCE_DOCUMENTOS_PRODUCTION_FOLDER_ITEM_ID: 'folder-ficticio' }
+const prod = { DATABASE_URL: 'postgresql://postgres@ yamanote.proxy.rlwy.net:34880/railway'.replace('@ ', '@'), VERCEL_ENV: 'production', FINANCE_MODEL_PRODUCTION_ENABLED: '1', FINANCE_EASY_PRODUCTION_ENABLED: '1', FINANCE_AUTOMATIC_LINKS_DISABLED: '1', FINANCE_DOCUMENTOS_PRODUCTION_ENABLED: '1', FINANCE_DOCUMENTOS_PRODUCTION_DRIVE_ID: pins.driveId, FINANCE_DOCUMENTOS_PRODUCTION_FOLDER_ITEM_ID: pins.folderItemId, FINANCE_DOCUMENTOS_PRODUCTION_PENDING_FOLDER_ITEM_ID: pins.pendingFolderItemId, FINANCE_DOCUMENTOS_PRODUCTION_ARCHIVED_FOLDER_ITEM_ID: pins.archivedFolderItemId }
 let passed = 0
 function check(name: string, fn: () => void) { fn(); passed++; console.log('OK', name) }
 const upload = '/api/admin/finanzas/documentos', item = `${upload}/revision-ficticia`, compare = `${upload}/comparacion`

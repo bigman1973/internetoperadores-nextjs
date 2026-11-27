@@ -224,8 +224,8 @@ async function run() {
   const fakeDb = new Proxy({ facturaRecibida: emptyDb, revisionLecturaFacturaRecibida: emptyDb, auditoriaCalidadFactura: emptyDb, nominaDocumento: emptyDb, documentoEmpleado: emptyDb }, { get(target, key) { if (key in target) return (target as any)[key]; throw new Error(`NO_DB_WRITES_OR_OTHER_MODELS: ${String(key)}`) } })
   const mocks: Record<string, any> = {
     '@/lib/finanzas/documentos-panel': { createDocumentosPanelForRequest: async () => { if (!stage) throw new StageError(); return { context: { stageOnly: !productionContext, environment: productionContext ? 'production' : 'staging' }, assertAccess: async () => {} } }, documentosPanelError: () => json({error:'closed'},403) },
-    '@/lib/finanzas/documentos-panel-runtime': { DOCUMENTOS_PRODUCTION_ROOT: 'DocumentosPanelProduccion' },
-    '@/lib/finanzas/documentos-production-comparacion': { crearComparacionProductionSelected: () => ({ providers: ['carpetas','manual'].map(key => ({ key, scope: key === 'manual' ? 'DocumentosPanelProduccion' : ROOT, read: async () => { throw Error('DOCUMENTOS_SELECTED_AUTH_MISSING') } })), readBytes: () => { throw Error('NO_AUTHORIZED_SELECTED_INVENTORY') } }) },
+    '@/lib/finanzas/documentos-panel-runtime': { DOCUMENTOS_PRODUCTION_ROOT: '10. Panel IO' },
+    '@/lib/finanzas/documentos-production-comparacion': { crearComparacionProductionSelected: () => ({ providers: ['carpetas','manual'].map(key => ({ key, scope: key === 'manual' ? '10. Panel IO' : ROOT, read: async () => { throw Error('DOCUMENTOS_SELECTED_AUTH_MISSING') } })), readBytes: () => { throw Error('NO_AUTHORIZED_SELECTED_INVENTORY') } }) },
     'next/server': {},
     'next-auth': { getServerSession: async () => authenticated ? { user: { id: '7', userType: 'admin', role: 'STALE_ROLE' }, ...(acting ? { impersonation: {} } : {}) } : null },
     '@/lib/auth': { authOptions: {} }, '@/lib/prisma': { __esModule: true, default: fakeDb },

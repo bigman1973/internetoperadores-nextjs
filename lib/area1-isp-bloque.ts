@@ -15,6 +15,7 @@
 import { createHash } from 'node:crypto'
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { ErrorVinculo, resolverVinculoEnTx } from '@/lib/crm-isp-import'
+import { acquireIspOrigenFenceTx } from '@/lib/isp-origen-server'
 import {
   codigoError, ErrorImportacionNoAuditada, registrarReciboImportacion, ORIGEN_RECIBO_VINCULOS_BLOQUE,
   type DespuesRecibo,
@@ -151,6 +152,7 @@ export async function confirmarBloque(db: PrismaClient, input: { actorId: number
   const t0 = ahora()
   try {
     return await db.$transaction(async (tx) => {
+      await acquireIspOrigenFenceTx(tx)
       const { candidatos, pendientesPorDestino } = await cargarCandidatosBloque(tx)
       const sel = seleccionarBloque(candidatos, pendientesPorDestino)
       const hash = huellaBloque(sel.incluidos)

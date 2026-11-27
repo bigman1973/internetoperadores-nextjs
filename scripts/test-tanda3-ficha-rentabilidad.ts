@@ -14,6 +14,8 @@ function execute(file: string, imports: Record<string, unknown>) {
   } }, { filename: file })
   return module.exports
 }
+const ispPolicy = execute('lib/isp-origen-policy.ts', {})
+const ispIdentity = execute('lib/area1-isp-identidad.ts', { './isp-origen-policy': ispPolicy })
 const view = execute('app/admin/rentabilidad/view-model.ts', {})
 const classification = execute('lib/subida-precios/calc.ts', {})
 const native = execute('app/admin/rentabilidad/io-model.ts', {
@@ -34,7 +36,7 @@ const project = (datos = row(), extras: any[] = []) => adapter.proyectarFichaRen
 // Calendario y política de foto.
 test('doce meses completos: nov-2025 … oct-2026; facturación conserva ultimos12', () => {
   assert.deepEqual(json(adapter.mesesCompletosFicha(now)), ['2025-11', '2025-12', '2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10'])
-  const ficha = execute('lib/area1-ficha-cliente.ts', { './prisma': { __esModule: true, default: {} }, './area1-subida-cliente': { leerSubidaCliente: async () => null }, './area1-ficha-rentabilidad': adapter })
+  const ficha = execute('lib/area1-ficha-cliente.ts', { './prisma': { __esModule: true, default: {} }, './area1-subida-cliente': { leerSubidaCliente: async () => null }, './area1-ficha-rentabilidad': adapter, './area1-isp-identidad': ispIdentity })
   assert.equal(ficha.ultimos12(now).at(-1), '2026-11')
 })
 test('Madrid manda al cruzar medianoche y año, incluido cambio horario', () => {
@@ -233,11 +235,12 @@ function fichaHarness(invoices: any[] = [], photoAvailable = true) {
   const company = { id: 'empresa-14', nombre: 'Empresa ficticia', tipo: 'EMPRESA', contactos: [], clientes: [] }
   const contract = { id: 'k44', codigoContratoIsp: 'ISP000044', activo: true, fechaBaja: null, tarifa: 'Fibra', descripcion: 'Sede ficticia', importeSinIva: 100 }
   const empty = { findMany: async () => [] }
-  const db = { crmEmpresa: { findUnique: async () => company }, ispClienteArea1: { findMany: async () => [{ codigo: 'ISP000014', crmEmpresaId: company.id, contratos: [contract] }] }, factura: { findMany: async () => invoices }, crmActividad: empty, crmTarea: empty, area1CrmNegocio: empty, area1CrmConsentimiento: empty, crmNegocioContacto: empty, area1CrmPipeline: empty, devolucionRemesa: empty,
+  const db = { crmEmpresa: { findUnique: async () => company }, crmEmpresaCliente: empty, ispVinculoArea1: empty, ispClienteArea1: { findMany: async () => [{ id: 's14', ispClienteId: 'isp-14', nombre: company.nombre, codigo: 'ISP000014', crmEmpresaId: company.id, contratos: [contract] }] }, factura: { findMany: async () => invoices }, crmActividad: empty, crmTarea: empty, area1CrmNegocio: empty, area1CrmConsentimiento: empty, crmNegocioContacto: empty, area1CrmPipeline: empty, devolucionRemesa: empty,
     $queryRaw: async () => { throw new Error('NO_DIRECT_PRIVATE_SQL') } }
   const prepared = photoAvailable ? project(row(), [fila({ ...row(), contractCode: '44' }, 'contrato')]) : adapter.proyectarFichaRentabilidad([], [], ['14'], now)
   const ficha = execute('lib/area1-ficha-cliente.ts', {
     './prisma': { __esModule: true, default: db },
+    './area1-isp-identidad': ispIdentity,
     './area1-subida-cliente': { leerSubidaCliente: async () => null },
     './area1-ficha-rentabilidad': { ...adapter, leerRentabilidadFicha: async (_db: any, codes: any, date: any) => {
       rentCalls++; assert.deepEqual(json(codes), ['14']); assert.equal(date, now); return prepared
@@ -261,7 +264,7 @@ for (const role of ['GERENTE', 'SUPERADMIN']) test(`cargador real VM: ${role} de
   assert.equal(out.contratos[0].margenPct, h.prepared.margenContrato.get('44'))
   const kpi = out.kpis.find((k: any) => k.etiqueta === 'Margen octubre 2026')
   assert.equal(kpi.valor, h.ficha.pct(h.prepared.margenUltimo.pct))
-  assert.equal(kpi.sub, `${h.ficha.eur(h.prepared.margenUltimo.margen)}/mes de margen · incluye ${h.ficha.eur(h.prepared.margenUltimo.costeEstimado, 2)} estimados · mes cerrado por calendario · foto PROYECCION v2 · no acredita cierre certificado`)
+  assert.equal(kpi.sub, `incluye ${h.ficha.eur(h.prepared.margenUltimo.costeEstimado)} de coste estimado`)
   assert.equal(h.ficha.contextoTieneCostes(out.contextoIa), false)
 })
 test('cargador fake: facturas futuras excluidas de serie/KPI y huecos sin cero fabricado', async () => {
@@ -276,7 +279,7 @@ test('cargador fake: facturas futuras excluidas de serie/KPI y huecos sin cero f
 test('cargador fake: octubre sin foto conserva etiqueta y todos los márgenes sin dato', async () => {
   const h = fichaHarness([], false), out = await h.ficha.cargarFichaCliente('empresa-14', 'GERENTE', now)
   const kpi = out.kpis.find((k: any) => k.etiqueta === 'Margen octubre 2026')
-  assert.equal(kpi.valor, 'sin dato'); assert.match(kpi.sub, /sin foto preparada/)
+  assert.equal(kpi.valor, 'sin dato'); assert.equal(kpi.sub, 'sin dato de Rentabilidad')
   assert.equal(out.contratos[0].margenPct, null)
   assert.equal(out.rentabilidad.mes, '2026-10'); assert.equal(out.rentabilidad.snapshot, null)
 })

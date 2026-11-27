@@ -3,8 +3,18 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '../../../../../lib/auth'
 import prisma from '../../../../../lib/prisma'
+import { persistedClienteOrigin } from '../../../../../lib/isp-origen-policy'
+import { acquireIspOrigenFenceTx } from '../../../../../lib/isp-origen-server'
 import { esSegmentoCrm } from '../../../../../lib/crm-segmentos'
 import { reconciliarContactosCrmConClientes } from '../../../../../lib/crm-contactos'
+
+const originError = () => Object.assign(new Error('Los datos de origen ISP no son editables.'), { code: 'ISP_ORIGEN_NO_EDITABLE', status: 409 })
+// No basta un prefijo recibido. Sólo un alta manual persistida y sin evidencia fuente permite edición de origen local.
+async function manualAccount(tx: any, row: any): Promise<boolean> {
+  const source = await tx.ispClienteArea1.findFirst({ where: { OR: [{ clienteWebId: row.id }, { ispClienteId: row.ispGestionId }] }, select: { id: true } })
+  return persistedClienteOrigin(row, Boolean(source)) === 'manual'
+}
+
 
 export async function DELETE(
   request: Request,
@@ -28,18 +38,22 @@ export async function DELETE(
     const resolvedParams = await params
     const clienteId = parseInt(resolvedParams.id)
 
-    // Eliminar notificaciones asociadas primero
-    await prisma.notificacionCliente.deleteMany({
-      where: { clienteId },
-    })
-
-    // Eliminar cliente
-    await prisma.clienteWeb.delete({
-      where: { id: clienteId },
-    })
+    if (!Number.isSafeInteger(clienteId) || clienteId < 1) return NextResponse.json({ error: 'Cliente no válido.' }, { status: 400 })
+    await prisma.$transaction(async (tx) => {
+      await acquireIspOrigenFenceTx(tx)
+      const row = await tx.clienteWeb.findUnique({ where: { id: clienteId } })
+      if (!row) throw Object.assign(new Error('Cliente no encontrado'), { status: 404 })
+      if (!await manualAccount(tx, row)) throw originError()
+      // El veto fuente precede notificaciones/cascadas. Ambas escrituras revierten juntas.
+      await tx.notificacionCliente.deleteMany({ where: { clienteId } })
+      await tx.clienteWeb.delete({ where: { id: clienteId } })
+    }, { isolationLevel: 'Serializable' })
 
     return NextResponse.json({ success: true })
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.code === 'ISP_ORIGEN_NO_EDITABLE') return NextResponse.json({ error: 'Los datos de origen ISP no son editables.', code: error.code }, { status: 409 })
+    if (error?.status === 400) return NextResponse.json({ error: 'Payload no válido.' }, { status: 400 })
+    if (error?.status === 404) return NextResponse.json({ error: 'Cliente no encontrado.' }, { status: 404 })
     console.error('Error al eliminar cliente:', error)
     return NextResponse.json(
       { error: 'Error al eliminar cliente' },
@@ -77,7 +91,10 @@ export async function GET(
     }
 
     return NextResponse.json(cliente)
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.code === 'ISP_ORIGEN_NO_EDITABLE') return NextResponse.json({ error: 'Los datos de origen ISP no son editables.', code: error.code }, { status: 409 })
+    if (error?.status === 400) return NextResponse.json({ error: 'Payload no válido.' }, { status: 400 })
+    if (error?.status === 404) return NextResponse.json({ error: 'Cliente no encontrado.' }, { status: 404 })
     console.error('Error al obtener cliente:', error)
     return NextResponse.json(
       { error: 'Error al obtener cliente' },
@@ -101,14 +118,7 @@ export async function PUT(
     const clienteId = parseInt(resolvedParams.id)
     const body = await request.json()
 
-    const clienteActual = await prisma.clienteWeb.findUnique({
-      where: { id: clienteId },
-      select: { segmentoCrm: true, email: true },
-    })
-
-    if (!clienteActual) {
-      return NextResponse.json({ error: 'Cliente no encontrado' }, { status: 404 })
-    }
+    if (!Number.isSafeInteger(clienteId) || clienteId < 1) return NextResponse.json({ error: 'Cliente no válido.' }, { status: 400 })
 
     // Campos actualizables
     const updateData: any = {}
@@ -124,38 +134,51 @@ export async function PUT(
       'newsletterSuscrito', 'origen', 'oficinaContable', 'organoGestor', 'unidadTramitadora'
     ]
 
-    for (const field of allowedFields) {
-      if (body[field] !== undefined) {
-        updateData[field] = body[field]
+    if (!body || typeof body !== 'object' || Array.isArray(body)
+      || Object.entries(body).some(([key, value]) => ![...allowedFields, 'segmentoCrm'].includes(key)
+        || (value !== null && !['string', 'number', 'boolean'].includes(typeof value)))) throw originError()
+    const cliente = await prisma.$transaction(async (tx) => {
+      await acquireIspOrigenFenceTx(tx)
+      const clienteActual = await tx.clienteWeb.findUnique({ where: { id: clienteId } })
+      if (!clienteActual) throw Object.assign(new Error('Cliente no encontrado.'), { status: 404 })
+      const manual = await manualAccount(tx, clienteActual)
+      const local = new Set(['newsletterSuscrito', 'segmentoCrm', 'recibePublicidad', 'aceptoLopd'])
+      for (const [key, value] of Object.entries(body)) {
+        if (!manual && !local.has(key) && (clienteActual as any)[key] !== value) throw originError()
       }
-    }
-
-    if (body.segmentoCrm !== undefined) {
-      if (!esSegmentoCrm(body.segmentoCrm)) {
-        return NextResponse.json(
-          { error: 'La clasificación CRM debe ser Particular, Empresa o Partner' },
-          { status: 400 }
-        )
+      for (const field of allowedFields) {
+        if (body[field] !== undefined && (manual || local.has(field))) {
+          updateData[field] = body[field]
+        }
       }
 
-      if (body.segmentoCrm !== clienteActual.segmentoCrm) {
-        updateData.segmentoCrm = body.segmentoCrm
-        updateData.segmentoCrmActualizadoAt = new Date()
-        updateData.segmentoCrmActualizadoPor = session.user.email || session.user.name || 'Administrador'
+      if (body.segmentoCrm !== undefined) {
+        if (!esSegmentoCrm(body.segmentoCrm)) {
+          throw Object.assign(new Error('Clasificación CRM no válida.'), { status: 400 })
+        }
+
+        if (body.segmentoCrm !== clienteActual.segmentoCrm) {
+          updateData.segmentoCrm = body.segmentoCrm
+          updateData.segmentoCrmActualizadoAt = new Date()
+          updateData.segmentoCrmActualizadoPor = session.user.email || session.user.name || 'Administrador'
+        }
       }
-    }
 
-    const cliente = await prisma.clienteWeb.update({
-      where: { id: clienteId },
-      data: updateData,
-    })
+      const updated = await tx.clienteWeb.update({
+        where: { id: clienteId },
+        data: updateData,
+      })
 
+      return { updated, previousEmail: clienteActual.email }
+    }, { isolationLevel: 'Serializable' })
     if (body.email !== undefined || body.segmentoCrm !== undefined) {
-      await reconciliarContactosCrmConClientes([clienteActual.email, cliente.email])
+      await reconciliarContactosCrmConClientes([cliente.previousEmail, cliente.updated.email])
     }
-
-    return NextResponse.json(cliente)
-  } catch (error) {
+    return NextResponse.json(cliente.updated)
+  } catch (error: any) {
+    if (error?.code === 'ISP_ORIGEN_NO_EDITABLE') return NextResponse.json({ error: 'Los datos de origen ISP no son editables.', code: error.code }, { status: 409 })
+    if (error?.status === 400) return NextResponse.json({ error: 'Payload no válido.' }, { status: 400 })
+    if (error?.status === 404) return NextResponse.json({ error: 'Cliente no encontrado.' }, { status: 404 })
     console.error('Error al actualizar cliente:', error)
     return NextResponse.json(
       { error: 'Error al actualizar cliente' },

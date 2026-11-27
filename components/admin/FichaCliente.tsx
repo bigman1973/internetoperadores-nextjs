@@ -94,11 +94,12 @@ export default function FichaCliente({ ficha, m365, puedeEscribir, puedeEscribir
   useEffect(() => { const h = location.hash.slice(1); if (VISTAS.includes(h as Vista)) setVista(h as Vista) }, [])
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setCajon(null) }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [])
 
-  // «Lo que hay que saber» (IA, caché diaria)
+  // El lector autorizado entrega resumen local/guardado: leerlo no depende de permisos de envío.
+  // Sólo se conserva el GET IA legacy para un payload antiguo sin resumen y con sus puertas abiertas.
   const [ai, setAi] = useState<{ puntos: string[] | null; error: string | null }>({ puntos: null, error: null })
   useEffect(() => {
-    if (conexionVigente.current.envios === false || conexionVigente.current.m365 === false) {
-      setAi({ puntos: null, error: M365_LEGACY_PENDING_MESSAGE })
+    if (ficha.resumen?.puntos.length || conexionVigente.current.envios === false || conexionVigente.current.m365 === false) {
+      setAi({ puntos: null, error: null })
       return
     }
     let vivo = true
@@ -108,7 +109,10 @@ export default function FichaCliente({ ficha, m365, puedeEscribir, puedeEscribir
       .then(async (r) => { const d = await r.json().catch(() => ({})); if (!vivo || conexionVigente.current.envios === false || conexionVigente.current.m365 === false) return; if (!r.ok || !Array.isArray(d.puntos)) setAi({ puntos: null, error: d.error || 'Resumen con IA no disponible.' }); else setAi({ puntos: d.puntos, error: null }) })
       .catch(() => vivo && conexionVigente.current.envios !== false && conexionVigente.current.m365 !== false && setAi({ puntos: null, error: 'Resumen con IA no disponible.' }))
     return () => { vivo = false; controller.abort() }
-  }, [ficha.empresa.id, m365.conexion.envios, m365.conexion.m365])
+  }, [ficha.empresa.id, ficha.resumen, m365.conexion.envios, m365.conexion.m365])
+  const resumenCerrado = m365.conexion.envios === false || m365.conexion.m365 === false
+  const puntosResumen = ficha.resumen?.puntos.length ? ficha.resumen.puntos : resumenCerrado ? null : ai.puntos
+  const origenResumen = ficha.resumen?.puntos.length ? ficha.resumen.origen === 'guardado' ? 'resumen guardado' : 'resumen local' : ai.puntos && !resumenCerrado ? 'resumen con IA' : 'resumen local'
 
   // Correos recibidos de Outlook: solo lectura, se piden al pulsar y no se guardan en la ficha.
   const outlookCorreo = m365.conexion.enabled && m365.conexion.m365 !== false && m365.conexion.connected && !!m365.conexion.mail
@@ -187,7 +191,7 @@ export default function FichaCliente({ ficha, m365, puedeEscribir, puedeEscribir
             <div className="logo" aria-hidden="true">{e.iniciales}</div>
             <div style={{ minWidth: 0 }}>
               <h1>{e.nombre}</h1>
-              <div className="meta"><span>NIF <b>{e.nif || 'sin dato'}</b></span><span><span className={`tag ${e.tagTipo}`}>{e.tipo}</span></span><span>Cliente ISP <b>{e.codigoIsp ? `#${e.codigoIsp}` : 'sin dato'}</b>{e.vinculoIsp === 'propuesto' ? ' (propuesto)' : ''}</span><span>Comercial <b>{e.comercial || 'sin dato'}</b></span><span>Cliente desde <b>{e.clienteDesde || 'sin dato'}</b></span></div>
+              <div className="meta"><span>NIF{ficha.identidadIsp?.protegida ? ' de ISP · solo lectura' : ' local'} <b>{e.nif || 'sin dato'}</b></span><span><span className={`tag ${e.tagTipo}`}>{e.tipo}</span></span><span>Código de ISP <b>{e.codigoIsp ? `#${e.codigoIsp}` : 'sin dato'}</b>{e.vinculoIsp === 'propuesto' ? ' (propuesto)' : ''}</span><span>Código comercial de ISP <b>{e.comercial || 'sin dato'}</b></span><span>Cliente desde (de ISP) <b>{e.clienteDesde || 'sin dato'}</b></span></div>
             </div>
           </div>
           <div className="scn">
@@ -211,15 +215,21 @@ export default function FichaCliente({ ficha, m365, puedeEscribir, puedeEscribir
     </header>
 
     <main className="wrap">
-      <p className="small muted" style={{ margin: 0 }}>Los datos de ISP Gestión (contratos, facturas, cobros) se leen, no se editan aquí. Pulsa una cifra de arriba para ver qué incluye.</p>
+      <p className="small muted" style={{ margin: 0 }}>Los datos de ISP Gestión (razón social, NIF, código, contratos, cuotas, estado, facturas y saldos) se leen, no se editan aquí. El estado se deriva de los contratos disponibles; el saldo no acredita cobro bancario. Pulsa una cifra de arriba para ver qué incluye.</p>
+      {ficha.identidadIsp && <div className="panel" aria-label="Origen de la identidad" style={{ marginTop: 12 }}>
+        <h2>{ficha.identidadIsp.variasIdentidades ? 'Varias identidades ISP · cuentas separadas' : ficha.identidadIsp.protegida ? 'Identidad de ISP · solo lectura' : 'Identidad local · sin dato ISP vinculado'}</h2>
+        {ficha.identidadIsp.discrepancias.map((texto, i) => <p className="small" key={i}>{texto}</p>)}
+        {ficha.identidadIsp.protegida && <p className="small muted">Datos CRM conservados, sin sobrescribir: {ficha.identidadIsp.identidadCrm.nombre} · NIF {ficha.identidadIsp.identidadCrm.nif || 'sin dato'}.</p>}
+        {ficha.identidadIsp.cuentas.map(c => <div className="small" key={c.id} style={{ marginTop: 8 }}><b>Cuenta {c.codigo || 'sin código'} de ISP · {c.nombre}</b><div>CIF {c.cif || 'sin dato'} · NIF {c.nif || 'sin dato'} · documento {c.docNormalizado || 'sin dato'}</div><div className="muted">{c.fuente === 'area1' ? 'Snapshot Área 1' : 'Cuenta legacy'} · enlace {c.enlace} · id fuente {c.ispClienteId} · presencia {c.presente == null ? 'sin dato' : c.presente ? 'en último fichero' : 'histórico, ausente del último fichero'}{c.fechaInicio ? ` · alta de ISP ${c.fechaInicio.slice(0, 10)}` : ''}{c.fechaFin ? ` · baja de ISP ${c.fechaFin.slice(0, 10)}` : ''}{c.importacionId ? ` · carga ${c.importacionId}` : ''}</div></div>)}
+      </div>}
 
       <section className="view" id="v-resumen" hidden={vista !== 'resumen'}>
         <div className="lay">
           <div style={{ display: 'grid', gap: 18, minWidth: 0 }}>
             <div className="panel ai">
-              <h2>Lo que hay que saber {m365.conexion.envios !== false && m365.conexion.m365 !== false && <span className="small muted" style={{ fontWeight: 400, fontFamily: 'var(--f-body)' }}>· resumen con IA, actualizado hoy</span>}</h2>
+              <h2>Lo que hay que saber <span className="small muted" style={{ fontWeight: 400, fontFamily: 'var(--f-body)' }}>· {origenResumen}</span></h2>
               <ul id="aiSum">
-                {m365.conexion.envios === false || m365.conexion.m365 === false ? <li role="status" aria-live="polite">{M365_LEGACY_PENDING_MESSAGE}</li> : ai.puntos ? ai.puntos.map((x, i) => <li key={i}>{x}</li>) : <li>{ai.error || 'Preparando el resumen…'}</li>}
+                {puntosResumen ? puntosResumen.map((x, i) => <li key={i}>{x}</li>) : <li role="status" aria-live="polite">{resumenCerrado ? 'sin dato: no hay resumen local disponible en esta ficha.' : ai.error || 'Preparando el resumen…'}</li>}
               </ul>
               <div className="row">{m365.conexion.envios !== false && m365.conexion.m365 !== false && <button className="btn small primary" type="button" data-open="ai" onClick={() => abrirCajon({ kind: 'ai', objetivo: 'Correo de seguimiento' })}>Proponer correo de seguimiento</button>}<button className="btn small" type="button" onClick={() => abrirCajon({ kind: 'meet' })}>Preparar la próxima reunión</button>{m365.conexion.envios !== false && m365.conexion.m365 !== false && <span className="small muted">La IA propone; tú revisas y envías.</span>}</div>
             </div>
@@ -277,11 +287,11 @@ export default function FichaCliente({ ficha, m365, puedeEscribir, puedeEscribir
       <section className="view" id="v-contratos" hidden={vista !== 'contratos'}>
         <div className="panel">
           <h2>Contratos y servicios</h2>
-          <p className="help">Vienen de ISP Gestión. Margen del último mes cerrado por calendario, del módulo de Rentabilidad.{ficha.verMargen ? ` ${detalleMargen}. El tipo de foto no certifica el cierre del mes.` : ' Los márgenes los ven gerencia y superadmin.'}</p>
+          <p className="help">Contratos, cuota y estado de ISP · solo lectura. La cuota conserva la suma mensual existente; la periodicidad de cada contrato puede ser distinta o no constar. Margen del último mes cerrado por calendario, del módulo de Rentabilidad.{ficha.verMargen ? ` ${detalleMargen}. El tipo de foto no certifica el cierre del mes.` : ' Los márgenes los ven gerencia y superadmin.'}</p>
           <div className="row" style={{ marginBottom: 10 }}><input className="search" type="search" placeholder="Buscar contrato, sede o producto" id="qc" value={qc} onChange={(ev) => setQc(ev.target.value)} /><select className="f" id="fc" value={fc} onChange={(ev) => setFc(ev.target.value)}><option value="">Todos los estados</option><option>Activo</option><option>Baja</option></select></div>
           <div className="tablewrap"><table id="tC">
             <thead><tr><th>Contrato</th><th>Producto</th><th>Sede</th><th className="n">Cuota/mes</th><th>Estado ISP</th><th>Fin permanencia</th>{ficha.verMargen && <th className="n" title={detalleMargen}>Margen{mesMargen ? ` ${mesTxt(mesMargen)}` : ''}</th>}</tr></thead>
-            <tbody>{contratos.length ? contratos.map((c) => <tr key={c.codigo}><td className="num">{c.codigo}</td><td>{c.producto}</td><td>{c.sede}</td><td className="n">{c.cuota == null ? 'sin dato' : eur(c.cuota, 2)}</td><td><span className={`st ${c.estado === 'Baja' ? 'o' : ''}`}>{c.estado}</span></td><td>{c.finPermanencia}</td>{ficha.verMargen && <td className="n">{c.margenPct == null ? 'sin dato' : <span className={`m ${c.margenPct < 0 ? 'bad' : c.margenPct < 20 ? 'low' : 'ok'}`}>{pctTxt(c.margenPct)}</span>}</td>}</tr>)
+            <tbody>{contratos.length ? contratos.map((c, i) => <tr key={`${c.cuentaIsp || ''}-${c.codigo}-${i}`}><td className="num">{c.codigo}<div className="small muted">Cuenta de ISP {c.cuentaIsp || 'sin dato'}</div></td><td>{c.producto}</td><td>{c.sede}</td><td className="n">{c.cuota == null ? 'sin dato' : eur(c.cuota, 2)}<div className="small muted">Periodicidad de ISP: {c.periodicidad || 'sin dato'}</div></td><td><span className={`st ${c.estado === 'Baja' ? 'o' : ''}`}>{c.estado}</span><div className="small muted">Origen: {c.estadoOrigen || 'sin dato'}{c.presente === false ? ' · histórico' : ''}</div></td><td>{c.finPermanencia}</td>{ficha.verMargen && <td className="n">{c.margenPct == null ? 'sin dato' : <span className={`m ${c.margenPct < 0 ? 'bad' : c.margenPct < 20 ? 'low' : 'ok'}`}>{pctTxt(c.margenPct)}</span>}</td>}</tr>)
               : <tr><td colSpan={ficha.verMargen ? 7 : 6} className="muted">sin dato: {ficha.contratos.length ? 'ningún contrato coincide con el filtro.' : 'no hay contratos de ISP Gestión vinculados a esta ficha.'}</td></tr>}</tbody>
           </table></div>
         </div>
@@ -290,7 +300,7 @@ export default function FichaCliente({ ficha, m365, puedeEscribir, puedeEscribir
       <section className="view" id="v-facturacion" hidden={vista !== 'facturacion'}>
         <div className="grid3" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr)', gap: 18 }}>
           <div className="panel"><h2>Facturado, últimos 12 meses</h2><p className="small muted">El mes actual está abierto y es provisional. No se muestran meses futuros; sin dato no significa cero.</p><div className="bars" id="bars">{ficha.facturacion.hayFacturas ? <Bars meses={facturado.meses} a={facturado.serie} /> : <p className="small muted" style={{ margin: 0 }}>sin dato: no hay facturas de este cliente en el panel.</p>}</div></div>
-          <div className="panel"><h2>Cobros</h2><div className="cons" id="cobros">
+          <div className="panel"><h2>Cobros · saldo derivado de ISP</h2><p className="small muted">Solo lectura. Cobrado = total menos pendiente de facturas de ISP del año; no acredita cobro bancario ni fecha bancaria de cobro.</p><div className="cons" id="cobros">
             <div><span>Cobrado en {ficha.facturacion.anio}</span><span>{ficha.facturacion.cobrado == null ? 'sin dato' : eur(ficha.facturacion.cobrado)}</span></div>
             <div><span>Pendiente</span><span>{ficha.facturacion.pendiente == null ? 'sin dato' : <span className={`st ${ficha.facturacion.pendiente > 0 ? 'b' : ''}`}>{eur(ficha.facturacion.pendiente)}</span>}</span></div>
             <div><span>Forma de pago</span><span>{ficha.facturacion.formaPago || 'sin dato'}</span></div>
@@ -298,7 +308,7 @@ export default function FichaCliente({ ficha, m365, puedeEscribir, puedeEscribir
           </div></div>
         </div>
         <div className="panel"><h2>Facturas</h2><div className="tablewrap"><table id="tF">
-          <thead><tr><th>Factura</th><th>Fecha</th><th>Concepto</th><th className="n">Importe</th><th>Estado</th></tr></thead>
+          <thead><tr><th>Factura de ISP</th><th>Fecha de ISP</th><th>Concepto</th><th className="n">Importe de ISP</th><th>Estado / saldo de ISP</th></tr></thead>
           <tbody>{ficha.facturacion.facturas.length ? ficha.facturacion.facturas.map((f) => <tr key={f.numero + f.fechaIso}><td className="num">{f.numero}</td><td>{f.fecha}</td><td>sin dato</td><td className="n">{eur(f.total, 2)}</td><td>{f.estado === 'Cobrada' ? <span className="st">Cobrada</span> : <span className="st b">{f.estado}</span>}</td></tr>)
             : <tr><td colSpan={5} className="muted">sin dato: no hay facturas de este cliente en el panel.</td></tr>}</tbody>
         </table></div></div>
