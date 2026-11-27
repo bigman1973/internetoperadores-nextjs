@@ -119,6 +119,9 @@ export async function leerRentabilidadFicha(db: LectorSqlFicha, codigos: readonl
   if (!fotos.length) return proyectarFichaRentabilidad([], [], scope, hoy)
   const ids = fotos.map(f => f.id), filas: FilaFotoFicha[] = []
   const mesMargen = meses.at(-1)!
+  // El guard SQL rechaza literales con barra inversa: la antigua retroreferencia
+  // hacía fallar el GET de fichas vinculadas. Quitar sólo ISP ante dígitos hasta
+  // el final conserva los mismos alias, sin ampliar ni saltarse el guard.
   for (let offset = 0; ; offset += PAGE) {
     const page = await db.$queryRaw<FilaFotoFicha[]>`
       WITH selected AS (
@@ -128,7 +131,7 @@ export async function leerRentabilidadFicha(db: LectorSqlFicha, codigos: readonl
         FROM selected s CROSS JOIN LATERAL jsonb_array_elements(
           CASE WHEN jsonb_typeof(s.payload->'clients') = 'array' THEN s.payload->'clients' ELSE '[]'::jsonb END
         ) WITH ORDINALITY c(row, ord)
-        WHERE regexp_replace(regexp_replace(btrim(c.row->>'clientCode'), '^ISP([0-9]+)$', '\\1', 'i'), '^0+(?=[0-9])', '') = ANY(${scope}::text[])
+        WHERE regexp_replace(regexp_replace(btrim(c.row->>'clientCode'), '^ISP(?=[0-9]+$)', '', 'i'), '^0+(?=[0-9])', '') = ANY(${scope}::text[])
       ), scoped AS (
         SELECT "snapshotId", month, "clientIndex", "clientCode", 0::bigint AS "contractIndex", 'cliente' AS tipo, row FROM clients
         UNION ALL

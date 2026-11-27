@@ -205,7 +205,9 @@ test('lector SELECT mínimo: 12 cabeceras, scope normalizado, contratos del últ
     assert.doesNotMatch(call.sql, /SELECT \*|AS payload|costSources|source_hash|marginPct|->'margin'/)
     assert.deepEqual(json(call.values[0]), ['oct-p2']); assert.deepEqual(json(call.values[1]), ['14'])
     assert.equal(call.values[2], '2026-10')
-    assert.ok(call.sql.includes("'^ISP([0-9]+)$', '\\1', 'i'"))
+    // Una retroreferencia literal bloqueaba el SELECT en el guard ISP real.
+    assert.ok(call.sql.includes("'^ISP(?=[0-9]+$)', '', 'i'"))
+    assert.ok(!call.sql.includes('\\'))
   }
   assert.equal(calls[1].values.at(-1), 0); assert.equal(calls[2].values.at(-1), 500)
 })
